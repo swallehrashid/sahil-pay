@@ -208,12 +208,12 @@ def create_payment():
         elif inv.amount_paid > 0:
             inv.status = InvoiceStatus.partial.value
 
-    # Credit unallocated amount to tenant balance (advance)
-    unallocated = amount - alloc_total
-    tenant.balance = (tenant.balance or Decimal("0")) + unallocated - (amount - alloc_total)
-    # Recalculate: tenant balance is advance credit (positive) or arrears (negative)
-    # Simple model: balance decreases by amount, then increases by unallocated credit
-    tenant.balance = (tenant.balance or Decimal("0")) + unallocated
+    # Ledger convention (matches landlord_dashboard_routes/report_routes/export_service):
+    # negative balance = arrears (owed), positive = advance (credit). The FULL payment
+    # reduces what's owed regardless of how it's allocated across invoices — allocation
+    # only determines which invoices show as paid; the tenant's running balance is
+    # simply lifetime charges minus lifetime payments.
+    tenant.balance = (tenant.balance or Decimal("0")) + amount
 
     db.session.commit()
 

@@ -217,9 +217,11 @@ def portal_pay():
             else InvoiceStatus.open.value
         )
 
-    # Credit unallocated remainder to balance
-    unallocated    = amount - alloc_total
-    tenant.balance = (tenant.balance or Decimal("0")) + unallocated
+    # Ledger convention (matches landlord_dashboard_routes/report_routes/export_service):
+    # negative balance = arrears (owed), positive = advance (credit). The FULL payment
+    # reduces what's owed regardless of allocation split — see payment_routes.py's
+    # create_payment for the identical landlord-side logic.
+    tenant.balance = (tenant.balance or Decimal("0")) + amount
 
     db.session.commit()
 

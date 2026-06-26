@@ -111,7 +111,7 @@ def pay_subscription():
       annual:    15%  off (12 months billed at 85%)
 
     Updates Subscription.next_billing_date and status → active.
-    Creates a BillingTransaction row of type 'subscription_payment'.
+    Creates a BillingTransaction row of type 'subscription'.
     ---
     tags: [Billing]
     security:
@@ -168,7 +168,7 @@ def pay_subscription():
 
     txn = BillingTransaction(
         landlord_id       = landlord_id,
-        type              = BillingTransactionType.subscription_payment.value,
+        type              = BillingTransactionType.subscription.value,
         amount            = amount_due,
         payment_reference = payment_reference,
         status            = BillingTransactionStatus.completed.value,

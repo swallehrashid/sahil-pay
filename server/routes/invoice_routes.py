@@ -171,6 +171,12 @@ def create_invoice():
     db.session.add(invoice)
     db.session.flush()
 
+    # Same ledger convention as tasks/invoice_tasks.py::_create_invoice — issuing a
+    # bill increases what the tenant owes, moving balance DOWN (more negative).
+    tenant = Tenant.query.filter_by(id=tenant_id, landlord_id=landlord_id).first()
+    if tenant:
+        tenant.balance = (tenant.balance or Decimal("0")) - computed_total
+
     for li_data in line_items:
         qty        = Decimal(str(li_data.get("quantity", 1)))
         unit_price = Decimal(str(li_data.get("unit_price", 0)))

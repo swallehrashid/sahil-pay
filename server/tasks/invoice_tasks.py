@@ -64,7 +64,10 @@ def _create_invoice(landlord_id, tenant, unit, property_, invoice_type, issue_da
             )
         )
 
-    tenant.balance = float(tenant.balance or 0) + total
+    # Ledger convention (matches landlord_dashboard_routes/report_routes/export_service):
+    # negative balance = arrears (owed), positive = advance (credit). Issuing a bill
+    # increases what's owed, so it moves balance DOWN (more negative).
+    tenant.balance = float(tenant.balance or 0) - total
     db.session.add(tenant)
     return invoice
 

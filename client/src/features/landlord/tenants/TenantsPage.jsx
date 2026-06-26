@@ -68,7 +68,8 @@ export default function TenantsPage() {
 
   const totals = {
     tenants: data?.total_tenants ?? tenants.length,
-    arrears: data?.total_arrears ?? tenants.reduce((sum, t) => sum + Math.max(0, Number(t.balance ?? 0)), 0),
+    // balance < 0 = arrears (owed); matches server's landlord_dashboard_routes convention.
+    arrears: data?.total_arrears ?? tenants.reduce((sum, t) => sum + Math.max(0, -Number(t.balance ?? 0)), 0),
     expiringLeases: data?.leases_expiring_soon ?? 0,
   };
 
