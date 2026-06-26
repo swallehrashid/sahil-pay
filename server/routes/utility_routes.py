@@ -1,0 +1,357 @@
+"""
+routes/utility_routes.py — Utility Readings
+Blueprint: utility_bp  |  Prefix: /api/utilities
+
+Utility items: water / electricity / garbage / security
+One reading per (unit, utility_item, reading_month).
+current_reading >= previous_reading (DB CheckConstraint + server validation).
+consumption = current_reading - previous_reading (computed on write).
+"""
+
+from decimal import Decimal
+
+from flask import Blueprint, request, jsonify, abort
+from flask_jwt_extended import jwt_required, get_jwt_identity
+
+from extensions import db
+from models import UtilityReading, Unit, Property, Tenant, UtilityItem
+from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from services.audit_service import record_audit
+
+utility_bp = Blueprint("utilities", __name__, url_prefix="/api/utilities")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/utilities/
+# ---------------------------------------------------------------------------
+@utility_bp.route("/", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "view")
+def list_readings():
+    """
+    List utility readings.
+    Filters: ?property_id=, ?unit_id=, ?utility_item=, ?reading_month= (YYYY-MM),
+             ?page=, ?per_page=
+    ---
+    tags: [Utilities]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Paginated utility readings.}
+    """
+    landlord_id  = get_current_landlord_id()
+    page         = request.args.get("page", 1, type=int)
+    per_page     = request.args.get("per_page", 20, type=int)
+
+    query = (
+        UtilityReading.query
+        .filter_by(landlord_id=landlord_id)
+    )
+
+    if v := request.args.get("property_id", type=int):
+        query = query.filter(UtilityReading.property_id == v)
+    if v := request.args.get("unit_id", type=int):
+        query = query.filter(UtilityReading.unit_id == v)
+    if v := request.args.get("utility_item"):
+        query = query.filter(UtilityReading.utility_item == v)
+    if v := request.args.get("reading_month"):
+        query = query.filter(UtilityReading.reading_month == v)
+
+    paginated = query.order_by(
+        UtilityReading.reading_month.desc(), UtilityReading.id.desc()
+    ).paginate(page=page, per_page=per_page, error_out=False)
+
+    items = []
+    for r in paginated.items:
+        d = r.to_dict()
+        d["property_name"] = r.property.name if r.property else None
+        d["unit_name"]     = r.unit.name     if r.unit     else None
+        d["invoice_number"] = r.invoice.invoice_number if r.invoice else None
+        items.append(d)
+
+    return jsonify({
+        "readings":     items,
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/utilities/
+# ---------------------------------------------------------------------------
+@utility_bp.route("/", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def create_reading():
+    """
+    Record a single utility reading.
+    Body: { property_id, unit_id, utility_item, current_reading,
+            reading_month (YYYY-MM), previous_reading? }
+    Validation: current_reading >= previous_reading.
+    Uniqueness: (unit_id, utility_item, reading_month) is unique.
+    ---
+    tags: [Utilities]
+    security:
+      - Bearer: []
+    responses:
+      201: {description: Reading recorded.}
+      400: {description: Validation error or duplicate.}
+    """
+    landlord_id = get_current_landlord_id()
+    data        = request.get_json(silent=True) or {}
+
+    property_id      = data.get("property_id")
+    unit_id          = data.get("unit_id")
+    utility_item     = data.get("utility_item")
+    current_reading  = data.get("current_reading")
+    reading_month    = data.get("reading_month")
+    previous_reading = data.get("previous_reading")
+
+    if not all([property_id, unit_id, utility_item, current_reading, reading_month]):
+        return jsonify({"error": "property_id, unit_id, utility_item, current_reading, and reading_month are required."}), 400
+
+    if utility_item not in [i.value for i in UtilityItem]:
+        return jsonify({"error": f"utility_item must be one of: {[i.value for i in UtilityItem]}."}), 400
+
+    if previous_reading is not None:
+        if Decimal(str(current_reading)) < Decimal(str(previous_reading)):
+            return jsonify({"error": "current_reading must be >= previous_reading."}), 400
+
+    # Uniqueness check
+    existing = UtilityReading.query.filter_by(
+        unit_id=unit_id, utility_item=utility_item, reading_month=reading_month
+    ).first()
+    if existing:
+        return jsonify({"error": f"A {utility_item} reading already exists for this unit in {reading_month}."}), 400
+
+    consumption = None
+    if previous_reading is not None:
+        consumption = Decimal(str(current_reading)) - Decimal(str(previous_reading))
+
+    reading = UtilityReading(
+        landlord_id      = landlord_id,
+        property_id      = property_id,
+        unit_id          = unit_id,
+        utility_item     = utility_item,
+        previous_reading = previous_reading,
+        current_reading  = current_reading,
+        consumption      = consumption,
+        reading_month    = reading_month,
+    )
+    db.session.add(reading)
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="create_utility_reading",
+        entity_type="utility",
+        entity_id=reading.id,
+        description=f"{utility_item} reading recorded for unit {unit_id} ({reading_month}).",
+        after_data=reading.to_dict(),
+    )
+    db.session.commit()
+    return jsonify(reading.to_dict()), 201
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/utilities/<id>
+# ---------------------------------------------------------------------------
+@utility_bp.route("/<int:reading_id>", methods=["PUT"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def update_reading(reading_id):
+    """Update a utility reading. Re-validates current >= previous."""
+    landlord_id = get_current_landlord_id()
+    reading     = _get_or_404(landlord_id, reading_id)
+    data        = request.get_json(silent=True) or {}
+    before      = reading.to_dict()
+
+    if "current_reading" in data:
+        current  = Decimal(str(data["current_reading"]))
+        previous = Decimal(str(data.get("previous_reading", reading.previous_reading or 0)))
+        if current < previous:
+            return jsonify({"error": "current_reading must be >= previous_reading."}), 400
+        reading.current_reading  = current
+        reading.previous_reading = previous
+        reading.consumption      = current - previous
+
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="update_utility_reading",
+        entity_type="utility",
+        entity_id=reading.id,
+        description="Utility reading updated.",
+        before_data=before,
+        after_data=reading.to_dict(),
+    )
+    db.session.commit()
+    return jsonify(reading.to_dict()), 200
+
+
+# ---------------------------------------------------------------------------
+# DELETE /api/utilities/<id>
+# ---------------------------------------------------------------------------
+@utility_bp.route("/<int:reading_id>", methods=["DELETE"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def delete_reading(reading_id):
+    """Hard-delete a utility reading (no financial history — no soft-delete required)."""
+    landlord_id = get_current_landlord_id()
+    reading     = _get_or_404(landlord_id, reading_id)
+    before      = reading.to_dict()
+
+    db.session.delete(reading)
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="delete_utility_reading",
+        entity_type="utility",
+        entity_id=reading_id,
+        description="Utility reading deleted.",
+        before_data=before,
+    )
+    db.session.commit()
+    return jsonify({"message": "Utility reading deleted."}), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/utilities/bulk-upload
+# ---------------------------------------------------------------------------
+@utility_bp.route("/bulk-upload", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def bulk_upload_readings():
+    """
+    Accept bulk utility readings for all tenants in a property.
+    Body:
+      { property_id, utility_item, reading_month,
+        readings: [{ unit_id, current_reading, previous_reading? }] }
+    Validates each reading but does NOT generate invoices yet —
+    call /bulk-upload/generate-invoices after review.
+    ---
+    tags: [Utilities]
+    security:
+      - Bearer: []
+    responses:
+      201: {description: Bulk readings recorded.}
+      400: {description: Validation error.}
+    """
+    landlord_id   = get_current_landlord_id()
+    data          = request.get_json(silent=True) or {}
+    property_id   = data.get("property_id")
+    utility_item  = data.get("utility_item")
+    reading_month = data.get("reading_month")
+    readings_data = data.get("readings", [])
+
+    if not all([property_id, utility_item, reading_month]):
+        return jsonify({"error": "property_id, utility_item, and reading_month are required."}), 400
+    if not readings_data:
+        return jsonify({"error": "readings list is required."}), 400
+
+    created  = []
+    errors   = []
+
+    for r_data in readings_data:
+        unit_id         = r_data.get("unit_id")
+        current_reading = r_data.get("current_reading")
+        previous_reading = r_data.get("previous_reading")
+
+        if not unit_id or current_reading is None:
+            errors.append({"unit_id": unit_id, "error": "unit_id and current_reading required."})
+            continue
+
+        if previous_reading is not None and Decimal(str(current_reading)) < Decimal(str(previous_reading)):
+            errors.append({"unit_id": unit_id, "error": "current_reading < previous_reading."})
+            continue
+
+        # Skip duplicates silently
+        if UtilityReading.query.filter_by(
+            unit_id=unit_id, utility_item=utility_item, reading_month=reading_month
+        ).first():
+            errors.append({"unit_id": unit_id, "error": "Duplicate reading for this month."})
+            continue
+
+        consumption = None
+        if previous_reading is not None:
+            consumption = Decimal(str(current_reading)) - Decimal(str(previous_reading))
+
+        reading = UtilityReading(
+            landlord_id      = landlord_id,
+            property_id      = property_id,
+            unit_id          = unit_id,
+            utility_item     = utility_item,
+            previous_reading = previous_reading,
+            current_reading  = current_reading,
+            consumption      = consumption,
+            reading_month    = reading_month,
+        )
+        db.session.add(reading)
+        db.session.flush()
+        created.append(reading)
+
+    db.session.commit()
+
+    return jsonify({
+        "created": len(created),
+        "errors":  errors,
+        "readings": [r.to_dict() for r in created],
+    }), 201
+
+
+# ---------------------------------------------------------------------------
+# POST /api/utilities/bulk-upload/generate-invoices
+# ---------------------------------------------------------------------------
+@utility_bp.route("/bulk-upload/generate-invoices", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "edit")
+def bulk_generate_utility_invoices():
+    """
+    Generate utility invoices from bulk-uploaded readings (after review).
+    Body:
+      { property_id, utility_item, reading_month,
+        reading_ids?: [int]  (default: all unlinked readings for this batch) }
+    ---
+    tags: [Utilities]
+    security:
+      - Bearer: []
+    responses:
+      202: {description: Invoice generation task queued.}
+    """
+    landlord_id   = get_current_landlord_id()
+    data          = request.get_json(silent=True) or {}
+
+    from tasks.invoice_tasks import generate_utility_invoices_task
+    task = generate_utility_invoices_task.delay(
+        landlord_id,
+        data.get("property_id"),
+        data.get("utility_item"),
+        data.get("reading_month"),
+        data.get("reading_ids"),
+        int(get_jwt_identity()),
+    )
+    return jsonify({"task_id": task.id, "message": "Utility invoice generation queued."}), 202
+
+
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
+def _get_or_404(landlord_id: int, reading_id: int) -> UtilityReading:
+    r = UtilityReading.query.filter_by(
+        id=reading_id, landlord_id=landlord_id
+    ).first()
+    if not r:
+        abort(404, description="Utility reading not found.")
+    return r

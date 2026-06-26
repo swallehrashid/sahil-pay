@@ -1,0 +1,149 @@
+// FE mirror of the backend's Appendix A enum vocabularies — EXACT values only.
+// Never introduce a status/category outside these sets; this file is the guardian
+// against vocabulary drift between client and server.
+
+export const USER_ROLES = {
+  SYSTEM_ADMIN: "system_admin",
+  LANDLORD: "landlord",
+  PROPERTY_MANAGER: "property_manager",
+  TEAM_MEMBER: "team_member",
+  TENANT: "tenant",
+};
+
+export const ACCOUNT_TYPES = ["gated_community", "property_management", "landlord"];
+export const MPESA_TYPES = ["paybill", "till"];
+export const TEAM_MEMBER_ROLES = ["editor", "viewer"];
+
+export const PERMISSION_MODULES = [
+  "payments",
+  "invoices",
+  "utilities",
+  "unit_utilities",
+  "tenants",
+  "units",
+  "properties",
+  "messages",
+];
+
+export const MANAGER_SCOPE_TYPES = ["unit", "property", "group"];
+
+export const INVOICE_STATUSES = ["draft", "void", "open", "partial", "paid"];
+export const INVOICE_TYPES = ["rent", "utility", "penalty", "custom", "recurring"];
+
+export const PAYMENT_STATUSES = ["confirmed", "pending", "declined"];
+export const PAYMENT_SOURCES = ["mpesa", "co_pilot", "bank_statement", "manual"];
+
+export const EXPENSE_STATUSES = ["confirmed", "pending"];
+export const EXPENSE_CATEGORIES = [
+  "garbage",
+  "maintenance",
+  "security",
+  "electricity",
+  "water",
+  "cleaning",
+  "internet",
+  "other",
+];
+
+export const UTILITY_ITEMS = ["water", "electricity", "garbage", "security"];
+
+export const MAINTENANCE_STATUSES = ["open", "in_progress", "closed"];
+export const MAINTENANCE_CATEGORIES = [
+  "electrical",
+  "plumbing",
+  "roofing",
+  "pest_control",
+  "roof_repair",
+  "locksmith",
+  "pool",
+  "garage",
+  "heating_cooling",
+  "handiwork",
+  "tiles",
+  "washroom",
+  "painting",
+  "security",
+  "other",
+];
+
+export const MESSAGE_CHANNELS = ["sms", "whatsapp", "email"];
+export const MESSAGE_TEMPLATE_TYPES = ["balance_reminder", "invoice_reminder", "custom"];
+export const RECIPIENT_TYPES = ["tenant", "team_member"];
+export const COMMUNICATION_STATUSES = ["pending", "delivered", "failed"];
+
+export const DOCUMENT_TYPES = ["lease", "tenancy_agreement", "deposit", "other"];
+
+export const SUBSCRIPTION_PLANS = ["monthly", "quarterly", "annual"];
+export const BILLING_CYCLES = ["monthly", "yearly"];
+export const SUBSCRIPTION_STATUSES = ["trial", "active", "past_due", "suspended"];
+export const BILLING_TRANSACTION_TYPES = ["subscription", "sms_purchase"];
+export const BILLING_TRANSACTION_STATUSES = ["pending", "paid", "failed"];
+
+export const TRIAL_SCOPES = ["global", "per_landlord"];
+export const IMPERSONATION_STATUSES = ["pending", "granted", "revoked", "expired"];
+export const BANK_STATEMENT_STATUSES = ["uploaded", "parsing", "parsed", "failed"];
+export const MPESA_TRANSACTION_STATUSES = ["recorded", "unmatched", "pending"];
+
+export const AUDIT_ENTITY_TYPES = [
+  "payment",
+  "invoice",
+  "expense",
+  "property",
+  "unit",
+  "team_member",
+  "tenant",
+  "account",
+  "utility",
+  "maintenance",
+  "landlord",
+  "recurring_expense",
+];
+
+export const ALERT_TYPES = ["payment", "report", "lease_expiry", "low_sms", "arrears"];
+export const ALERT_CADENCES = ["daily", "weekly", "monthly", "realtime"];
+export const ALERT_CHANNELS = ["dashboard", "sms", "email", "invoice"];
+
+export const BACKUP_SCOPE_TYPES = ["property", "grouping", "tenants", "payments", "category"];
+export const BACKUP_FORMATS = ["excel", "pdf"];
+
+export const OTP_CHANNELS = ["sms", "email"];
+
+export const DEFAULT_CURRENCY = "KES";
+export const DEFAULT_TAX_RATE = 7.5;
+
+// status value -> { label, color } consumed by <StatusBadge>. One map for every
+// status vocabulary on the platform so a given status always renders identically.
+export const STATUS_BADGE_MAP = {
+  draft: { label: "Draft", color: "slate" },
+  void: { label: "Void", color: "rose" },
+  open: { label: "Open", color: "indigo" },
+  partial: { label: "Partial", color: "amber" },
+  paid: { label: "Paid", color: "emerald" },
+  confirmed: { label: "Confirmed", color: "emerald" },
+  pending: { label: "Pending", color: "amber" },
+  declined: { label: "Declined", color: "rose" },
+  in_progress: { label: "In Progress", color: "amber" },
+  closed: { label: "Closed", color: "emerald" },
+  uploaded: { label: "Uploaded", color: "indigo" },
+  parsing: { label: "Parsing", color: "amber" },
+  parsed: { label: "Parsed", color: "emerald" },
+  failed: { label: "Failed", color: "rose" },
+  recorded: { label: "Recorded", color: "emerald" },
+  unmatched: { label: "Unmatched", color: "rose" },
+  delivered: { label: "Delivered", color: "emerald" },
+  trial: { label: "Trial", color: "indigo" },
+  active: { label: "Active", color: "emerald" },
+  past_due: { label: "Past Due", color: "amber" },
+  suspended: { label: "Suspended", color: "rose" },
+  granted: { label: "Granted", color: "emerald" },
+  revoked: { label: "Revoked", color: "rose" },
+  expired: { label: "Expired", color: "slate" },
+};
+
+export const STATUS_BADGE_COLOR_CLASSES = {
+  slate: "bg-white/10 text-white/70 border border-white/15",
+  indigo: "bg-third/20 text-third-100 border border-third/40",
+  amber: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
+  emerald: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+  rose: "bg-secondary/20 text-secondary-100 border border-secondary/40",
+};
