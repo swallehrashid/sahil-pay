@@ -789,6 +789,17 @@ def upload_document(tenant_id):
     db.session.add(doc)
     db.session.commit()
 
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="upload_tenant_document",
+        entity_type="document",
+        entity_id=doc.id,
+        description=f"Document '{name}' uploaded for tenant {tenant.first_name} {tenant.last_name}.",
+        after_data=doc.to_dict(),
+    )
+    db.session.commit()
+
     return jsonify(doc.to_dict()), 201
 
 

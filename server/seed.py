@@ -69,7 +69,7 @@ _ALL_TABLES = [
     "utility_readings", "maintenance_requests", "message_templates", "communication_logs",
     "document_templates", "packages", "subscriptions", "billing_transactions", "trial_configs",
     "impersonation_requests", "landlord_settings", "automation_settings", "alert_settings",
-    "audit_logs", "backups",
+    "audit_logs", "backups", "notifications",
 ]
 
 
@@ -447,6 +447,51 @@ def _seed_operations(m, landlord, prop, units_by_name, occupied_unit_names, toda
     db.session.flush()
 
 
+def _seed_notifications(m, landlord, tenant, team_member, today):
+    """
+    A small, representative mix so the bell/notifications page isn't empty
+    on a fresh seed: one read + one unread to the landlord, one to the
+    tenant, one to the team member (if this landlord has one).
+    """
+    landlord_user_id = landlord.user_id
+    rows = [
+        m.Notification(
+            recipient_user_id=landlord_user_id, sender_user_id=None, landlord_id=landlord.id,
+            category=m.NotificationCategory.payment_received.value,
+            title="Payment received",
+            body=f"{tenant.first_name} {tenant.last_name} paid KES {tenant.unit.rent_amount:,.2f}.",
+            link="/landlord/payments", entity_type="payment", entity_id=None,
+            is_read=True, read_at=datetime.utcnow(),
+        ),
+        m.Notification(
+            recipient_user_id=landlord_user_id, sender_user_id=None, landlord_id=landlord.id,
+            category=m.NotificationCategory.new_maintenance_request.value,
+            title="New maintenance request",
+            body=f"{tenant.first_name} {tenant.last_name} reported an issue in their unit.",
+            link="/landlord/maintenance", entity_type="maintenance", entity_id=None,
+            is_read=False,
+        ),
+    ]
+    if tenant.user_id:
+        rows.append(m.Notification(
+            recipient_user_id=tenant.user_id, sender_user_id=landlord_user_id, landlord_id=landlord.id,
+            category=m.NotificationCategory.broadcast.value,
+            title="Welcome to your tenant portal",
+            body="You can now pay rent, raise maintenance requests, and view your statement online.",
+            link="/portal/dashboard", is_read=False,
+        ))
+    if team_member is not None:
+        rows.append(m.Notification(
+            recipient_user_id=team_member.user_id, sender_user_id=landlord_user_id, landlord_id=landlord.id,
+            category=m.NotificationCategory.team_member_activated.value,
+            title="Account activated",
+            body=f"Welcome to the team, {team_member.first_name}. Your account is now active.",
+            link="/team/dashboard", is_read=False,
+        ))
+    db.session.add_all(rows)
+    db.session.flush()
+
+
 def _seed_billing_history(m, landlord, spec, today):
     for txn in spec.get("billing_transactions", []):
         db.session.add(m.BillingTransaction(
@@ -795,6 +840,7 @@ def seed() -> None:
 
         # Team members with DIFFERENT permission profiles
         property_ids = [p.id for p in properties]
+        tm = None
         for tm_spec in spec["team_members"]:
             tm = _create_team_member(m, landlord, tm_spec, property_ids)
             credentials.append((f"TEAM MEMBER ({spec['abbreviated_name']}/{tm_spec['role']})", tm_spec["email"], tm_spec["password"]))
@@ -802,6 +848,8 @@ def seed() -> None:
                   f"{'all properties' if tm_spec['property_access_all'] else 'scoped'})")
 
         _seed_billing_history(m, landlord, spec, today)
+        _seed_notifications(m, landlord, tenant, tm, today)
+        print("    Notifications: sample read/unread rows seeded for landlord/tenant/team member")
 
         # Per-landlord trial override demo on Coastal (the near-expiry one)
         if spec["key"] == "coastal":

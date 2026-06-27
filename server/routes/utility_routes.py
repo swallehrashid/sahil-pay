@@ -310,6 +310,18 @@ def bulk_upload_readings():
 
     db.session.commit()
 
+    if created:
+        record_audit(
+            actor_user_id=int(get_jwt_identity()),
+            landlord_id=landlord_id,
+            action="bulk_upload_utility_readings",
+            entity_type="utility",
+            entity_id=None,
+            description=f"{len(created)} {utility_item} reading(s) uploaded for {reading_month} ({len(errors)} skipped).",
+            after_data={"reading_ids": [r.id for r in created]},
+        )
+        db.session.commit()
+
     return jsonify({
         "created": len(created),
         "errors":  errors,

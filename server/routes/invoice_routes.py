@@ -473,6 +473,19 @@ def bulk_add_invoices():
         created.append(inv)
 
     db.session.commit()
+
+    if created:
+        record_audit(
+            actor_user_id=int(get_jwt_identity()),
+            landlord_id=landlord_id,
+            action="bulk_add_invoices",
+            entity_type="invoice",
+            entity_id=None,
+            description=f"{len(created)} invoice(s) bulk-added.",
+            after_data={"invoice_ids": [i.id for i in created]},
+        )
+        db.session.commit()
+
     return jsonify({"created": len(created), "invoices": [i.to_dict() for i in created]}), 201
 
 

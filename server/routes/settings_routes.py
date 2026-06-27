@@ -232,6 +232,17 @@ def alert_settings():
         updated.append(row)
 
     db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="update_alert_settings",
+        entity_type="settings",
+        entity_id=landlord_id,
+        description=f"{len(updated)} alert setting(s) updated.",
+        after_data={"alerts": [a.to_dict() for a in updated]},
+    )
+    db.session.commit()
     return jsonify({"alerts": [a.to_dict() for a in updated]}), 200
 
 
@@ -405,6 +416,17 @@ def generate_backup():
         file_url    = None,
     )
     db.session.add(backup)
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="generate_backup",
+        entity_type="settings",
+        entity_id=backup.id,
+        description=f"Backup export queued (scope={scope_type}, format={fmt}).",
+        after_data=backup.to_dict(),
+    )
     db.session.commit()
 
     from tasks.backup_tasks import generate_backup_task

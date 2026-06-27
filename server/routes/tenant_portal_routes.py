@@ -260,6 +260,18 @@ def portal_pay():
 
     db.session.commit()
 
+    from services.audit_service import record_audit
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="create_payment",
+        entity_type="payment",
+        entity_id=payment.id,
+        description=f"Payment {payment.payment_ref} of KES {amount} recorded via tenant portal by {tenant.first_name} {tenant.last_name}.",
+        after_data=payment.to_dict(),
+    )
+    db.session.commit()
+
     # Auto-email receipt if tenant has an email address
     if tenant.email:
         try:
@@ -645,6 +657,16 @@ def create_maintenance():
             entity_id=req.id,
         )
 
+    from services.audit_service import record_audit
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="create_maintenance_request",
+        entity_type="maintenance",
+        entity_id=req.id,
+        description=f"Maintenance request created via tenant portal by {tenant.first_name} {tenant.last_name}: '{summary}'.",
+        after_data=req.to_dict(),
+    )
     db.session.commit()
 
     return jsonify({

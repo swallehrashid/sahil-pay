@@ -616,6 +616,18 @@ def import_statement_transactions(upload_id):
 
     db.session.commit()
 
+    if created:
+        record_audit(
+            actor_user_id=int(get_jwt_identity()),
+            landlord_id=landlord_id,
+            action="import_bank_statement_payments",
+            entity_type="payment",
+            entity_id=upload.id,
+            description=f"{len(created)} payment(s) imported from bank statement upload #{upload.id}.",
+            after_data={"payment_ids": [p.id for p in created]},
+        )
+        db.session.commit()
+
     return jsonify({
         "message":  f"{len(created)} payment(s) imported.",
         "payments": [p.to_dict() for p in created],

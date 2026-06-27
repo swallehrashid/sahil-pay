@@ -377,6 +377,8 @@ class AuditEntityType(str, enum.Enum):
     recurring_expense  = "recurring_expense"
     package            = "package"
     notification       = "notification"
+    settings           = "settings"
+    document           = "document"
 
 
 class NotificationCategory(str, enum.Enum):
