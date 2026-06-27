@@ -14,7 +14,7 @@ Financial rules enforced server-side:
 from datetime import datetime, date
 from decimal import Decimal
 
-from flask import Blueprint, request, jsonify, abort, Response
+from flask import Blueprint, request, jsonify, abort, Response, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -22,7 +22,10 @@ from models import (
     Invoice, InvoiceLineItem, Tenant, Unit, Property,
     InvoiceStatus, InvoiceType,
 )
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.audit_service  import record_audit
 from services.pdf_service    import generate_invoice_pdf
 from services.email_service  import send_invoice_email
@@ -43,6 +46,7 @@ def _next_invoice_number(landlord_id: int) -> str:
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("invoices", "view")
+@scope_to_accessible_properties
 def list_invoices():
     """
     List invoices with left-panel filters.
@@ -67,6 +71,9 @@ def list_invoices():
     tenant_id    = request.args.get("tenant_id",    type=int)
 
     query = Invoice.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+
+    if g.accessible_property_ids is not None:
+        query = query.filter(Invoice.property_id.in_(g.accessible_property_ids))
 
     if start_date:
         query = query.filter(Invoice.issue_date >= start_date)

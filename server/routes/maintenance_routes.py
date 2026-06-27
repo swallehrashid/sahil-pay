@@ -13,7 +13,7 @@ The "create expense" shortcut pre-fills the expense form with the
 request's property, unit, and a maintenance category.
 """
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -21,7 +21,10 @@ from models import (
     MaintenanceRequest, Expense, MaintenanceStatus,
     ExpenseStatus, ExpenseCategory,
 )
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.audit_service   import record_audit
 from services.storage_service import upload_to_s3
 
@@ -35,6 +38,7 @@ maintenance_bp = Blueprint("maintenance", __name__, url_prefix="/api/maintenance
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("properties", "view")
+@scope_to_accessible_properties
 def list_requests():
     """
     List maintenance requests with summary counts.
@@ -51,6 +55,13 @@ def list_requests():
     per_page    = request.args.get("per_page", 20, type=int)
 
     query = MaintenanceRequest.query.filter_by(landlord_id=landlord_id)
+    open_query     = MaintenanceRequest.query.filter_by(landlord_id=landlord_id, status=MaintenanceStatus.open.value)
+    progress_query = MaintenanceRequest.query.filter_by(landlord_id=landlord_id, status=MaintenanceStatus.in_progress.value)
+
+    if g.accessible_property_ids is not None:
+        query = query.filter(MaintenanceRequest.property_id.in_(g.accessible_property_ids))
+        open_query = open_query.filter(MaintenanceRequest.property_id.in_(g.accessible_property_ids))
+        progress_query = progress_query.filter(MaintenanceRequest.property_id.in_(g.accessible_property_ids))
 
     if v := request.args.get("property_id", type=int):
         query = query.filter(MaintenanceRequest.property_id == v)
@@ -61,8 +72,8 @@ def list_requests():
     if v := request.args.get("category"):
         query = query.filter(MaintenanceRequest.category == v)
 
-    open_count     = MaintenanceRequest.query.filter_by(landlord_id=landlord_id, status=MaintenanceStatus.open.value).count()
-    progress_count = MaintenanceRequest.query.filter_by(landlord_id=landlord_id, status=MaintenanceStatus.in_progress.value).count()
+    open_count     = open_query.count()
+    progress_count = progress_query.count()
 
     paginated = query.order_by(MaintenanceRequest.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False

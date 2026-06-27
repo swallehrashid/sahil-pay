@@ -17,13 +17,17 @@ Every route applies these AFTER @jwt_required():
 
 from __future__ import annotations
 
-from utils import ApiError, current_landlord_id, get_jwt_user, require_permission, require_role
+from utils import (
+    ApiError, current_landlord_id, get_jwt_user, require_permission, require_role,
+    scope_to_accessible_properties,
+)
 
 __all__ = [
     "require_landlord_or_team",
     "require_permission",
     "get_current_landlord_id",
     "_check_permission",
+    "scope_to_accessible_properties",
 ]
 
 

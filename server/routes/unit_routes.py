@@ -8,12 +8,15 @@ tax_rate is optional on create — when NULL it inherits from the parent Propert
 
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import Unit, Property
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.audit_service import record_audit
 
 unit_bp = Blueprint("units", __name__, url_prefix="/api/units")
@@ -26,6 +29,7 @@ unit_bp = Blueprint("units", __name__, url_prefix="/api/units")
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("units", "view")
+@scope_to_accessible_properties
 def list_units():
     """
     List all non-deleted units for the current landlord.
@@ -54,6 +58,9 @@ def list_units():
             Unit.is_deleted.is_(False),
         )
     )
+
+    if g.accessible_property_ids is not None:
+        query = query.filter(Unit.property_id.in_(g.accessible_property_ids))
 
     if prop_filter:
         query = query.filter(Unit.property_id == prop_filter)
@@ -164,6 +171,7 @@ def create_unit():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("units", "view")
+@scope_to_accessible_properties
 def get_unit(unit_id):
     """
     Return detail for a single unit including property name and tenant info.
@@ -298,5 +306,8 @@ def _get_or_404(landlord_id: int, unit_id: int) -> Unit:
         .first()
     )
     if not unit:
+        abort(404, description="Unit not found or access denied.")
+    accessible = getattr(g, "accessible_property_ids", None)
+    if accessible is not None and unit.property_id not in accessible:
         abort(404, description="Unit not found or access denied.")
     return unit

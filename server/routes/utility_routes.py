@@ -10,12 +10,15 @@ consumption = current_reading - previous_reading (computed on write).
 
 from decimal import Decimal
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, request, jsonify, abort, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import UtilityReading, Unit, Property, Tenant, UtilityItem
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.audit_service import record_audit
 
 utility_bp = Blueprint("utilities", __name__, url_prefix="/api/utilities")
@@ -28,6 +31,7 @@ utility_bp = Blueprint("utilities", __name__, url_prefix="/api/utilities")
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("utilities", "view")
+@scope_to_accessible_properties
 def list_readings():
     """
     List utility readings.
@@ -48,6 +52,9 @@ def list_readings():
         UtilityReading.query
         .filter_by(landlord_id=landlord_id)
     )
+
+    if g.accessible_property_ids is not None:
+        query = query.filter(UtilityReading.property_id.in_(g.accessible_property_ids))
 
     if v := request.args.get("property_id", type=int):
         query = query.filter(UtilityReading.property_id == v)

@@ -18,7 +18,7 @@ import csv
 import io
 from datetime import datetime, date
 
-from flask import Blueprint, request, jsonify, abort, Response
+from flask import Blueprint, request, jsonify, abort, Response, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -27,7 +27,10 @@ from models import (
     Invoice, Payment, CommunicationLog,
     CommunicationStatus, MessageChannel, RecipientType,
 )
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.audit_service   import record_audit
 from services.pdf_service     import generate_tenant_statement_pdf
 from services.sms_service     import send_sms
@@ -44,6 +47,7 @@ tenant_bp = Blueprint("tenants", __name__, url_prefix="/api/tenants")
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("tenants", "view")
+@scope_to_accessible_properties
 def list_tenants():
     """
     List active (non-deleted) tenants for the current landlord.
@@ -65,6 +69,18 @@ def list_tenants():
     search      = request.args.get("search", "").strip()
 
     query = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+    all_tenants_query = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+
+    # Property-scoped team members only see tenants in units under their
+    # assigned properties. Tenant has no property_id directly, so scope via
+    # a subquery on Unit rather than joining (avoids clashing with the
+    # ?property_id= join below).
+    if g.accessible_property_ids is not None:
+        accessible_unit_ids = db.session.query(Unit.id).filter(
+            Unit.property_id.in_(g.accessible_property_ids)
+        )
+        query = query.filter(Tenant.unit_id.in_(accessible_unit_ids))
+        all_tenants_query = all_tenants_query.filter(Tenant.unit_id.in_(accessible_unit_ids))
 
     if prop_id:
         query = query.join(Unit).filter(Unit.property_id == prop_id)
@@ -80,7 +96,7 @@ def list_tenants():
             )
         )
 
-    all_tenants     = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False).all()
+    all_tenants     = all_tenants_query.all()
     total_arrears   = sum(abs(float(t.balance)) for t in all_tenants if t.balance < 0)
 
     # Leases expiring within 30 days
@@ -254,6 +270,7 @@ def list_deleted_tenants():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("tenants", "view")
+@scope_to_accessible_properties
 def get_tenant(tenant_id):
     """Return full detail for one tenant including unit/property info."""
     landlord_id = get_current_landlord_id()
@@ -783,6 +800,9 @@ def _get_or_404(landlord_id: int, tenant_id: int) -> Tenant:
         id=tenant_id, landlord_id=landlord_id, is_deleted=False
     ).first()
     if not t:
+        abort(404, description="Tenant not found or access denied.")
+    accessible = getattr(g, "accessible_property_ids", None)
+    if accessible is not None and (not t.unit or t.unit.property_id not in accessible):
         abort(404, description="Tenant not found or access denied.")
     return t
 

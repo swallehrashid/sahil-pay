@@ -14,7 +14,7 @@ Financial rules:
 from datetime import datetime, date
 from decimal import Decimal
 
-from flask import Blueprint, request, jsonify, abort, Response
+from flask import Blueprint, request, jsonify, abort, Response, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -24,7 +24,10 @@ from models import (
     PaymentStatus, PaymentSource, InvoiceStatus,
     BankStatementStatus,
 )
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.audit_service   import record_audit
 from services.pdf_service     import generate_receipt_pdf
 from services.email_service   import send_receipt_email
@@ -46,6 +49,7 @@ def _ref_number(landlord_id: int) -> str:
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("payments", "view")
+@scope_to_accessible_properties
 def list_payments():
     """
     List payments with total summary and filters.
@@ -64,6 +68,9 @@ def list_payments():
     per_page    = request.args.get("per_page", 20, type=int)
 
     query = Payment.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+
+    if g.accessible_property_ids is not None:
+        query = query.filter(Payment.property_id.in_(g.accessible_property_ids))
 
     # Filters
     if v := request.args.get("start_date"):

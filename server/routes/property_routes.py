@@ -10,7 +10,7 @@ Accessible by landlords and team members with the 'properties'
 permission enabled.
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import jwt_required
 
 from extensions import db
@@ -19,6 +19,7 @@ from decorators import (
     require_landlord_or_team,
     require_permission,
     get_current_landlord_id,
+    scope_to_accessible_properties,
 )
 from services.audit_service import record_audit
 from datetime import datetime
@@ -33,6 +34,7 @@ property_bp = Blueprint("properties", __name__, url_prefix="/api/properties")
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("properties", "view")
+@scope_to_accessible_properties
 def list_properties():
     """
     List all active properties for the current landlord.
@@ -54,17 +56,8 @@ def list_properties():
     name     = request.args.get("name", "").strip()
 
     query = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
-
-    if city:
-        query = query.filter(Property.city.ilike(f"%{city}%"))
-    if name:
-        query = query.filter(Property.name.ilike(f"%{name}%"))
-
-    # Summary aggregates
-    all_props = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False).all()
-    total_properties = len(all_props)
-
-    unit_totals = (
+    all_props_query = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+    unit_totals_query = (
         db.session.query(
             db.func.count(Unit.id).label("total"),
             db.func.sum(
@@ -73,8 +66,24 @@ def list_properties():
         )
         .join(Property, Property.id == Unit.property_id)
         .filter(Property.landlord_id == landlord_id, Property.is_deleted.is_(False))
-        .first()
     )
+
+    # Property-scoped team members (property_access_all=False) only ever see
+    # their assigned subset — applied to both the list and its summary so the
+    # numbers shown always match what's actually browsable.
+    if g.accessible_property_ids is not None:
+        query = query.filter(Property.id.in_(g.accessible_property_ids))
+        all_props_query = all_props_query.filter(Property.id.in_(g.accessible_property_ids))
+        unit_totals_query = unit_totals_query.filter(Property.id.in_(g.accessible_property_ids))
+
+    if city:
+        query = query.filter(Property.city.ilike(f"%{city}%"))
+    if name:
+        query = query.filter(Property.name.ilike(f"%{name}%"))
+
+    # Summary aggregates
+    total_properties = all_props_query.count()
+    unit_totals = unit_totals_query.first()
     total_units     = unit_totals.total     or 0
     total_vacancies = unit_totals.vacancies or 0
 
@@ -182,6 +191,7 @@ def create_property():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("properties", "view")
+@scope_to_accessible_properties
 def get_property(property_id):
     """
     Return detail for a single property including unit count and managers.
@@ -213,6 +223,7 @@ def get_property(property_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("properties", "edit")
+@scope_to_accessible_properties
 def update_property(property_id):
     """
     Update an existing property's fields.
@@ -264,6 +275,7 @@ def update_property(property_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("properties", "edit")
+@scope_to_accessible_properties
 def delete_property(property_id):
     """
     Soft-delete a property (sets is_deleted=True, records deleted_at).
@@ -306,6 +318,7 @@ def delete_property(property_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("units", "edit")
+@scope_to_accessible_properties
 def add_unit_to_property(property_id):
     """
     Add one or more units to a property directly from the property page.
@@ -380,6 +393,13 @@ def _get_or_404(landlord_id: int, property_id: int) -> Property:
         id=property_id, landlord_id=landlord_id, is_deleted=False
     ).first()
     if not prop:
+        from flask import abort
+        abort(404, description="Property not found or access denied.")
+    # A property-scoped team member can't reach a property outside their
+    # assigned set by guessing its id directly (the caller must apply
+    # @scope_to_accessible_properties for g.accessible_property_ids to be set).
+    accessible = getattr(g, "accessible_property_ids", None)
+    if accessible is not None and prop.id not in accessible:
         from flask import abort
         abort(404, description="Property not found or access denied.")
     return prop
