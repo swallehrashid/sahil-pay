@@ -105,10 +105,26 @@ def portal_dashboard():
     unit     = tenant.unit
     property = unit.property if unit else None
 
+    # previous_balance: the balance as it stood at the start of this calendar
+    # month — reconstructed by reversing this month's invoice/payment activity
+    # out of the current running balance (same ledger convention: invoices
+    # subtract, payments add — see payment_routes.py's create_payment).
+    month_start = date.today().replace(day=1)
+    month_invoices_total = sum(
+        float(inv.total_amount) for inv in tenant.invoices
+        if not inv.is_deleted and inv.issue_date and inv.issue_date >= month_start
+    )
+    month_payments_total = sum(
+        float(pay.amount) for pay in tenant.payments
+        if not pay.is_deleted and pay.payment_date and pay.payment_date >= month_start
+    )
+    previous_balance = float(tenant.balance) + month_invoices_total - month_payments_total
+
     return jsonify({
         "tenant_id":       tenant.id,
         "tenant_name":     f"{tenant.first_name} {tenant.last_name}",
         "current_balance": float(tenant.balance),
+        "previous_balance": round(previous_balance, 2),
         "rent_due":        round(rent_due, 2),
         "utility_due":     round(utility_due, 2),
         "other_due":       round(other_due, 2),
@@ -340,6 +356,7 @@ def portal_statement():
         if end_date and d > end_date:
             continue
         entries.append({
+            "id":          pay.id,
             "date":        d,
             "type":        "payment",
             "description": f"Payment via {pay.source}",

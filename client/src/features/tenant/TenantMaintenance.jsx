@@ -12,7 +12,6 @@ import { toast } from "@/components/ui/Toast";
 import { useGetPortalMaintenanceRequestsQuery, useCreatePortalMaintenanceRequestMutation } from "./tenantPortalApiSlice";
 import { MAINTENANCE_CATEGORIES } from "@/utils/constants";
 import { formatDate } from "@/utils/dateFormatter";
-import { toRows } from "@/utils/tableAdapters";
 import { isRequired } from "@/utils/validators";
 
 // §6.7 — open + list maintenance requests; visible to the landlord the moment they're created.
@@ -25,7 +24,8 @@ export default function TenantMaintenance() {
   const [image, setImage] = useState(null);
   const [error, setError] = useState("");
 
-  const requests = toRows(data);
+  // Backend returns { requests: [...] }, not one of toRows()'s recognized keys.
+  const requests = data?.requests ?? [];
 
   const handleSubmit = async (e) => {
     e.preventDefault();

@@ -6,22 +6,22 @@ import Button from "@/components/ui/Button";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
-import { useGetPortalDashboardQuery, useMakePortalPaymentMutation } from "./tenantPortalApiSlice";
+import { useGetPortalStatementQuery, useMakePortalPaymentMutation } from "./tenantPortalApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows } from "@/utils/tableAdapters";
 import { validateMoneyField } from "@/utils/validators";
 
 // §6.4 — receipts auto-email a copy in addition to the in-portal download.
 export default function TenantPayments() {
-  const { data, isLoading } = useGetPortalDashboardQuery();
+  const { data, isLoading } = useGetPortalStatementQuery();
   const [makePayment, { isLoading: isPaying }] = useMakePortalPaymentMutation();
 
   const [form, setForm] = useState({ amount: "", payment_method: "mpesa" });
   const [error, setError] = useState("");
 
-  const payments = toRows(data?.recent_payments);
+  // The statement interleaves invoice + payment entries; this page only shows payments.
+  const payments = (data?.entries ?? []).filter((e) => e.type === "payment");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -41,7 +41,7 @@ export default function TenantPayments() {
   };
 
   const columns = [
-    { key: "date", header: "Date", render: (row) => formatDate(row.payment_date) },
+    { key: "date", header: "Date", render: (row) => formatDate(row.date) },
     { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
     {

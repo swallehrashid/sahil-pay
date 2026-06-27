@@ -4,19 +4,23 @@ import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Button from "@/components/ui/Button";
+import StatusBadge from "@/components/ui/StatusBadge";
 import { useGetPortalDashboardQuery } from "./tenantPortalApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { toRows } from "@/utils/tableAdapters";
+import { formatDate } from "@/utils/dateFormatter";
 import { TENANT_ROUTES } from "@/config/routePaths";
 
 // §6.2 — detailed balance breakdown: rent due, utilities due, previous month's balance.
 export default function TenantDashboard() {
   const { data, isLoading } = useGetPortalDashboardQuery();
-  const breakdown = toRows(data?.breakdown);
+  const openInvoices = data?.open_invoices ?? [];
 
   const columns = [
-    { key: "item", header: "Item" },
-    { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
+    { key: "invoice_number", header: "Invoice" },
+    { key: "type", header: "Type" },
+    { key: "due_date", header: "Due", render: (row) => (row.due_date ? formatDate(row.due_date) : "—") },
+    { key: "balance", header: "Balance", render: (row) => formatCurrency(row.balance) },
+    { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
   ];
 
   return (
@@ -36,14 +40,19 @@ export default function TenantDashboard() {
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
           <SummaryCard label="Rent due" value={formatCurrency(data?.rent_due)} icon={<Receipt className="h-5 w-5" />} />
-          <SummaryCard label="Utilities due" value={formatCurrency(data?.utilities_due)} icon={<Receipt className="h-5 w-5" />} accent="third" />
+          <SummaryCard label="Utilities due" value={formatCurrency(data?.utility_due)} icon={<Receipt className="h-5 w-5" />} accent="third" />
           <SummaryCard label="Previous balance" value={formatCurrency(data?.previous_balance)} icon={<History className="h-5 w-5" />} accent="third" />
         </div>
       )}
 
       <div>
-        <h3 className="mb-3 text-base font-medium text-white">Breakdown</h3>
-        <ResponsiveTable columns={columns} rows={breakdown} isLoading={isLoading} />
+        <h3 className="mb-3 text-base font-medium text-white">Open invoices</h3>
+        <ResponsiveTable
+          columns={columns}
+          rows={openInvoices}
+          isLoading={isLoading}
+          emptyState={<p className="text-sm text-white/50">No open invoices — you're all caught up.</p>}
+        />
       </div>
     </div>
   );

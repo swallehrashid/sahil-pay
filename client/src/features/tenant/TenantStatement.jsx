@@ -5,18 +5,19 @@ import { useGetPortalStatementQuery } from "./tenantPortalApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows } from "@/utils/tableAdapters";
 
 // §6.5 — full running statement: what was charged, what was paid, current balance.
+// Entries mix two shapes: invoices carry amount_due/amount_paid, payments carry
+// a single amount (always a credit) — the columns below render each accordingly.
 export default function TenantStatement() {
   const { data, isLoading } = useGetPortalStatementQuery();
-  const rows = toRows(data);
+  const rows = data?.entries ?? [];
 
   const columns = [
     { key: "date", header: "Date", render: (row) => formatDate(row.date) },
-    { key: "item", header: "Item" },
-    { key: "due", header: "Due", render: (row) => formatCurrency(row.due) },
-    { key: "paid", header: "Paid", render: (row) => formatCurrency(row.paid) },
+    { key: "item", header: "Item", render: (row) => row.description ?? (row.type === "invoice" ? row.invoice_no : row.payment_ref) },
+    { key: "due", header: "Due", render: (row) => (row.type === "invoice" ? formatCurrency(row.amount_due) : "—") },
+    { key: "paid", header: "Paid", render: (row) => formatCurrency(row.type === "invoice" ? row.amount_paid : row.amount) },
     { key: "balance", header: "Balance", render: (row) => formatCurrency(row.running_balance) },
   ];
 
