@@ -22,6 +22,9 @@ const SEGMENTS = [
   { key: "zero", label: "Zero arrears" },
 ];
 
+// Maps a tab key to the matching sub-list key in each per-property insights entry.
+const SEGMENT_KEY = { arrears: "arrears", advances: "advances", zero: "zero_balance" };
+
 // §4.12 — per-property arrears/advances/zero-arrears split, plus an Occupancy tab.
 export default function InsightsPage() {
   const navigate = useNavigate();
@@ -29,17 +32,23 @@ export default function InsightsPage() {
   const [propertyId, setPropertyId] = useState("");
 
   const { data: propertiesData } = useGetPropertiesQuery();
-  const { data, isLoading } = useGetInsightsQuery({ property_id: propertyId, segment: tab }, { skip: tab === "occupancy" });
+  // Backend has no server-side segment filter — it always returns all three
+  // segments nested per property; the tab selection is applied client-side below.
+  const { data, isLoading } = useGetInsightsQuery({ property_id: propertyId }, { skip: tab === "occupancy" });
   const [sendReminder] = useSendTenantReminderMutation();
   const [sendStatement] = useSendTenantStatementMutation();
 
   const properties = toRows(propertiesData);
-  const rows = toRows(data);
+  // Flatten the per-property { arrears, advances, zero_balance } entries for the
+  // selected tab into one tenant-row list, carrying the parent property's name.
+  const rows = (data?.insights ?? []).flatMap((p) =>
+    (p[SEGMENT_KEY[tab]] ?? []).map((t) => ({ ...t, property_name: p.property_name }))
+  );
 
   const columns = [
-    { key: "tenant", header: "Tenant", render: (row) => `${row.first_name} ${row.last_name}` },
+    { key: "tenant", header: "Tenant", render: (row) => row.name },
     { key: "property", header: "Property", render: (row) => row.property_name },
-    { key: "balance", header: "Balance", render: (row) => formatCurrency(row.balance) },
+    { key: "balance", header: "Balance", render: (row) => (row.balance !== undefined ? formatCurrency(row.balance) : "—") },
   ];
 
   return (
@@ -67,21 +76,21 @@ export default function InsightsPage() {
           rowActions={(row) => (
             <Dropdown
               items={[
-                { label: "View transactions", icon: <Eye className="h-4 w-4" />, onClick: () => navigate(LANDLORD_ROUTES.tenantTransactionsPath(row.id)) },
+                { label: "View transactions", icon: <Eye className="h-4 w-4" />, onClick: () => navigate(LANDLORD_ROUTES.tenantTransactionsPath(row.tenant_id)) },
                 {
                   label: "Reminder",
                   icon: <Bell className="h-4 w-4" />,
-                  onClick: () => sendReminder(row.id).then(() => toast("Reminder sent.", { type: "success" })),
+                  onClick: () => sendReminder(row.tenant_id).then(() => toast("Reminder sent.", { type: "success" })),
                 },
                 {
                   label: "Send statement",
                   icon: <FileDown className="h-4 w-4" />,
-                  onClick: () => sendStatement(row.id).then(() => toast("Statement sent.", { type: "success" })),
+                  onClick: () => sendStatement(row.tenant_id).then(() => toast("Statement sent.", { type: "success" })),
                 },
                 {
                   label: "Download CSV",
                   icon: <FileDown className="h-4 w-4" />,
-                  onClick: () => downloadFile(`/tenants/${row.id}/export.csv`, { filename: `${row.first_name}.csv`, format: "csv" }),
+                  onClick: () => downloadFile(`/tenants/${row.tenant_id}/export.csv`, { filename: `${row.name}.csv`, format: "csv" }),
                 },
               ]}
             />

@@ -96,10 +96,12 @@ def generate_tenant_statement(landlord_id: int, tenant_id: int, fmt: str, start_
         entries.append((pay.payment_date, f"Payment {pay.payment_ref}", Decimal("0"), pay.amount))
     entries.sort(key=lambda e: e[0] or date.min)
 
+    # Ledger convention (matches tenant.balance everywhere else): invoices
+    # decrease running balance (more arrears), payments increase it.
     running = Decimal("0")
     rows = []
     for d, label, due, paid in entries:
-        running += (due or 0) - (paid or 0)
+        running += (paid or 0) - (due or 0)
         rows.append([d, label, _money(due), _money(paid), _money(running)])
 
     return _render_table(
@@ -133,7 +135,8 @@ def generate_property_statement(landlord_id: int, property_id: int, fmt: str, st
 def generate_arrears_report(landlord_id: int, fmt: str, property_id: int | None, as_of_date: str | None) -> bytes:
     from models import Tenant, Unit
 
-    query = Tenant.query.filter(Tenant.landlord_id == landlord_id, Tenant.balance > 0)
+    # Ledger convention: negative balance = arrears (owed), positive = advance.
+    query = Tenant.query.filter(Tenant.landlord_id == landlord_id, Tenant.balance < 0)
     if property_id:
         query = query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id == property_id)
 
@@ -143,9 +146,9 @@ def generate_arrears_report(landlord_id: int, fmt: str, property_id: int | None,
             t.unit.property.name if t.unit and t.unit.property else "—",
             t.unit.name if t.unit else "—",
             t.phone,
-            _money(t.balance),
+            _money(abs(t.balance)),
         ]
-        for t in query.order_by(Tenant.balance.desc()).all()
+        for t in query.order_by(Tenant.balance.asc()).all()  # deepest arrears first
     ]
     title = f"Arrears Report (as of {as_of_date or date.today().isoformat()})"
     return _render_table(title, ["Tenant", "Property", "Unit", "Phone", "Arrears"], rows, fmt)
@@ -240,8 +243,9 @@ def generate_grouping_report(landlord_id: int, group_id: int, fmt: str, start_da
     for prop in group.properties:
         collected_q = _date_range_filter(Payment.query.filter_by(property_id=prop.id), Payment.payment_date, start_date, end_date)
         collected = sum((p.amount or 0 for p in collected_q.all()), Decimal("0"))
+        # Ledger convention: negative balance = arrears (owed), positive = advance.
         arrears = sum(
-            (t.balance or 0 for t in Tenant.query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id == prop.id, Tenant.balance > 0).all()),
+            (abs(t.balance or 0) for t in Tenant.query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id == prop.id, Tenant.balance < 0).all()),
             Decimal("0"),
         )
         unit_count = Unit.query.filter_by(property_id=prop.id).count()
@@ -253,17 +257,30 @@ def generate_grouping_report(landlord_id: int, group_id: int, fmt: str, start_da
 
 
 def generate_occupancy_report(landlord_id: int, fmt: str, property_id: int | None) -> bytes:
-    from models import Property, Unit
+    from extensions import db
+    from models import Property, Unit, TenantUnitHistory
 
     query = Property.query.filter_by(landlord_id=landlord_id)
     if property_id:
         query = query.filter(Property.id == property_id)
 
+    today = date.today()
     rows = []
     for prop in query.all():
         for unit in prop.units:
-            days_unoccupied = 0 if unit.is_occupied else 30  # best-effort: no vacancy-start timestamp tracked yet
-            lost_rent = Decimal("0") if unit.is_occupied else (unit.rent_amount or Decimal("0"))
+            days_unoccupied = 0
+            lost_rent = Decimal("0")
+            if not unit.is_occupied:
+                last_move_out = (
+                    db.session.query(TenantUnitHistory.moved_out_at)
+                    .filter(TenantUnitHistory.unit_id == unit.id, TenantUnitHistory.moved_out_at.isnot(None))
+                    .order_by(TenantUnitHistory.moved_out_at.desc())
+                    .limit(1)
+                    .scalar()
+                )
+                vacant_since = last_move_out or (unit.created_at.date() if unit.created_at else today)
+                days_unoccupied = max((today - vacant_since).days, 0)
+                lost_rent = ((Decimal(days_unoccupied) / Decimal(30)) * (unit.rent_amount or Decimal("0"))).quantize(Decimal("0.01"))
             rows.append([prop.name, unit.name, _money(unit.rent_amount), days_unoccupied, _money(lost_rent)])
 
     return _render_table("Occupancy Report", ["Property", "Unit", "Rent Amount", "Days Unoccupied", "Estimated Lost Rent"], rows, fmt)

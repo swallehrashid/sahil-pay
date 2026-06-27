@@ -5,14 +5,29 @@ import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import ExportButtons from "@/components/ui/ExportButtons";
 import { useGetOccupancyInsightsQuery } from "./reportApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { toRows } from "@/utils/tableAdapters";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 
 // §4.12 — occupancy rate, days unoccupied and estimated lost rent, filterable by property.
 export default function OccupancyInsights({ propertyId }) {
   const navigate = useNavigate();
   const { data, isLoading } = useGetOccupancyInsightsQuery({ property_id: propertyId });
-  const rows = toRows(data);
+  // Backend returns { units: [...], total }, not one of toRows()'s recognized keys.
+  const rows = data?.units ?? [];
+
+  // No backend-provided chart shape — derive per-property occupancy% from the unit list.
+  const chartData = Object.values(
+    rows.reduce((acc, u) => {
+      const key = u.property_name ?? "Unassigned";
+      acc[key] ??= { property: key, total: 0, occupied: 0 };
+      acc[key].total += 1;
+      if (u.is_occupied) acc[key].occupied += 1;
+      return acc;
+    }, {})
+  ).map((p) => ({
+    property: p.property,
+    occupancyRate: p.total ? Math.round((p.occupied / p.total) * 100) : 0,
+    unoccupiedUnits: p.total - p.occupied,
+  }));
 
   const columns = [
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
@@ -23,7 +38,7 @@ export default function OccupancyInsights({ propertyId }) {
 
   return (
     <div className="space-y-6">
-      <OccupancyChart data={data?.chart ?? []} />
+      <OccupancyChart data={chartData} />
       <div className="flex justify-end">
         <ExportButtons endpoint="/reports/insights/occupancy" filenameBase="occupancy-insights" params={{ property_id: propertyId }} />
       </div>

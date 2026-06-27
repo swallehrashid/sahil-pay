@@ -267,7 +267,8 @@ def occupancy_insights():
     ---
     tags: [Reports]
     """
-    from models import Property, Unit
+    from datetime import date as _date
+    from models import Property, Unit, TenantUnitHistory
     from extensions import db
 
     landlord_id = get_current_landlord_id()
@@ -283,15 +284,32 @@ def occupancy_insights():
         query = query.filter(Property.id == prop_filter)
 
     units = query.all()
+    today = _date.today()
 
     report_data = []
     for u in units:
+        days_unoccupied = 0
+        estimated_lost_rent = 0.0
+        if not u.is_occupied:
+            last_move_out = (
+                db.session.query(TenantUnitHistory.moved_out_at)
+                .filter(TenantUnitHistory.unit_id == u.id, TenantUnitHistory.moved_out_at.isnot(None))
+                .order_by(TenantUnitHistory.moved_out_at.desc())
+                .limit(1)
+                .scalar()
+            )
+            vacant_since = last_move_out or (u.created_at.date() if u.created_at else today)
+            days_unoccupied = max((today - vacant_since).days, 0)
+            estimated_lost_rent = round((days_unoccupied / 30.0) * float(u.rent_amount), 2)
+
         report_data.append({
-            "unit_id":       u.id,
-            "unit_name":     u.name,
-            "property_name": u.property.name if u.property else None,
-            "is_occupied":   u.is_occupied,
-            "rent_amount":   float(u.rent_amount),
+            "unit_id":             u.id,
+            "unit_name":           u.name,
+            "property_name":       u.property.name if u.property else None,
+            "is_occupied":         u.is_occupied,
+            "rent_amount":         float(u.rent_amount),
+            "days_unoccupied":     days_unoccupied,
+            "estimated_lost_rent": estimated_lost_rent,
         })
 
     if fmt in ("pdf", "excel"):
