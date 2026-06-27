@@ -15,7 +15,7 @@ Full lifecycle:
   5. Admin uses the granted impersonation:
      - The admin's own JWT still identifies them as system_admin.
      - When acting as the landlord, the admin passes
-       X-Impersonating-Landlord: <landlord_id> in their requests.
+       X-Impersonate-Landlord: <landlord_id> in their requests.
        Backend middleware reads this header, verifies a granted
        ImpersonationRequest exists, and appends an impersonation flag
        to every audit_log written during that session.

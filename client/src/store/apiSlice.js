@@ -1,12 +1,20 @@
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { env } from "@/config/env";
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "@/utils/tokenStorage";
+import { getImpersonationTarget } from "@/utils/impersonationStorage";
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: env.apiBaseUrl,
   prepareHeaders: (headers) => {
     const token = getAccessToken();
     if (token) headers.set("Authorization", `Bearer ${token}`);
+    // Consent-based impersonation (§10.5) — when a system_admin has entered a
+    // granted session, every request carries this header so the backend's
+    // current_landlord_id() resolves to the impersonated account. Harmless to
+    // send unconditionally: the server only honors it for system_admin callers
+    // with a matching granted, non-expired ImpersonationRequest.
+    const target = getImpersonationTarget();
+    if (target?.landlordId) headers.set("X-Impersonate-Landlord", String(target.landlordId));
     return headers;
   },
 });

@@ -66,7 +66,7 @@ export default function ImpersonationRequests() {
 
   const columns = [
     { key: "requested_at", header: "Requested", render: (row) => formatDateTime(row.requested_at) },
-    { key: "admin", header: "Admin", render: (row) => row.admin_name ?? row.admin_user_id },
+    { key: "admin", header: "Admin", render: (row) => row.admin_email ?? row.admin_user_id },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
   ];
 

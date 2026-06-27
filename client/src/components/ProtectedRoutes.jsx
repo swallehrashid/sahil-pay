@@ -3,6 +3,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { AUTH_ROUTES } from "@/config/routePaths";
 import { roleHomePath } from "@/routes/roleRedirect";
+import { getImpersonationTarget } from "@/utils/impersonationStorage";
+import { USER_ROLES } from "@/utils/constants";
 
 // The spine of the four-portal separation. Checks auth + ROLE + PERMISSION, not merely
 // "is logged in" — a team member without `invoices` access must never reach
@@ -20,7 +22,16 @@ export default function ProtectedRoutes({ allowedRoles, requiredPermission }) {
     return <Navigate to={loginPath} state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(role)) {
+  // Consent-based impersonation (§10.5): a system_admin who has entered a granted
+  // session is let through the landlord route guard as if they were that landlord.
+  // Their JWT role claim never changes — only this client-side choice of which
+  // account to operate, mirrored server-side by the X-Impersonate-Landlord header
+  // apiSlice.js attaches (and which the backend independently re-validates against
+  // a granted, non-expired ImpersonationRequest before honoring it).
+  const isImpersonatingAdmin = role === USER_ROLES.SYSTEM_ADMIN && Boolean(getImpersonationTarget());
+  const effectiveRole = isImpersonatingAdmin ? USER_ROLES.LANDLORD : role;
+
+  if (allowedRoles && !allowedRoles.includes(effectiveRole)) {
     return <Navigate to={roleHomePath(role)} replace />;
   }
 

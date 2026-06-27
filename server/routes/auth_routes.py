@@ -27,10 +27,12 @@ from models import (
     User, Landlord, SystemAdmin, TeamMember,
     Subscription, LandlordSettings, AutomationSettings,
     AuditLog, UserRole, SubscriptionStatus, BillingCycle,
+    ImpersonationRequest, ImpersonationStatus,
 )
 from services.audit_service import record_audit
 from services.email_service import send_verification_email, send_password_reset_email
 from services.trial_service import apply_global_trial
+from utils import active_impersonation
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -467,10 +469,31 @@ def me():
         lp = user.landlord_profile
         if lp:
             payload["profile"] = lp.to_dict()
+            # Drives the landlord-side ImpersonationBanner — "is someone currently
+            # able to act as me right now" (any granted, non-expired grant), not
+            # merely "is the admin's current request using it".
+            active_grant = ImpersonationRequest.query.filter_by(
+                landlord_id=lp.id, status=ImpersonationStatus.granted.value,
+            ).filter(ImpersonationRequest.expires_at > datetime.utcnow()).first()
+            if active_grant:
+                payload["impersonating"] = {
+                    "admin_email": active_grant.admin_user.email if active_grant.admin_user else None,
+                    "since": active_grant.granted_at.isoformat() if active_grant.granted_at else None,
+                }
     elif user.role == UserRole.system_admin.value:
         ap = user.admin_profile
         if ap:
             payload["profile"] = ap.to_dict()
+        # Drives the admin-side "you are operating X's account" banner — only set
+        # when THIS request actually carried a valid X-Impersonate-Landlord header
+        # against a granted, non-expired request (same check every landlord-scoped
+        # route relies on via current_landlord_id()).
+        imp = active_impersonation()
+        if imp:
+            payload["impersonating"] = {
+                "landlord_id": imp.landlord_id,
+                "company_name": imp.landlord.company_name if imp.landlord else None,
+            }
     elif user.role == UserRole.team_member.value:
         tm = user.team_member_profile
         if tm:

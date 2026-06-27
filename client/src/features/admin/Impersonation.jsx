@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Send, Ban } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useDispatch } from "react-redux";
+import { Send, Ban, LogIn } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Modal from "@/components/ui/Modal";
@@ -10,16 +12,28 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
 import { useGetImpersonationRequestsQuery, useRequestImpersonationMutation, useRevokeImpersonationMutation } from "./adminImpersonationApiSlice";
 import { useGetAdminLandlordsQuery } from "./adminApiSlice";
+import { apiSlice } from "@/store/apiSlice";
+import { setImpersonationTarget } from "@/utils/impersonationStorage";
+import { LANDLORD_ROUTES } from "@/config/routePaths";
 import { formatDateTime } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
 
 // §7.3 / §10.5 — consent-based: admin requests, landlord grants, then admin may operate
 // the account. Never a silent backdoor — everything is also written to audit_logs.
 export default function Impersonation() {
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { data, isLoading } = useGetImpersonationRequestsQuery();
   const { data: landlordsData } = useGetAdminLandlordsQuery();
   const [requestAccess, { isLoading: isRequesting }] = useRequestImpersonationMutation();
   const [revoke] = useRevokeImpersonationMutation();
+
+  const handleEnterSession = (row) => {
+    setImpersonationTarget({ landlordId: row.landlord_id, companyName: row.landlord_company });
+    // A different impersonation target must never see another's cached query results.
+    dispatch(apiSlice.util.resetApiState());
+    navigate(LANDLORD_ROUTES.dashboard);
+  };
 
   const [isRequestOpen, setIsRequestOpen] = useState(false);
   const [landlordId, setLandlordId] = useState("");
@@ -43,11 +57,13 @@ export default function Impersonation() {
   };
 
   const columns = [
-    { key: "landlord", header: "Landlord", render: (row) => row.company_name },
+    { key: "landlord", header: "Landlord", render: (row) => row.landlord_company },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
     { key: "requested_at", header: "Requested", render: (row) => formatDateTime(row.requested_at) },
     { key: "expires_at", header: "Expires", render: (row) => (row.expires_at ? formatDateTime(row.expires_at) : "—") },
   ];
+
+  const isActiveGrant = (row) => row.status === "granted" && (!row.expires_at || new Date(row.expires_at) > new Date());
 
   return (
     <div>
@@ -66,15 +82,20 @@ export default function Impersonation() {
         rows={requests}
         isLoading={isLoading}
         rowActions={(row) =>
-          row.status === "granted" && (
-            <Button
-              size="sm"
-              variant="danger"
-              leftIcon={<Ban className="h-4 w-4" />}
-              onClick={() => revoke(row.id).then(() => toast("Session revoked.", { type: "success" }))}
-            >
-              Revoke
-            </Button>
+          isActiveGrant(row) && (
+            <div className="flex gap-2">
+              <Button size="sm" leftIcon={<LogIn className="h-4 w-4" />} onClick={() => handleEnterSession(row)}>
+                Enter session
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                leftIcon={<Ban className="h-4 w-4" />}
+                onClick={() => revoke(row.id).then(() => toast("Session revoked.", { type: "success" }))}
+              >
+                Revoke
+              </Button>
+            </div>
           )
         }
       />

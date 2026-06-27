@@ -11,6 +11,7 @@ import TeamMemberNavbar from "@/features/teamMember/components/TeamMemberNavbar"
 import TeamMemberSidebar from "@/features/teamMember/components/TeamMemberSidebar";
 import AdminNavbar from "@/features/admin/components/AdminNavbar";
 import AdminSidebar from "@/features/admin/components/AdminSidebar";
+import AdminImpersonationBanner from "@/features/admin/components/AdminImpersonationBanner";
 import TenantNavbar from "@/features/tenant/components/TenantNavbar";
 import { USER_ROLES } from "@/utils/constants";
 import { PUBLIC_ROUTES, AUTH_ROUTES, LANDLORD_ROUTES, TEAM_ROUTES, TENANT_ROUTES, ADMIN_ROUTES, NOT_FOUND_ROUTE } from "@/config/routePaths";
@@ -117,6 +118,7 @@ function LandlordLayout() {
         <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
         <LandlordNavbar />
         <main className="flex-1 p-4 md:p-8">
+          <AdminImpersonationBanner />
           <Outlet />
         </main>
       </div>
