@@ -12,6 +12,7 @@ export default function ConfirmDialog({
   cancelLabel = "Cancel",
   isDangerous = true,
   isLoading = false,
+  children,
 }) {
   return (
     <Modal
@@ -31,6 +32,7 @@ export default function ConfirmDialog({
       }
     >
       {description && <p className="text-sm text-white/60">{description}</p>}
+      {children}
     </Modal>
   );
 }

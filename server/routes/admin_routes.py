@@ -161,6 +161,14 @@ def list_landlords():
         d["email"]               = landlord.user.email if landlord.user else None
         d["is_active"]           = landlord.user.is_active if landlord.user else None
         d["subscription_status"] = landlord.subscription.status if landlord.subscription else None
+        d["unit_count"]          = Unit.query.join(Property).filter(
+                                       Property.landlord_id == landlord.id,
+                                       Property.is_deleted.is_(False),
+                                       Unit.is_deleted.is_(False),
+                                   ).count()
+        d["active_tenants"]      = Tenant.query.filter_by(
+                                       landlord_id=landlord.id, is_deleted=False
+                                   ).count()
         items.append(d)
 
     return jsonify({
@@ -257,7 +265,7 @@ def suspend_landlord(landlord_id):
 
     record_audit(
         actor_user_id=_admin_actor_id(),
-        landlord_id=None,
+        landlord_id=landlord.id,
         action="admin_suspend_landlord",
         entity_type="landlord",
         entity_id=landlord.id,
@@ -308,7 +316,7 @@ def reactivate_landlord(landlord_id):
 
     record_audit(
         actor_user_id=_admin_actor_id(),
-        landlord_id=None,
+        landlord_id=landlord.id,
         action="admin_reactivate_landlord",
         entity_type="landlord",
         entity_id=landlord.id,

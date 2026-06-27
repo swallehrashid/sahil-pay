@@ -375,6 +375,7 @@ class AuditEntityType(str, enum.Enum):
     maintenance        = "maintenance"
     landlord           = "landlord"
     recurring_expense  = "recurring_expense"
+    package            = "package"
 
 
 class BackupScopeType(str, enum.Enum):

@@ -16,11 +16,11 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: (result, error, id) => [{ type: "AdminLandlord", id }],
     }),
     suspendLandlord: builder.mutation({
-      query: (id) => ({ url: `/admin/landlords/${id}/suspend`, method: "POST" }),
+      query: ({ id, reason }) => ({ url: `/admin/landlords/${id}/suspend`, method: "POST", body: { reason } }),
       invalidatesTags: ["AdminLandlord"],
     }),
     reactivateLandlord: builder.mutation({
-      query: (id) => ({ url: `/admin/landlords/${id}/reactivate`, method: "POST" }),
+      query: ({ id, reason }) => ({ url: `/admin/landlords/${id}/reactivate`, method: "POST", body: { reason } }),
       invalidatesTags: ["AdminLandlord"],
     }),
     correctData: builder.mutation({
@@ -32,7 +32,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       providesTags: ["Audit"],
     }),
     revertAuditAction: builder.mutation({
-      query: (auditId) => ({ url: `/admin/revert/${auditId}`, method: "POST" }),
+      query: ({ auditId, reason }) => ({ url: `/admin/revert/${auditId}`, method: "POST", body: { reason } }),
       invalidatesTags: ["Audit"],
     }),
   }),

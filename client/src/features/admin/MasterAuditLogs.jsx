@@ -4,6 +4,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import FilterPanel from "@/components/tables/FilterPanel";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
+import Textarea from "@/components/ui/Textarea";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { toast } from "@/components/ui/Toast";
@@ -17,6 +18,7 @@ export default function MasterAuditLogs() {
   const [filters, setFilters] = useState({ landlord_id: "", entity_type: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
   const [pendingRevert, setPendingRevert] = useState(null);
+  const [revertReason, setRevertReason] = useState("");
 
   const { data, isLoading } = useGetMasterAuditLogsQuery(appliedFilters);
   const { data: landlordsData } = useGetAdminLandlordsQuery();
@@ -24,21 +26,28 @@ export default function MasterAuditLogs() {
 
   const logs = toRows(data);
   const landlords = toRows(landlordsData);
+  // AuditLog only carries landlord_id, not a denormalized name — resolve it from the
+  // landlords list we already fetch for the filter dropdown.
+  const landlordNameById = Object.fromEntries(landlords.map((l) => [l.id, l.company_name]));
 
   const handleRevert = async () => {
+    if (!revertReason.trim()) {
+      toast("A reason is required.", { type: "error" });
+      return;
+    }
     try {
-      await revertAction(pendingRevert.id).unwrap();
+      await revertAction({ auditId: pendingRevert.id, reason: revertReason }).unwrap();
       toast("Action reverted.", { type: "success" });
+      setPendingRevert(null);
+      setRevertReason("");
     } catch {
       toast("Could not revert the action.", { type: "error" });
-    } finally {
-      setPendingRevert(null);
     }
   };
 
   const columns = [
     { key: "date", header: "Date & time", render: (row) => formatDateTime(row.created_at) },
-    { key: "landlord", header: "Landlord", render: (row) => row.landlord_name ?? "Platform" },
+    { key: "landlord", header: "Landlord", render: (row) => landlordNameById[row.landlord_id] ?? "Platform" },
     { key: "actor", header: "User", render: (row) => row.actor_username },
     { key: "action", header: "Action" },
     { key: "description", header: "Description" },
@@ -89,12 +98,14 @@ export default function MasterAuditLogs() {
 
       <ConfirmDialog
         isOpen={Boolean(pendingRevert)}
-        onClose={() => setPendingRevert(null)}
+        onClose={() => { setPendingRevert(null); setRevertReason(""); }}
         onConfirm={handleRevert}
         title="Revert this action?"
         description="The entity will be restored to its state before this audit entry."
         isLoading={isReverting}
-      />
+      >
+        <Textarea label="Reason" value={revertReason} onChange={(e) => setRevertReason(e.target.value)} rows={3} required className="mt-3" />
+      </ConfirmDialog>
     </div>
   );
 }

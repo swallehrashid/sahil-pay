@@ -7,6 +7,7 @@ import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
+import Textarea from "@/components/ui/Textarea";
 import Select from "@/components/ui/Select";
 import Badge from "@/components/ui/Badge";
 import { toast } from "@/components/ui/Toast";
@@ -62,12 +63,12 @@ function PackageForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
 
 function OverridePriceModal({ landlords, onClose }) {
   const [updatePrice, { isLoading }] = useUpdateLandlordPerUnitPriceMutation();
-  const [form, setForm] = useState({ landlord_id: "", per_unit_price: "" });
+  const [form, setForm] = useState({ landlord_id: "", per_unit_price: "", reason: "" });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await updatePrice({ id: form.landlord_id, per_unit_price: form.per_unit_price }).unwrap();
+      await updatePrice({ id: form.landlord_id, per_unit_price: form.per_unit_price, reason: form.reason }).unwrap();
       toast("Per-unit price overridden.", { type: "success" });
       onClose();
     } catch {
@@ -91,6 +92,13 @@ function OverridePriceModal({ landlords, onClose }) {
           step="0.01"
           value={form.per_unit_price}
           onChange={(e) => setForm((f) => ({ ...f, per_unit_price: e.target.value }))}
+          required
+        />
+        <Textarea
+          label="Reason"
+          value={form.reason}
+          onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
+          rows={2}
           required
         />
         <div className="flex justify-end gap-3 pt-2">

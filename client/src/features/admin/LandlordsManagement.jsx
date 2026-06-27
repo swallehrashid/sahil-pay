@@ -3,8 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { Eye, Ban, RotateCcw } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Input from "@/components/ui/Input";
+import Textarea from "@/components/ui/Textarea";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Dropdown from "@/components/ui/Dropdown";
+import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Badge from "@/components/ui/Badge";
 import { useDebounce } from "@/hooks/useDebounce";
 import { toast } from "@/components/ui/Toast";
@@ -19,8 +21,32 @@ export default function LandlordsManagement() {
   const debouncedSearch = useDebounce(search);
 
   const { data, isLoading } = useGetAdminLandlordsQuery({ search: debouncedSearch });
-  const [suspend] = useSuspendLandlordMutation();
-  const [reactivate] = useReactivateLandlordMutation();
+  const [suspend, { isLoading: isSuspending }] = useSuspendLandlordMutation();
+  const [reactivate, { isLoading: isReactivating }] = useReactivateLandlordMutation();
+
+  // Suspend/reactivate both require a mandatory reason — collected via this dialog.
+  const [pendingChange, setPendingChange] = useState(null); // { id, company_name, action } | null
+  const [reason, setReason] = useState("");
+
+  const handleConfirm = async () => {
+    if (!reason.trim()) {
+      toast("A reason is required.", { type: "error" });
+      return;
+    }
+    try {
+      if (pendingChange.action === "suspend") {
+        await suspend({ id: pendingChange.id, reason }).unwrap();
+        toast("Account suspended.", { type: "success" });
+      } else {
+        await reactivate({ id: pendingChange.id, reason }).unwrap();
+        toast("Account reactivated.", { type: "success" });
+      }
+      setPendingChange(null);
+      setReason("");
+    } catch {
+      toast(`Could not ${pendingChange.action} the account.`, { type: "error" });
+    }
+  };
 
   const rows = toRows(data);
 
@@ -55,17 +81,30 @@ export default function LandlordsManagement() {
                     label: "Suspend",
                     icon: <Ban className="h-4 w-4" />,
                     danger: true,
-                    onClick: () => suspend(row.id).then(() => toast("Account suspended.", { type: "success" })),
+                    onClick: () => setPendingChange({ id: row.id, company_name: row.company_name, action: "suspend" }),
                   }
                 : {
                     label: "Reactivate",
                     icon: <RotateCcw className="h-4 w-4" />,
-                    onClick: () => reactivate(row.id).then(() => toast("Account reactivated.", { type: "success" })),
+                    onClick: () => setPendingChange({ id: row.id, company_name: row.company_name, action: "reactivate" }),
                   },
             ]}
           />
         )}
       />
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingChange)}
+        onClose={() => { setPendingChange(null); setReason(""); }}
+        onConfirm={handleConfirm}
+        title={pendingChange?.action === "suspend" ? `Suspend ${pendingChange?.company_name}?` : `Reactivate ${pendingChange?.company_name}?`}
+        description="This is recorded in the audit trail with your reason."
+        isDangerous={pendingChange?.action === "suspend"}
+        isLoading={isSuspending || isReactivating}
+        confirmLabel={pendingChange?.action === "suspend" ? "Suspend" : "Reactivate"}
+      >
+        <Textarea label="Reason" value={reason} onChange={(e) => setReason(e.target.value)} rows={3} required className="mt-3" />
+      </ConfirmDialog>
     </div>
   );
 }

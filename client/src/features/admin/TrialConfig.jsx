@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Input from "@/components/ui/Input";
+import Textarea from "@/components/ui/Textarea";
 import Checkbox from "@/components/ui/Checkbox";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
@@ -30,7 +31,7 @@ export default function TrialConfig() {
     setForm(data);
   }
 
-  const [override, setOverride] = useState({ landlord_id: "", duration_days: "", action: "extend" });
+  const [override, setOverride] = useState({ landlord_id: "", duration_days: "", action: "extend", reason: "" });
 
   const landlords = toRows(landlordsData);
 
@@ -48,9 +49,17 @@ export default function TrialConfig() {
 
   const handleOverrideSubmit = async (e) => {
     e.preventDefault();
+    if (!override.reason.trim()) {
+      toast("A reason is required.", { type: "error" });
+      return;
+    }
     try {
-      await updateLandlordTrial({ id: override.landlord_id, action: override.action, duration_days: override.duration_days }).unwrap();
+      await updateLandlordTrial({
+        id: override.landlord_id, action: override.action,
+        duration_days: override.duration_days, reason: override.reason,
+      }).unwrap();
       toast("Landlord trial updated.", { type: "success" });
+      setOverride((o) => ({ ...o, reason: "" }));
     } catch {
       toast("Could not update the landlord's trial.", { type: "error" });
     }
@@ -102,6 +111,13 @@ export default function TrialConfig() {
             onChange={(e) => setOverride((o) => ({ ...o, duration_days: e.target.value }))}
           />
         </div>
+        <Textarea
+          label="Reason"
+          value={override.reason}
+          onChange={(e) => setOverride((o) => ({ ...o, reason: e.target.value }))}
+          rows={2}
+          required
+        />
         <div className="flex justify-end">
           <Button type="submit" isLoading={isUpdatingLandlord}>
             Apply
