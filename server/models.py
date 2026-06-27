@@ -376,6 +376,30 @@ class AuditEntityType(str, enum.Enum):
     landlord           = "landlord"
     recurring_expense  = "recurring_expense"
     package            = "package"
+    notification       = "notification"
+
+
+class NotificationCategory(str, enum.Enum):
+    """One value per template in services/notification_service.py's registry."""
+    broadcast               = "broadcast"                 # free-form admin/landlord message
+    payment_received        = "payment_received"
+    new_maintenance_request = "new_maintenance_request"
+    trial_expiring           = "trial_expiring"
+    lease_expiring           = "lease_expiring"
+    low_sms_balance          = "low_sms_balance"
+    team_member_activated    = "team_member_activated"
+    impersonation_requested  = "impersonation_requested"
+    impersonation_granted    = "impersonation_granted"
+
+
+class NotificationAudience(str, enum.Enum):
+    """Who a /notifications/send call targeted — stored for audit context."""
+    user             = "user"              # a single specific user
+    landlord         = "landlord"          # one landlord (sent to that landlord's own user)
+    property_tenants = "property_tenants"  # every tenant in one property
+    all_tenants      = "all_tenants"       # every tenant of a landlord (or platform-wide for admin)
+    all_team_members = "all_team_members"  # every team member of a landlord
+    all_landlords    = "all_landlords"     # admin-only: every landlord on the platform
 
 
 class BackupScopeType(str, enum.Enum):
@@ -2096,6 +2120,60 @@ class Backup(TimestampMixin, Base):
             "file_url":    self.file_url,
             "created_at":  _serialise(self.created_at),
             "updated_at":  _serialise(self.updated_at),
+        }
+
+
+class Notification(TimestampMixin, Base):
+    """
+    §12  In-app notification — one row per resolved recipient. A broadcast to
+    50 tenants fans out into 50 rows sharing the same category/title/body but
+    distinct recipient_user_id, so each tenant's read state is independent.
+
+    sender_user_id is null for system-generated notifications (e.g. a Celery
+    Beat trial-expiry check); set to the acting admin/landlord's user id for
+    a manual broadcast. landlord_id scopes which landlord's "send" UI/audit
+    this belongs to — null for pure-platform sends (admin -> all landlords).
+    """
+    __tablename__ = "notifications"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    recipient_user_id  = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    sender_user_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    landlord_id        = Column(Integer, ForeignKey("landlords.id"), nullable=True, index=True)
+    category           = Column(String(40), nullable=False)    # enum NotificationCategory
+    title              = Column(String(150), nullable=False)
+    body               = Column(Text, nullable=False)
+    link               = Column(String(255), nullable=True)    # frontend route to deep-link to
+    entity_type        = Column(String(40), nullable=True)
+    entity_id          = Column(Integer, nullable=True)
+    is_read            = Column(Boolean, default=False, nullable=False)
+    read_at            = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_notifications_recipient_created", "recipient_user_id", "created_at"),
+        Index("ix_notifications_recipient_is_read", "recipient_user_id", "is_read"),
+    )
+
+    recipient = relationship("User", foreign_keys=[recipient_user_id])
+    sender    = relationship("User", foreign_keys=[sender_user_id])
+    landlord  = relationship("Landlord", foreign_keys=[landlord_id])
+
+    def to_dict(self):
+        return {
+            "id":                self.id,
+            "recipient_user_id": self.recipient_user_id,
+            "sender_user_id":    self.sender_user_id,
+            "landlord_id":       self.landlord_id,
+            "category":          self.category,
+            "title":             self.title,
+            "body":              self.body,
+            "link":              self.link,
+            "entity_type":       self.entity_type,
+            "entity_id":         self.entity_id,
+            "is_read":           self.is_read,
+            "read_at":           _serialise(self.read_at),
+            "created_at":        _serialise(self.created_at),
+            "updated_at":        _serialise(self.updated_at),
         }
 
 

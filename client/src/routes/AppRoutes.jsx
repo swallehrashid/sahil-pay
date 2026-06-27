@@ -53,6 +53,11 @@ const StatementsPage = lazy(() => import("@/features/landlord/reports/Statements
 const InsightsPage = lazy(() => import("@/features/landlord/reports/InsightsPage"));
 const CommunicationsPage = lazy(() => import("@/features/landlord/communications/CommunicationsPage"));
 
+// ---- Notifications (shared across all four portals) ----
+const NotificationsPage = lazy(() => import("@/features/notifications/NotificationsPage"));
+const SendNotificationLandlord = lazy(() => import("@/features/notifications/SendNotificationLandlord"));
+const SendNotificationAdmin = lazy(() => import("@/features/notifications/SendNotificationAdmin"));
+
 // Landlord settings
 const SettingsLayout = lazy(() => import("@/features/landlord/settings/SettingsLayout"));
 const GeneralSettings = lazy(() => import("@/features/landlord/settings/GeneralSettings"));
@@ -214,6 +219,8 @@ export default function AppRoutes() {
             <Route path="reports/statements" element={withSuspense(StatementsPage)} />
             <Route path="reports/insights" element={withSuspense(InsightsPage)} />
             <Route path="communications" element={withSuspense(CommunicationsPage)} />
+            <Route path="notifications" element={withSuspense(NotificationsPage)} />
+            <Route path="notifications/send" element={withSuspense(SendNotificationLandlord)} />
 
             <Route path="settings" element={withSuspense(SettingsLayout)}>
               <Route index element={<Navigate to="general" replace />} />
@@ -267,6 +274,7 @@ export default function AppRoutes() {
             <Route element={<ProtectedRoutes requiredPermission={{ module: "messages", level: "view" }} />}>
               <Route path="communications" element={withSuspense(CommunicationsPage)} />
             </Route>
+            <Route path="notifications" element={withSuspense(NotificationsPage)} />
           </Route>
         </Route>
 
@@ -279,6 +287,7 @@ export default function AppRoutes() {
             <Route path="statement" element={withSuspense(TenantStatement)} />
             <Route path="maintenance" element={withSuspense(TenantMaintenance)} />
             <Route path="profile" element={withSuspense(TenantProfile)} />
+            <Route path="notifications" element={withSuspense(NotificationsPage)} />
           </Route>
         </Route>
 
@@ -293,6 +302,8 @@ export default function AppRoutes() {
             <Route path="trials" element={withSuspense(TrialConfig)} />
             <Route path="impersonation" element={withSuspense(Impersonation)} />
             <Route path="audit" element={withSuspense(MasterAuditLogs)} />
+            <Route path="notifications" element={withSuspense(NotificationsPage)} />
+            <Route path="notifications/send" element={withSuspense(SendNotificationAdmin)} />
           </Route>
         </Route>
 

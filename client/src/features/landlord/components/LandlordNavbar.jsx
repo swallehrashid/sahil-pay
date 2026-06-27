@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
-import { Bell, MessageCircle } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import NotificationBell from "@/features/notifications/NotificationBell";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 
 // Top bar for the landlord shell — account, SMS balance, notifications.
@@ -16,9 +17,7 @@ export default function LandlordNavbar() {
         <MessageCircle className="h-4 w-4 text-secondary" />
         {user?.sms_balance ?? 0} SMS left
       </Link>
-      <button className="glass rounded-xl p-2.5 text-white/70 transition-colors hover:text-white">
-        <Bell className="h-4 w-4" />
-      </button>
+      <NotificationBell notificationsPath={LANDLORD_ROUTES.notifications} />
       <div className="glass flex items-center gap-2 rounded-xl px-3 py-2">
         <span className="flex h-7 w-7 items-center justify-center rounded-full bg-secondary text-xs font-medium text-white">
           {(user?.company_name || user?.email || "L")[0].toUpperCase()}

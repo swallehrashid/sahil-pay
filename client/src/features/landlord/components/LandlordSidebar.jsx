@@ -12,6 +12,7 @@ import {
   FolderTree,
   BarChart3,
   MessageSquare,
+  Bell,
   Settings as SettingsIcon,
   LogOut,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { to: LANDLORD_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.reportsStatements, label: "Reports", icon: <BarChart3 className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.communications, label: "Communications", icon: <MessageSquare className="h-4 w-4" /> },
+  { to: LANDLORD_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.settings.root, label: "Settings", icon: <SettingsIcon className="h-4 w-4" /> },
 ];
 

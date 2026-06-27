@@ -86,6 +86,7 @@ export const apiSlice = createApi({
     "Impersonation",
     "Settings",
     "Audit",
+    "Notification",
     "Backup",
     "Dashboard",
     "Report",

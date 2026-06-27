@@ -436,6 +436,20 @@ def team_activate(token):
         entity_id=tm.id,
         description=f"Team member {tm.username} activated their account.",
     )
+
+    if tm.landlord and tm.landlord.user_id:
+        from services.notification_service import notify
+        notify(
+            recipient_user_id=tm.landlord.user_id,
+            category="team_member_activated",
+            template_key="team_member_activated",
+            template_kwargs={"member_name": f"{tm.first_name or ''} {tm.last_name or ''}".strip() or tm.username},
+            landlord_id=tm.landlord_id,
+            link="/landlord/settings/team",
+            entity_type="team_member",
+            entity_id=tm.id,
+        )
+
     db.session.commit()
 
     return jsonify({"message": "Account activated. You can now log in."}), 200

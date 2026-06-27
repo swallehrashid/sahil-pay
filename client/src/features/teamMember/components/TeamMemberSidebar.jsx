@@ -11,6 +11,7 @@ import {
   FolderTree,
   BarChart3,
   MessageSquare,
+  Bell,
   LogOut,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
@@ -32,6 +33,7 @@ const NAV_ITEMS = [
   { to: TEAM_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" /> },
   { to: TEAM_ROUTES.reportsStatements, label: "Reports", icon: <BarChart3 className="h-4 w-4" /> },
   { to: TEAM_ROUTES.communications, label: "Communications", icon: <MessageSquare className="h-4 w-4" />, module: "messages" },
+  { to: TEAM_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" /> },
 ];
 
 // Renders ONLY the modules this team member can view — a hidden module never renders

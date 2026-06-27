@@ -43,6 +43,7 @@ const SHARED_MODULES = {
   reportsStatements: "reports/statements",
   reportsInsights: "reports/insights",
   communications: "communications",
+  notifications: "notifications",
 };
 
 function buildPortalRoutes(rootPrefix) {
@@ -58,6 +59,7 @@ export const LANDLORD_ROUTES = {
   ...buildPortalRoutes("/landlord"),
   bankStatementReview: "/landlord/payments/bank-statement/:id",
   bankStatementReviewPath: (id) => `/landlord/payments/bank-statement/${id}`,
+  notificationsSend: "/landlord/notifications/send",
   settings: {
     root: "/landlord/settings",
     general: "/landlord/settings/general",
@@ -85,6 +87,7 @@ export const TENANT_ROUTES = {
   statement: "/portal/statement",
   maintenance: "/portal/maintenance",
   profile: "/portal/profile",
+  notifications: "/portal/notifications",
 };
 
 export const ADMIN_ROUTES = {
@@ -97,6 +100,8 @@ export const ADMIN_ROUTES = {
   trials: "/admin/trials",
   impersonation: "/admin/impersonation",
   audit: "/admin/audit",
+  notifications: "/admin/notifications",
+  notificationsSend: "/admin/notifications/send",
 };
 
 export const NOT_FOUND_ROUTE = "*";

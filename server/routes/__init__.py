@@ -32,6 +32,7 @@ from .admin_routes            import admin_bp
 from .admin_pricing_routes    import admin_pricing_bp
 from .admin_trial_routes      import admin_trial_bp
 from .admin_impersonation_routes import admin_impersonation_bp
+from .notification_routes     import notification_bp
 
 
 def register_blueprints(app):
@@ -72,3 +73,6 @@ def register_blueprints(app):
     app.register_blueprint(admin_pricing_bp)      # /api/admin/pricing
     app.register_blueprint(admin_trial_bp)        # /api/admin/trials
     app.register_blueprint(admin_impersonation_bp) # /api/admin/impersonation
+
+    # ── Notifications (every role) ─────────────────────────────────────────────
+    app.register_blueprint(notification_bp)       # /api/notifications

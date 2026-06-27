@@ -145,9 +145,21 @@ def create_impersonation_request():
         ),
         after_data=imp_req.to_dict(),
     )
-    db.session.commit()
 
-    # TODO: trigger in-app notification to landlord (CommunicationLog or WebSocket)
+    from services.notification_service import notify
+    admin_user = db.session.get(User, _admin_id())
+    notify(
+        recipient_user_id=landlord.user_id,
+        category="impersonation_requested",
+        template_key="impersonation_requested",
+        template_kwargs={"admin_email": admin_user.email if admin_user else "a SahilPay admin", "reason": reason},
+        sender_user_id=_admin_id(),
+        landlord_id=landlord_id,
+        link="/landlord/settings/impersonation-requests",
+        entity_type="account",
+        entity_id=imp_req.id,
+    )
+    db.session.commit()
 
     return jsonify({
         "message": "Impersonation request sent. Awaiting landlord consent.",
@@ -340,6 +352,19 @@ def landlord_grant_request(request_id):
         ),
         before_data=before,
         after_data=imp_req.to_dict(),
+    )
+
+    from services.notification_service import notify
+    granting_landlord = db.session.get(Landlord, landlord_id)
+    notify(
+        recipient_user_id=imp_req.admin_user_id,
+        category="impersonation_granted",
+        template_key="impersonation_granted",
+        template_kwargs={"company_name": granting_landlord.company_name if granting_landlord else "A landlord"},
+        landlord_id=landlord_id,
+        link="/admin/impersonation",
+        entity_type="account",
+        entity_id=imp_req.id,
     )
     db.session.commit()
 

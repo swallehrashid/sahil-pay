@@ -3,6 +3,7 @@ import { LayoutDashboard, Wallet, FileText, Wrench, User, LogOut } from "lucide-
 import clsx from "clsx";
 import { TENANT_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
+import NotificationBell from "@/features/notifications/NotificationBell";
 
 const LINKS = [
   { to: TENANT_ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
@@ -47,9 +48,12 @@ export default function TenantNavbar() {
         ))}
       </nav>
 
-      <button onClick={handleLogout} className="rounded-xl p-2 text-white/50 transition-colors hover:bg-white/10 hover:text-white">
-        <LogOut className="h-4 w-4" />
-      </button>
+      <div className="flex items-center gap-2">
+        <NotificationBell notificationsPath={TENANT_ROUTES.notifications} />
+        <button onClick={handleLogout} className="rounded-xl p-2 text-white/50 transition-colors hover:bg-white/10 hover:text-white">
+          <LogOut className="h-4 w-4" />
+        </button>
+      </div>
     </header>
   );
 }

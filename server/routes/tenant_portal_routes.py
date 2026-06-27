@@ -239,6 +239,25 @@ def portal_pay():
     # create_payment for the identical landlord-side logic.
     tenant.balance = (tenant.balance or Decimal("0")) + amount
 
+    from models import Landlord
+    from services.notification_service import notify
+    landlord_row = db.session.get(Landlord, landlord_id)
+    if landlord_row and landlord_row.user_id:
+        notify(
+            recipient_user_id=landlord_row.user_id,
+            category="payment_received",
+            template_key="payment_received",
+            template_kwargs={
+                "amount": f"{amount:,.2f}",
+                "tenant_name": f"{tenant.first_name} {tenant.last_name}",
+                "unit_name": unit.name if unit else "—",
+            },
+            landlord_id=landlord_id,
+            link="/landlord/payments",
+            entity_type="payment",
+            entity_id=payment.id,
+        )
+
     db.session.commit()
 
     # Auto-email receipt if tenant has an email address
@@ -605,6 +624,27 @@ def create_maintenance():
         image_url   = image_url or data.get("image_url"),
     )
     db.session.add(req)
+    db.session.flush()
+
+    from models import Landlord
+    from services.notification_service import notify
+    landlord_row = db.session.get(Landlord, landlord_id)
+    if landlord_row and landlord_row.user_id:
+        notify(
+            recipient_user_id=landlord_row.user_id,
+            category="new_maintenance_request",
+            template_key="new_maintenance_request",
+            template_kwargs={
+                "tenant_name": f"{tenant.first_name} {tenant.last_name}",
+                "summary": summary,
+                "category": category or "other",
+            },
+            landlord_id=landlord_id,
+            link="/landlord/maintenance",
+            entity_type="maintenance",
+            entity_id=req.id,
+        )
+
     db.session.commit()
 
     return jsonify({

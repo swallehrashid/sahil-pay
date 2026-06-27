@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Tags, Clock, ShieldCheck, FileSearch, LogOut } from "lucide-react";
+import { LayoutDashboard, Building2, Tags, Clock, ShieldCheck, FileSearch, Bell, LogOut } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { ADMIN_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: ADMIN_ROUTES.trials, label: "Trials", icon: <Clock className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.impersonation, label: "Impersonation", icon: <ShieldCheck className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.audit, label: "Master Audit", icon: <FileSearch className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" /> },
 ];
 
 // Ultra-minimalist, dark-mode-by-default per the design system's admin theming rule.
