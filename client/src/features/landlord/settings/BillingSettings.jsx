@@ -20,7 +20,6 @@ import {
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows } from "@/utils/tableAdapters";
 import { SUBSCRIPTION_PLANS } from "@/utils/constants";
 
 const PLAN_DISCOUNTS = { monthly: "0%", quarterly: "10%", annual: "15%" };
@@ -36,16 +35,24 @@ export default function BillingSettings() {
   const [isPayOpen, setIsPayOpen] = useState(false);
   const [isSmsOpen, setIsSmsOpen] = useState(false);
   const [plan, setPlan] = useState("monthly");
+  const [paymentReference, setPaymentReference] = useState("");
   const [smsCount, setSmsCount] = useState("100");
+  const [smsPaymentReference, setSmsPaymentReference] = useState("");
 
-  const transactions = toRows(transactionsData);
+  // Backend returns { transactions: [...] }, not one of toRows()'s recognized keys.
+  const transactions = transactionsData?.transactions ?? [];
 
   const handlePay = async (e) => {
     e.preventDefault();
+    if (!paymentReference.trim()) {
+      toast("Payment reference is required.", { type: "error" });
+      return;
+    }
     try {
-      await paySubscription({ plan }).unwrap();
-      toast("Subscription payment initiated.", { type: "success" });
+      await paySubscription({ billing_cycle: plan, payment_reference: paymentReference }).unwrap();
+      toast("Subscription payment recorded.", { type: "success" });
       setIsPayOpen(false);
+      setPaymentReference("");
     } catch {
       toast("Could not process the payment.", { type: "error" });
     }
@@ -57,10 +64,15 @@ export default function BillingSettings() {
       toast("Minimum SMS purchase is 100.", { type: "error" });
       return;
     }
+    if (!smsPaymentReference.trim()) {
+      toast("Payment reference is required.", { type: "error" });
+      return;
+    }
     try {
-      await buySms({ sms_count: Number(smsCount) }).unwrap();
-      toast("SMS purchase initiated.", { type: "success" });
+      await buySms({ sms_count: Number(smsCount), payment_reference: smsPaymentReference }).unwrap();
+      toast("SMS credits purchased.", { type: "success" });
       setIsSmsOpen(false);
+      setSmsPaymentReference("");
     } catch {
       toast("Could not process the SMS purchase.", { type: "error" });
     }
@@ -78,8 +90,8 @@ export default function BillingSettings() {
         row.status === "paid" && (
           <button
             onClick={() =>
-              generateTaxInvoice({ id: row.id }).then(() =>
-                downloadFile(row.tax_invoice_url ?? "/billing/tax-invoice", { filename: `tax-invoice-${row.id}.pdf` })
+              generateTaxInvoice({ transaction_id: row.id }).then((res) =>
+                downloadFile(res?.data?.tax_invoice_url ?? row.tax_invoice_url, { filename: `tax-invoice-${row.id}.pdf` })
               )
             }
             className="flex items-center gap-1 text-xs text-secondary hover:underline"
@@ -111,9 +123,9 @@ export default function BillingSettings() {
         <SkeletonStatCards count={4} />
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard label="Plan" value={data?.plan ?? "—"} icon={<CreditCard className="h-5 w-5" />} />
-          <SummaryCard label="Amount due" value={formatCurrency(data?.amount_due)} icon={<CreditCard className="h-5 w-5" />} accent="third" />
-          <SummaryCard label="Next billing date" value={data?.next_billing_date ? formatDate(data.next_billing_date) : "—"} icon={<CreditCard className="h-5 w-5" />} />
+          <SummaryCard label="Plan" value={data?.subscription?.plan ?? "—"} icon={<CreditCard className="h-5 w-5" />} />
+          <SummaryCard label="Amount due" value={formatCurrency(data?.subscription?.amount_due)} icon={<CreditCard className="h-5 w-5" />} accent="third" />
+          <SummaryCard label="Next billing date" value={data?.subscription?.next_billing_date ? formatDate(data.subscription.next_billing_date) : "—"} icon={<CreditCard className="h-5 w-5" />} />
           <SummaryCard label="SMS balance" value={data?.sms_balance ?? 0} icon={<MessageSquarePlus className="h-5 w-5" />} accent="third" />
         </div>
       )}
@@ -132,6 +144,13 @@ export default function BillingSettings() {
             options={SUBSCRIPTION_PLANS.map((p) => ({ value: p, label: `${p} (${PLAN_DISCOUNTS[p]} off)` }))}
             required
           />
+          <Input
+            label="Payment reference"
+            value={paymentReference}
+            onChange={(e) => setPaymentReference(e.target.value)}
+            hint="M-Pesa code or bank reference for this payment"
+            required
+          />
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={() => setIsPayOpen(false)}>
               Cancel
@@ -146,6 +165,13 @@ export default function BillingSettings() {
       <Modal isOpen={isSmsOpen} onClose={() => setIsSmsOpen(false)} title="Buy SMS">
         <form onSubmit={handleBuySms} className="space-y-4">
           <Input label="Number of SMS" type="number" min="100" value={smsCount} onChange={(e) => setSmsCount(e.target.value)} hint="Minimum 100" required />
+          <Input
+            label="Payment reference"
+            value={smsPaymentReference}
+            onChange={(e) => setSmsPaymentReference(e.target.value)}
+            hint="M-Pesa code or bank reference for this payment"
+            required
+          />
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={() => setIsSmsOpen(false)}>
               Cancel

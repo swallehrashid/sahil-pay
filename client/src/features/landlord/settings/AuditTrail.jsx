@@ -13,7 +13,7 @@ import { toRows } from "@/utils/tableAdapters";
 
 // §4.23 — filterable audit trail with an expandable before/after detail view.
 export default function AuditTrail() {
-  const [filters, setFilters] = useState({ date_from: "", date_to: "", actor_user_id: "", entity_type: "" });
+  const [filters, setFilters] = useState({ start_date: "", end_date: "", actor_user_id: "", entity_type: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
   const [activeEntry, setActiveEntry] = useState(null);
 
@@ -39,12 +39,12 @@ export default function AuditTrail() {
         <FilterPanel
           onApply={() => setAppliedFilters(filters)}
           onReset={() => {
-            setFilters({ date_from: "", date_to: "", actor_user_id: "", entity_type: "" });
+            setFilters({ start_date: "", end_date: "", actor_user_id: "", entity_type: "" });
             setAppliedFilters({});
           }}
         >
-          <DatePicker label="From" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} />
-          <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
+          <DatePicker label="From" value={filters.start_date} onChange={(e) => setFilters((f) => ({ ...f, start_date: e.target.value }))} />
+          <DatePicker label="To" value={filters.end_date} onChange={(e) => setFilters((f) => ({ ...f, end_date: e.target.value }))} />
           <Select
             label="User"
             value={filters.actor_user_id}

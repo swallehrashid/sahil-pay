@@ -15,8 +15,11 @@ export default function GenerateRecurringInvoices({ isOpen, onClose, properties 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const result = await generate(form).unwrap();
-      toast(`${result?.created_count ?? "Recurring bill"} invoices generated.`, { type: "success" });
+      const result = await generate({
+        property_ids: form.property_id ? [Number(form.property_id)] : undefined,
+        issue_date: `${form.billing_month}-01`,
+      }).unwrap();
+      toast(`${result?.created ?? "Recurring bill"} invoices generated.`, { type: "success" });
       onClose();
     } catch {
       toast("Could not generate recurring bill invoices.", { type: "error" });

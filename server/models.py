@@ -450,9 +450,12 @@ class User(TimestampMixin, Base):
     verification_token = Column(String(255), nullable=True)
 
     __table_args__ = (
-        # Non-tenant roles must have a password_hash
+        # Tenants are OTP-only, and team members are created with no password
+        # by team_routes.py::create_team_member — they set one during account
+        # activation (POST /api/auth/team-activate/<token>). Every other role
+        # self-registers with a password up front and must always have one.
         CheckConstraint(
-            "(role = 'tenant') OR (password_hash IS NOT NULL)",
+            "(role IN ('tenant', 'team_member')) OR (password_hash IS NOT NULL)",
             name="ck_users_non_tenant_needs_password",
         ),
     )

@@ -24,7 +24,7 @@ export default function ShiftTenantModal({ tenant, units = [], onClose }) {
     }
     setError("");
     try {
-      await shiftTenant({ id: tenant.id, unit_id: unitId, moved_in_at: movedInAt || undefined }).unwrap();
+      await shiftTenant({ id: tenant.id, new_unit_id: unitId, move_date: movedInAt || undefined }).unwrap();
       toast(`${tenant.first_name} has been shifted.`, { type: "success" });
       onClose();
     } catch {

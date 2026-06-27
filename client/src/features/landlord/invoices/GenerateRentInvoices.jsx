@@ -15,8 +15,12 @@ export default function GenerateRentInvoices({ isOpen, onClose, properties = [] 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const result = await generate(form).unwrap();
-      toast(`${result?.created_count ?? "Rent"} invoices generated.`, { type: "success" });
+      const result = await generate({
+        property_ids: form.property_id ? [Number(form.property_id)] : undefined,
+        issue_date: `${form.billing_month}-01`,
+        due_date: form.due_date || undefined,
+      }).unwrap();
+      toast(`${result?.created ?? "Rent"} invoices generated.`, { type: "success" });
       onClose();
     } catch {
       toast("Could not generate rent invoices.", { type: "error" });

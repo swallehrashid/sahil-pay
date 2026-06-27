@@ -171,7 +171,7 @@ def pay_subscription():
         type              = BillingTransactionType.subscription.value,
         amount            = amount_due,
         payment_reference = payment_reference,
-        status            = BillingTransactionStatus.completed.value,
+        status            = BillingTransactionStatus.paid.value,
     )
     db.session.add(txn)
     db.session.commit()
@@ -241,7 +241,7 @@ def buy_sms():
         amount            = amount,
         sms_count         = sms_count,
         payment_reference = payment_reference,
-        status            = BillingTransactionStatus.completed.value,
+        status            = BillingTransactionStatus.paid.value,
     )
     db.session.add(txn)
     db.session.commit()

@@ -34,8 +34,14 @@ export default function GenerateCustomInvoices({ isOpen, onClose, tenants = [] }
     }
     setError("");
     try {
-      const result = await generate(form).unwrap();
-      toast(`${result?.created_count ?? "Custom"} invoices generated.`, { type: "success" });
+      const result = await generate({
+        tenant_ids: form.tenant_ids,
+        issue_date: new Date().toISOString().slice(0, 10),
+        due_date: form.due_date || undefined,
+        title: form.item,
+        line_items: [{ item: form.item, description: form.description || undefined, unit_price: form.amount, quantity: 1 }],
+      }).unwrap();
+      toast(`${result?.created ?? "Custom"} invoices generated.`, { type: "success" });
       onClose();
     } catch {
       toast("Could not generate custom invoices.", { type: "error" });

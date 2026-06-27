@@ -25,9 +25,20 @@ export default function BulkInvoices({ isOpen, onClose, tenants = [] }) {
       toast("Add at least one complete row.", { type: "error" });
       return;
     }
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const invoices = validRows.map((r) => {
+      const tenant = tenants.find((t) => String(t.id) === String(r.tenant_id));
+      return {
+        tenant_id: r.tenant_id,
+        unit_id: tenant?.unit_id,
+        property_id: tenant?.property_id,
+        issue_date: todayIso,
+        line_items: [{ item: r.item, amount: r.amount, unit_price: r.amount, quantity: 1 }],
+      };
+    });
     try {
-      const result = await bulkAdd({ invoices: validRows }).unwrap();
-      toast(`${result?.created_count ?? validRows.length} invoices created.`, { type: "success" });
+      const result = await bulkAdd({ invoices }).unwrap();
+      toast(`${result?.created ?? validRows.length} invoices created.`, { type: "success" });
       setRows([{ ...EMPTY_ROW }]);
       onClose();
     } catch {

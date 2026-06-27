@@ -9,7 +9,10 @@ import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import { toast } from "@/components/ui/Toast";
 import TeamMemberForm from "./TeamMemberForm";
-import { useGetTeamMembersQuery, useCreateTeamMemberMutation, useUpdateTeamMemberMutation, useDeleteTeamMemberMutation } from "./teamApiSlice";
+import {
+  useGetTeamMembersQuery, useCreateTeamMemberMutation, useUpdateTeamMemberMutation,
+  useDeleteTeamMemberMutation, useUpdateTeamMemberPermissionsMutation, useUpdateTeamMemberPropertyAccessMutation,
+} from "./teamApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { toRows } from "@/utils/tableAdapters";
 
@@ -20,23 +23,42 @@ export default function TeamManagement() {
   const [createMember, { isLoading: isCreating }] = useCreateTeamMemberMutation();
   const [updateMember, { isLoading: isUpdating }] = useUpdateTeamMemberMutation();
   const [deleteMember] = useDeleteTeamMemberMutation();
+  const [updatePermissions] = useUpdateTeamMemberPermissionsMutation();
+  const [updatePropertyAccess] = useUpdateTeamMemberPropertyAccessMutation();
 
   const [active, setActive] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
 
-  const members = toRows(data);
+  // Backend returns { team_members: [...] }, not one of toRows()'s recognized keys.
+  const members = data?.team_members ?? [];
   const properties = toRows(propertiesData);
 
   const handleSubmit = async (values) => {
+    const { permissions, property_ids, property_access_all, ...baseFields } = values;
     try {
-      if (active?.id) {
-        await updateMember({ id: active.id, ...values }).unwrap();
+      let memberId = active?.id;
+      if (memberId) {
+        await updateMember({ id: memberId, ...baseFields, property_access_all }).unwrap();
         toast("Team member updated.", { type: "success" });
       } else {
-        await createMember(values).unwrap();
+        const result = await createMember({ ...baseFields, property_access_all }).unwrap();
+        memberId = result?.team_member?.id;
         toast("Team member invited.", { type: "success" });
       }
+
+      // create/update only persist base fields — permissions and property scope
+      // are separate endpoints by design (server/routes/team_routes.py).
+      const permissionsPayload = Object.entries(permissions ?? {}).map(([module, p]) => ({
+        module, can_view: p.can_view, can_edit: p.can_edit,
+      }));
+      if (memberId && permissionsPayload.length) {
+        await updatePermissions({ id: memberId, permissions: permissionsPayload }).unwrap();
+      }
+      if (memberId) {
+        await updatePropertyAccess({ id: memberId, property_access_all, property_ids: property_ids ?? [] }).unwrap();
+      }
+
       setIsFormOpen(false);
     } catch {
       toast("Could not save the team member.", { type: "error" });
@@ -96,7 +118,13 @@ export default function TeamManagement() {
                 label: "Edit",
                 icon: <Pencil className="h-4 w-4" />,
                 onClick: () => {
-                  setActive(row);
+                  // row.permissions is the array shape [{module, can_view, can_edit}],
+                  // but PermissionMatrix/TeamMemberForm expect an object keyed by module.
+                  const permissions = Object.fromEntries(
+                    (row.permissions ?? []).map((p) => [p.module, { can_view: p.can_view, can_edit: p.can_edit }])
+                  );
+                  const property_ids = Array.isArray(row.property_access) ? row.property_access : [];
+                  setActive({ ...row, permissions, property_ids });
                   setIsFormOpen(true);
                 },
               },

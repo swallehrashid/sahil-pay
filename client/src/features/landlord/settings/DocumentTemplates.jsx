@@ -66,7 +66,7 @@ function SendDocumentModal({ template, tenants, onClose }) {
   const handleSend = async (e) => {
     e.preventDefault();
     try {
-      await sendDocument({ template_id: template.id, tenant_id: tenantId }).unwrap();
+      await sendDocument({ template_id: template.id, tenant_ids: [tenantId] }).unwrap();
       toast("Document sent.", { type: "success" });
       onClose();
     } catch {

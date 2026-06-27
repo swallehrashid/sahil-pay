@@ -6,7 +6,6 @@ import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 import { useGetAlertSettingsQuery, useUpdateAlertSettingsMutation } from "./settingsApiSlice";
 import { ALERT_TYPES, ALERT_CADENCES, ALERT_CHANNELS } from "@/utils/constants";
-import { toRows } from "@/utils/tableAdapters";
 
 // §4.16 — which alerts the landlord receives, cadence and channel, per alert type.
 export default function AlertSettings() {
@@ -16,7 +15,8 @@ export default function AlertSettings() {
   const [alerts, setAlerts] = useState(null);
   if (data && data !== prevData) {
     setPrevData(data);
-    const existing = toRows(data);
+    // Backend returns { alerts: [...] }, not one of toRows()'s recognized keys.
+    const existing = data.alerts ?? [];
     setAlerts(
       ALERT_TYPES.map(
         (type) => existing.find((a) => a.alert_type === type) ?? { alert_type: type, is_enabled: false, cadence: "weekly", channel: "dashboard" }

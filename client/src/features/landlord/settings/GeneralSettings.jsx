@@ -25,7 +25,10 @@ export default function GeneralSettings() {
   const [form, setForm] = useState(null);
   if (data && data !== prevData) {
     setPrevData(data);
-    setForm(data);
+    // Backend nests sms_enabled/whatsapp_enabled/email_enabled under channel_settings
+    // on GET, but the PUT handler reads them flat — flatten on hydrate so both the
+    // checkboxes display correctly AND a save-without-touching-them round-trips intact.
+    setForm({ ...data, ...(data.channel_settings ?? {}) });
   }
 
   const [prevAutomation, setPrevAutomation] = useState();

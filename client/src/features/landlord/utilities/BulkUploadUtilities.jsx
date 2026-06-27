@@ -17,14 +17,12 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
   const [step, setStep] = useState(1);
   const [scope, setScope] = useState({ property_id: "", utility_item: "water", reading_month: currentMonth() });
   const [readings, setReadings] = useState({});
-  const [batchId, setBatchId] = useState(null);
 
   const scopedUnits = units.filter((u) => !scope.property_id || String(u.property_id) === String(scope.property_id));
 
   const handleClose = () => {
     setStep(1);
     setReadings({});
-    setBatchId(null);
     onClose();
   };
 
@@ -40,8 +38,11 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
         ...scope,
         readings: entries.map(([unit_id, current_reading]) => ({ unit_id, current_reading })),
       }).unwrap();
-      setBatchId(result?.batch_id);
-      toast("Readings recorded.", { type: "success" });
+      const errorCount = result?.errors?.length ?? 0;
+      toast(
+        `${result?.created ?? 0} reading(s) recorded${errorCount ? `, ${errorCount} skipped` : ""}.`,
+        { type: errorCount ? "info" : "success" }
+      );
       setStep(3);
     } catch {
       toast("Could not save the readings.", { type: "error" });
@@ -50,7 +51,9 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
 
   const handleGenerate = async () => {
     try {
-      await generateInvoices({ batch_id: batchId, ...scope }).unwrap();
+      // No batch concept server-side — generation re-scopes by property/item/month
+      // and defaults to every unlinked reading in that scope (i.e. what step 2 just saved).
+      await generateInvoices(scope).unwrap();
       toast("Utility invoices generated.", { type: "success" });
       handleClose();
     } catch {

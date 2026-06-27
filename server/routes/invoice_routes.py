@@ -499,7 +499,11 @@ def generate_rent_invoices():
         landlord_id, issue_date, property_ids, unit_ids,
         data.get("due_date"), int(get_jwt_identity()),
     )
-    return jsonify({"task_id": task.id, "message": "Rent invoice generation queued."}), 202
+    # In dev (CELERY_TASK_ALWAYS_EAGER=True) the task has already run by the time
+    # .delay() returns, so task.result is populated; under a real worker it's None
+    # until the task completes, and callers should rely on task_id instead.
+    created = task.result.get("created") if task.result else None
+    return jsonify({"task_id": task.id, "created": created, "message": "Rent invoice generation queued."}), 202
 
 
 # ---------------------------------------------------------------------------
@@ -530,7 +534,8 @@ def generate_recurring_invoices():
         data.get("property_ids"),
         int(get_jwt_identity()),
     )
-    return jsonify({"task_id": task.id, "message": "Recurring invoice generation queued."}), 202
+    created = task.result.get("created") if task.result else None
+    return jsonify({"task_id": task.id, "created": created, "message": "Recurring invoice generation queued."}), 202
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +567,8 @@ def generate_penalty_invoices():
         data.get("penalty_amount"),
         int(get_jwt_identity()),
     )
-    return jsonify({"task_id": task.id, "message": "Penalty invoice generation queued."}), 202
+    created = task.result.get("created") if task.result else None
+    return jsonify({"task_id": task.id, "created": created, "message": "Penalty invoice generation queued."}), 202
 
 
 # ---------------------------------------------------------------------------
@@ -597,7 +603,8 @@ def generate_custom_invoices():
         landlord_id, tenant_ids, issue_date, line_items,
         data.get("title"), data.get("due_date"), int(get_jwt_identity()),
     )
-    return jsonify({"task_id": task.id, "message": "Custom invoice generation queued."}), 202
+    created = task.result.get("created") if task.result else None
+    return jsonify({"task_id": task.id, "created": created, "message": "Custom invoice generation queued."}), 202
 
 
 # ---------------------------------------------------------------------------

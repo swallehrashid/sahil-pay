@@ -20,7 +20,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
 from models import (
     DocumentTemplate, Tenant, Landlord, CommunicationLog,
-    CommunicationStatus, MessageChannel,
+    CommunicationStatus, MessageChannel, RecipientType,
 )
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service    import record_audit
@@ -80,10 +80,10 @@ def create_template():
     """
     Create a document template.
     Accepts either:
-      - JSON  { name, document_type?, body_html: str }  — for HTML/WeasyPrint templates
+      - JSON  { name, document_type?, content: str }  — for HTML/WeasyPrint templates
       - Multipart  { name, document_type?, file }        — for uploaded PDF/Word files
 
-    Supported placeholders in body_html:
+    Supported placeholders in content:
       {tenant_name}, {unit_name}, {property_name}, {rent_amount},
       {lease_start}, {lease_expiry}, {landlord_name}, {landlord_company}
     ---
@@ -99,24 +99,24 @@ def create_template():
     if request.is_json:
         data     = request.get_json(silent=True) or {}
         file_url = None
-        body_html = data.get("body_html")
+        content = data.get("content")
     else:
         data      = request.form.to_dict()
         file      = request.files.get("file")
         file_url  = upload_to_s3(file, folder=f"documents/{landlord_id}") if file else None
-        body_html = None
+        content = None
 
     name = (data.get("name") or "").strip()
     if not name:
         return jsonify({"error": "name is required."}), 400
-    if not body_html and not file_url:
-        return jsonify({"error": "Either body_html or a file upload is required."}), 400
+    if not content and not file_url:
+        return jsonify({"error": "Either content or a file upload is required."}), 400
 
     tmpl = DocumentTemplate(
         landlord_id   = landlord_id,
         name          = name,
         document_type = data.get("document_type"),
-        body_html     = body_html,
+        content     = content,
         file_url      = file_url,
     )
     db.session.add(tmpl)
@@ -149,7 +149,7 @@ def update_template(template_id):
     data        = request.get_json(silent=True) or {}
     before      = tmpl.to_dict()
 
-    for field in ["name", "document_type", "body_html"]:
+    for field in ["name", "document_type", "content"]:
         if field in data:
             setattr(tmpl, field, data[field])
 
@@ -264,8 +264,8 @@ def send_document():
             "{phone}":            tenant.phone or "",
         }
 
-        if tmpl.body_html:
-            body = tmpl.body_html
+        if tmpl.content:
+            body = tmpl.content
             for placeholder, value in context.items():
                 body = body.replace(placeholder, value)
             # Render to PDF and send

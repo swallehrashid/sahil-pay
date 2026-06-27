@@ -102,6 +102,7 @@ def list_tenants():
         unit = t.unit
         d["unit_name"]     = unit.name       if unit else None
         d["property_name"] = unit.property.name if (unit and unit.property) else None
+        d["property_id"]   = unit.property_id   if unit else None
         items.append(d)
 
     return jsonify({
@@ -261,6 +262,7 @@ def get_tenant(tenant_id):
     unit        = tenant.unit
     d["unit_name"]     = unit.name       if unit else None
     d["property_name"] = unit.property.name if (unit and unit.property) else None
+    d["property_id"]   = unit.property_id   if unit else None
     d["documents"]     = [doc.to_dict() for doc in tenant.documents]
     return jsonify(d), 200
 

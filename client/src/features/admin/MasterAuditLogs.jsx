@@ -15,7 +15,7 @@ import { toRows } from "@/utils/tableAdapters";
 
 // §7.4 — master audit logs across every landlord account, with full revert authority.
 export default function MasterAuditLogs() {
-  const [filters, setFilters] = useState({ landlord_id: "", entity_type: "", date_from: "", date_to: "" });
+  const [filters, setFilters] = useState({ landlord_id: "", entity_type: "", start_date: "", end_date: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
   const [pendingRevert, setPendingRevert] = useState(null);
   const [revertReason, setRevertReason] = useState("");
@@ -61,7 +61,7 @@ export default function MasterAuditLogs() {
         <FilterPanel
           onApply={() => setAppliedFilters(filters)}
           onReset={() => {
-            setFilters({ landlord_id: "", entity_type: "", date_from: "", date_to: "" });
+            setFilters({ landlord_id: "", entity_type: "", start_date: "", end_date: "" });
             setAppliedFilters({});
           }}
         >
@@ -78,8 +78,8 @@ export default function MasterAuditLogs() {
             onChange={(e) => setFilters((f) => ({ ...f, entity_type: e.target.value }))}
             options={AUDIT_ENTITY_TYPES.map((t) => ({ value: t, label: t }))}
           />
-          <DatePicker label="From" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} />
-          <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
+          <DatePicker label="From" value={filters.start_date} onChange={(e) => setFilters((f) => ({ ...f, start_date: e.target.value }))} />
+          <DatePicker label="To" value={filters.end_date} onChange={(e) => setFilters((f) => ({ ...f, end_date: e.target.value }))} />
         </FilterPanel>
 
         <div className="flex-1">
