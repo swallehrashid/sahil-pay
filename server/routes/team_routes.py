@@ -7,10 +7,12 @@ managing sub-accounts.  Team members' own session routes (profile,
 permissions lookup) live in teammember_routes.py.
 
 Create flow:
-  1. Create User row (role=team_member, no password yet, is_verified=False)
-  2. Create TeamMember row with activation_token
-  3. Send activation email → team member sets password via /api/auth/team-activate/<token>
-  4. On activation: is_active=True, activation_token cleared, is_verified=True
+  1. Create User row (role=team_member) with a system-generated TEMPORARY password,
+     is_active=True, is_verified=True, must_change_password=True.
+  2. Create TeamMember row (is_active=True).
+  3. Email the member their credentials (email, username, temp password) + how to log
+     in and change the password. They log in normally; the frontend forces a password
+     change on first login, which clears must_change_password.
 
 Permission matrix: one TeamMemberPermission row per (team_member, module).
 If can_edit=True → can_view is forced True at the app level.
@@ -27,13 +29,24 @@ from werkzeug.security import generate_password_hash
 from extensions import db
 from models import (
     TeamMember, TeamMemberPermission, TeamMemberPropertyAccess,
-    User, Property, UserRole,
+    User, Property, UserRole, Landlord,
 )
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service   import record_audit
-from services.email_service   import send_team_activation_email
+from services.email_service   import send_team_credentials_email
 
 team_bp = Blueprint("team", __name__, url_prefix="/api/team")
+
+# Characters for temporary passwords — unambiguous (no O/0, I/l/1) so they're
+# easy to type from an email, with at least one symbol to satisfy strength checks.
+_TEMP_PW_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+
+
+def _generate_temp_password(length: int = 12) -> str:
+    """A random, reasonably strong temporary password (always includes a symbol)."""
+    core = "".join(secrets.choice(_TEMP_PW_ALPHABET) for _ in range(length - 2))
+    # Guarantee a digit and a symbol so it passes any min-strength rule.
+    return core + secrets.choice("23456789") + secrets.choice("@#%&*?")
 
 
 # ---------------------------------------------------------------------------
@@ -91,14 +104,15 @@ def create_team_member():
     Required: email, username, role.
     Optional: first_name, last_name, phone, property_access_all (default False).
 
-    An activation email is sent with a one-time token.
-    The member cannot log in until they activate via /api/auth/team-activate/<token>.
+    A welcome email is sent with their login credentials (email, username and a
+    temporary password). They log in immediately and are forced to change the
+    password on first login.
     ---
     tags: [Team]
     security:
       - Bearer: []
     responses:
-      201: {description: Team member created. Activation email sent.}
+      201: {description: Team member created. Credentials email sent.}
       400: {description: Email already in use or validation error.}
     """
     landlord_id = get_current_landlord_id()
@@ -113,16 +127,19 @@ def create_team_member():
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "An account with this email already exists."}), 400
 
-    activation_token = secrets.token_urlsafe(32)
+    # System-issued temporary password the member must change on first login.
+    temp_password = _generate_temp_password()
 
-    # User base record — no password yet; member sets it during activation
+    # User base record — active and verified immediately, on a temp password.
     user = User(
-        email              = email,
-        phone              = data.get("phone"),
-        role               = UserRole.team_member.value,
-        is_verified        = False,
-        is_active          = True,
-        verification_token = None,
+        email                = email,
+        phone                = data.get("phone"),
+        password_hash        = generate_password_hash(temp_password),
+        role                 = UserRole.team_member.value,
+        is_verified          = True,
+        is_active            = True,
+        must_change_password = True,
+        verification_token   = None,
     )
     db.session.add(user)
     db.session.flush()
@@ -136,14 +153,20 @@ def create_team_member():
         phone               = data.get("phone"),
         role                = role,
         property_access_all = data.get("property_access_all", False),
-        activation_token    = activation_token,
-        is_active           = False,
+        activation_token    = None,
+        is_active           = True,
     )
     db.session.add(tm)
     db.session.commit()
 
-    # Send activation email
-    send_team_activation_email.delay(email, activation_token, username)
+    # Email the member their credentials + change-password instructions.
+    landlord = db.session.get(Landlord, landlord_id)
+    company_name = landlord.company_name if landlord else None
+    send_team_credentials_email.delay(
+        email, username, temp_password,
+        first_name=data.get("first_name"),
+        company_name=company_name,
+    )
 
     record_audit(
         actor_user_id=int(get_jwt_identity()),
@@ -151,13 +174,13 @@ def create_team_member():
         action="create_team_member",
         entity_type="team_member",
         entity_id=tm.id,
-        description=f"Team member '{username}' ({email}) created. Activation email sent.",
+        description=f"Team member '{username}' ({email}) created. Credentials email sent.",
         after_data=tm.to_dict(),
     )
     db.session.commit()
 
     return jsonify({
-        "message":     "Team member created. Activation email sent.",
+        "message":     "Team member created. A welcome email with login details has been sent.",
         "team_member": tm.to_dict(),
     }), 201
 

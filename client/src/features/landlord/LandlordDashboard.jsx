@@ -45,10 +45,10 @@ export default function LandlordDashboard() {
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard label="Total arrears" value={formatCurrency(summary?.total_arrears)} icon={<AlertTriangle className="h-5 w-5" />} />
           <SummaryCard label="Total advances" value={formatCurrency(summary?.total_advances)} icon={<TrendingUp className="h-5 w-5" />} />
-          <SummaryCard label="Occupancy" value={summary?.occupancy_rate ?? 0} icon={<HomeIcon className="h-5 w-5" />} isCountUp accent="third" />
+          <SummaryCard label="Occupancy" value={summary?.occupancy_percent ?? 0} icon={<HomeIcon className="h-5 w-5" />} isCountUp accent="third" />
           <SummaryCard
             label="Paid vs invoiced"
-            value={`${formatCurrency(summary?.total_paid)} / ${formatCurrency(summary?.total_invoiced)}`}
+            value={`${formatCurrency(summary?.payments_this_month)} / ${formatCurrency(summary?.invoices_this_month)}`}
             icon={<Receipt className="h-5 w-5" />}
             accent="third"
           />

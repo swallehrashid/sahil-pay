@@ -1,0 +1,16 @@
+# Secrets / environment
+.env
+**/.env
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+server/venv/
+
+# Node
+node_modules/
+client/dist/
+
+# QA / scratch artifacts
+.qa/

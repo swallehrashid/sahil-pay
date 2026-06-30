@@ -51,7 +51,13 @@ export function AuthProvider({ children }) {
     dispatch(clearCredentials());
   };
 
-  const isHydrating = hasToken && isLoading && !user;
+  // Stay in the hydrating state until the user record is actually committed to the
+  // store — not merely until isLoading flips false. RTK Query sets data + isLoading=false
+  // in the same render, but `user` is only populated by the useEffect above on the NEXT
+  // render. That one-render gap (token present, isLoading false, user still null) made
+  // ProtectedRoutes see isHydrating=false && isAuthenticated=false and bounce every
+  // freshly-authenticated user back to /login. Gating on `!user && !isError` closes it.
+  const isHydrating = hasToken && !user && !isError;
 
   const value = useMemo(
     () => ({

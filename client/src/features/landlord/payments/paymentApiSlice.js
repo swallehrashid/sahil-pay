@@ -24,7 +24,12 @@ export const paymentApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["Payment", "Invoice"],
     }),
     sendPaymentReceipt: builder.mutation({
-      query: (id) => ({ url: `/payments/${id}/receipt/send`, method: "POST" }),
+      // Accepts either a bare id (legacy row action → defaults to email) or
+      // { id, channels: [...] } from the record-payment form.
+      query: (arg) => {
+        const { id, channels } = typeof arg === "object" ? arg : { id: arg, channels: undefined };
+        return { url: `/payments/${id}/receipt/send`, method: "POST", body: channels ? { channels } : {} };
+      },
     }),
     reassignPaymentTenant: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/payments/${id}/reassign`, method: "POST", body }),

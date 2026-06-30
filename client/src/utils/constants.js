@@ -47,6 +47,29 @@ export const EXPENSE_CATEGORIES = [
 
 export const UTILITY_ITEMS = ["water", "electricity", "garbage", "security"];
 
+// Selectable charge types for an invoice line item. "other" reveals a free-text
+// field so anything not listed can still be billed.
+export const INVOICE_LINE_ITEMS = [
+  "rent",
+  "water",
+  "electricity",
+  "garbage",
+  "security",
+  "service charge",
+  "deposit",
+  "penalty",
+  "other",
+];
+
+// Channels a payment receipt can be delivered on. `enabled:false` ones are shown
+// but not selectable until the integration is wired (e.g. WhatsApp Business API).
+export const RECEIPT_CHANNELS = [
+  { value: "email", label: "Email", enabled: true },
+  { value: "in_app", label: "In-app notification", enabled: true },
+  { value: "sms", label: "SMS", enabled: true },
+  { value: "whatsapp", label: "WhatsApp (coming soon)", enabled: false },
+];
+
 export const MAINTENANCE_STATUSES = ["open", "in_progress", "closed"];
 export const MAINTENANCE_CATEGORIES = [
   "electrical",

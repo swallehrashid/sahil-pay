@@ -183,6 +183,18 @@ def login():
     if not user.is_active:
         return jsonify({"error": "This account has been deactivated. Contact support."}), 403
 
+    # Landlords / PMs must confirm their email first (when enforcement is enabled).
+    # 403 + needs_verification lets the frontend offer a "resend verification" action.
+    if (
+        current_app.config.get("ENFORCE_EMAIL_VERIFICATION")
+        and user.role in (UserRole.landlord.value, UserRole.property_manager.value)
+        and not user.is_verified
+    ):
+        return jsonify({
+            "error": "Please verify your email address before logging in. Check your inbox for the verification link.",
+            "needs_verification": True,
+        }), 403
+
     # Team members must have activated their account
     if user.role == UserRole.team_member.value:
         tm = user.team_member_profile
@@ -209,6 +221,7 @@ def login():
         "access_token":  access_token,
         "refresh_token": refresh_token,
         "role":          user.role,
+        "must_change_password": user.must_change_password,
     }), 200
 
 
@@ -336,6 +349,41 @@ def forgot_password():
 
 
 # ---------------------------------------------------------------------------
+# POST /api/auth/resend-verification
+# ---------------------------------------------------------------------------
+@auth_bp.route("/resend-verification", methods=["POST"])
+@limiter.limit("5 per hour")
+def resend_verification():
+    """
+    Re-issue the email-verification link for an unverified account.
+    Always returns 200 to prevent account enumeration.
+    ---
+    tags: [Auth]
+    parameters:
+      - in: body
+        schema:
+          required: [email]
+          properties:
+            email: {type: string}
+    responses:
+      200: {description: If that email exists and is unverified, a new link was sent.}
+    """
+    data  = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+
+    user = User.query.filter_by(email=email).first()
+    if user and not user.is_verified:
+        token = secrets.token_urlsafe(32)
+        user.verification_token = token
+        db.session.commit()
+        send_verification_email.delay(email, token)
+
+    return jsonify({
+        "message": "If that email is registered and unverified, a new verification link has been sent."
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # POST /api/auth/reset-password
 # ---------------------------------------------------------------------------
 @auth_bp.route("/reset-password", methods=["POST"])
@@ -367,8 +415,9 @@ def reset_password():
     if not user:
         return jsonify({"error": "Reset token is invalid or has already been used."}), 400
 
-    user.password_hash      = generate_password_hash(password)
-    user.verification_token = None
+    user.password_hash        = generate_password_hash(password)
+    user.verification_token   = None
+    user.must_change_password = False     # they've just set their own password
     db.session.commit()
 
     record_audit(

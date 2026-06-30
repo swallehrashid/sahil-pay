@@ -4,9 +4,17 @@ import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
 import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
-import { PAYMENT_STATUSES } from "@/utils/constants";
+import Checkbox from "@/components/ui/Checkbox";
+import { PAYMENT_STATUSES, RECEIPT_CHANNELS } from "@/utils/constants";
 import { isRequired, validateMoneyField } from "@/utils/validators";
 import { formatCurrency } from "@/utils/currencyFormatter";
+
+// "Jun 2026" from an issue date (handles ISO + RFC date strings the API returns).
+function monthLabel(d) {
+  if (!d) return "";
+  const dt = new Date(d);
+  return Number.isNaN(dt.getTime()) ? "" : dt.toLocaleDateString(undefined, { month: "short", year: "numeric" });
+}
 
 // Manual payment entry — allocates part/all of the amount across the tenant's open
 // invoices via payment_allocations; any unallocated remainder becomes a tenant advance.
@@ -22,7 +30,12 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
     ...initialValues,
   });
   const [allocations, setAllocations] = useState({});
+  const [sendReceipt, setSendReceipt] = useState(false);
+  const [receiptChannels, setReceiptChannels] = useState(["email"]);
   const [errors, setErrors] = useState({});
+
+  const toggleChannel = (value) =>
+    setReceiptChannels((prev) => (prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value]));
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -43,11 +56,17 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    const payment_allocations = Object.entries(allocations)
+    // Backend (POST /payments) reads `allocations: [{ invoice_id, amount_allocated }]`.
+    const allocationsPayload = Object.entries(allocations)
       .filter(([, amount]) => Number(amount) > 0)
-      .map(([invoice_id, amount_allocated]) => ({ invoice_id, amount_allocated: Number(amount_allocated) }));
+      .map(([invoice_id, amount_allocated]) => ({ invoice_id: Number(invoice_id), amount_allocated: Number(amount_allocated) }));
 
-    onSubmit({ ...form, payment_allocations });
+    onSubmit({
+      ...form,
+      allocations: allocationsPayload,
+      send_receipt: sendReceipt,
+      receipt_channels: sendReceipt ? receiptChannels : [],
+    });
   };
 
   return (
@@ -80,9 +99,22 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
             <div className="space-y-2">
               {tenantInvoices.map((inv) => (
                 <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
-                  <span className="text-sm text-white/70">
-                    {inv.invoice_number} · {formatCurrency(inv.balance)} due
-                  </span>
+                  <div className="min-w-0 text-sm">
+                    <div className="truncate text-white/80">
+                      {inv.invoice_number}
+                      {monthLabel(inv.issue_date) ? ` · ${monthLabel(inv.issue_date)}` : ""}
+                    </div>
+                    <div className="text-xs text-white/40">
+                      Invoiced {formatCurrency(inv.total_amount)} · <span className="text-secondary-300">{formatCurrency(inv.balance)} due</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAllocations((prev) => ({ ...prev, [inv.id]: inv.balance }))}
+                    className="shrink-0 text-[11px] text-white/40 underline-offset-2 hover:text-secondary hover:underline"
+                  >
+                    pay full
+                  </button>
                   <input
                     type="number"
                     step="0.01"
@@ -102,6 +134,33 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
       )}
 
       <Textarea label="Notes" value={form.notes} onChange={update("notes")} />
+
+      <div className="border-t border-white/10 pt-4">
+        <Checkbox
+          name="send_receipt"
+          label="Send a receipt to the tenant"
+          checked={sendReceipt}
+          onChange={(e) => setSendReceipt(e.target.checked)}
+        />
+        {sendReceipt && (
+          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 pl-1">
+            {RECEIPT_CHANNELS.map((ch) => (
+              <Checkbox
+                key={ch.value}
+                name={`receipt_${ch.value}`}
+                label={ch.label}
+                disabled={!ch.enabled}
+                className={!ch.enabled ? "opacity-40" : ""}
+                checked={ch.enabled && receiptChannels.includes(ch.value)}
+                onChange={() => ch.enabled && toggleChannel(ch.value)}
+              />
+            ))}
+          </div>
+        )}
+        {sendReceipt && receiptChannels.length === 0 && (
+          <p className="mt-2 text-xs text-secondary-300">Pick at least one channel.</p>
+        )}
+      </div>
 
       <div className="flex justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>

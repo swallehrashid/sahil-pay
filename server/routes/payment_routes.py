@@ -31,6 +31,8 @@ from decorators import (
 from services.audit_service   import record_audit
 from services.pdf_service     import generate_receipt_pdf
 from services.email_service   import send_receipt_email
+from services.sms_service     import send_sms
+from services.notification_service import notify
 from services.storage_service import upload_to_s3
 from tasks.payment_tasks      import parse_bank_statement_task
 
@@ -345,17 +347,69 @@ def delete_payment(payment_id):
 @require_landlord_or_team()
 @require_permission("payments", "edit")
 def send_receipt(payment_id):
-    """Email the payment receipt to the tenant."""
+    """
+    Send the payment receipt to the tenant on one or more channels.
+    Body: { channels: ["email","sms","in_app"] }  (defaults to ["email"]).
+    WhatsApp is accepted but not yet deliverable (no integration) — it's reported
+    back as skipped so the caller knows. Each channel is best-effort and skipped
+    (not failed) when the tenant lacks the needed contact detail.
+    """
     landlord_id = get_current_landlord_id()
     pay         = _get_or_404(landlord_id, payment_id)
+    tenant      = pay.tenant
+    if not tenant:
+        return jsonify({"error": "This payment is not linked to a tenant."}), 400
 
-    if not pay.tenant or not pay.tenant.email:
-        return jsonify({"error": "Tenant has no email address on file."}), 400
+    data     = request.get_json(silent=True) or {}
+    channels = data.get("channels") or ["email"]
+    summary  = (
+        f"Receipt {pay.payment_ref}: payment of KES {pay.amount} received "
+        f"on {pay.payment_date}. Thank you."
+    )
 
-    pdf_bytes = generate_receipt_pdf(pay)
-    send_receipt_email.delay(pay.tenant.email, pay.tenant.first_name, pdf_bytes, pay.payment_ref)
+    sent, skipped = [], []
+    for ch in channels:
+        if ch == "email":
+            if tenant.email:
+                pdf_bytes = generate_receipt_pdf(pay)
+                send_receipt_email.delay(tenant.email, tenant.first_name, pdf_bytes, pay.payment_ref)
+                sent.append("email")
+            else:
+                skipped.append("email (no email on file)")
+        elif ch == "sms":
+            if tenant.phone:
+                send_sms(tenant.phone, summary)
+                sent.append("sms")
+            else:
+                skipped.append("sms (no phone on file)")
+        elif ch == "in_app":
+            if tenant.user_id:
+                notify(
+                    recipient_user_id=tenant.user_id,
+                    category="payment_receipt",
+                    title="Payment received",
+                    body=summary,
+                    landlord_id=landlord_id,
+                    link="/portal/statement",
+                    entity_type="payment",
+                    entity_id=pay.id,
+                )
+                sent.append("in_app")
+            else:
+                skipped.append("in_app (tenant has no app account yet)")
+        elif ch == "whatsapp":
+            skipped.append("whatsapp (not yet integrated)")
+        else:
+            skipped.append(f"{ch} (unknown channel)")
 
-    return jsonify({"message": "Receipt emailed to tenant."}), 200
+    db.session.commit()   # persist any in-app notification rows
+
+    if not sent:
+        return jsonify({"error": "Receipt could not be sent. " + "; ".join(skipped)}), 400
+    msg = "Receipt sent via " + ", ".join(sent)
+    if skipped:
+        msg += " — skipped: " + ", ".join(skipped)
+    return jsonify({"message": msg, "sent": sent, "skipped": skipped}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -416,8 +470,23 @@ def reassign_payment(payment_id):
     # Reverse old tenant balance
     if pay.tenant:
         pay.tenant.balance = (pay.tenant.balance or Decimal("0")) - pay.amount
-    # Reverse invoice allocations
-    PaymentAllocation.query.filter_by(payment_id=pay.id).delete()
+
+    # Reverse invoice allocations SAFELY: roll back each previously-allocated invoice's
+    # amount_paid / balance / status before discarding the allocation rows — otherwise the
+    # old tenant's invoices stay marked (partly) paid by a payment that no longer applies.
+    for alloc in list(pay.payment_allocations):
+        inv = alloc.invoice
+        if inv:
+            inv.amount_paid = max(Decimal("0"), (inv.amount_paid or Decimal("0")) - alloc.amount_allocated)
+            inv.balance     = inv.total_amount - inv.amount_paid
+            if inv.amount_paid <= 0:
+                inv.status = InvoiceStatus.open.value
+            elif inv.balance > 0:
+                inv.status = InvoiceStatus.partial.value
+            else:
+                inv.status = InvoiceStatus.paid.value
+        db.session.delete(alloc)
+    db.session.flush()
 
     pay.tenant_id  = new_tenant_id
     pay.unit_id    = new_tenant.unit_id

@@ -474,6 +474,10 @@ class User(TimestampMixin, Base):
     is_verified        = Column(Boolean, default=False, nullable=False)
     is_active          = Column(Boolean, default=True,  nullable=False)
     verification_token = Column(String(255), nullable=True)
+    # True when the account is on a system-issued temporary password (e.g. a team
+    # member created by their landlord). The frontend forces a password change on
+    # next login; cleared the moment they set their own password.
+    must_change_password = Column(Boolean, default=False, nullable=False)
 
     __table_args__ = (
         # Tenants are OTP-only, and team members are created with no password
@@ -511,6 +515,7 @@ class User(TimestampMixin, Base):
             "role":               self.role,
             "is_verified":        self.is_verified,
             "is_active":          self.is_active,
+            "must_change_password": self.must_change_password,
             "verification_token": self.verification_token,
             "created_at":         _serialise(self.created_at),
             "updated_at":         _serialise(self.updated_at),

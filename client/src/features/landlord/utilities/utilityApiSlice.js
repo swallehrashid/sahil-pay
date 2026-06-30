@@ -27,6 +27,10 @@ export const utilityApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/utilities/bulk-upload/generate-invoices", method: "POST", body }),
       invalidatesTags: ["Utility", "Invoice"],
     }),
+    addReadingToInvoice: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/utilities/${id}/add-to-invoice`, method: "POST", body }),
+      invalidatesTags: ["Utility", "Invoice"],
+    }),
   }),
 });
 
@@ -37,4 +41,5 @@ export const {
   useDeleteUtilityReadingMutation,
   useBulkUploadUtilitiesMutation,
   useGenerateUtilityInvoicesMutation,
+  useAddReadingToInvoiceMutation,
 } = utilityApiSlice;

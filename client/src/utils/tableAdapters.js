@@ -4,7 +4,14 @@
 export function toRows(response) {
   if (!response) return [];
   if (Array.isArray(response)) return response;
-  return response.items ?? response.results ?? response.data ?? [];
+  if (Array.isArray(response.items)) return response.items;
+  if (Array.isArray(response.results)) return response.results;
+  if (Array.isArray(response.data)) return response.data;
+  // The backend keys each list by its entity name — { properties: [...] },
+  // { units: [...] }, { tenants: [...] }, etc. — not a generic `items`. Falling back
+  // to the first array-valued property handles every one of those shapes, so list
+  // tables stop rendering empty even though the API returned rows.
+  return Object.values(response).find(Array.isArray) ?? [];
 }
 
 export function toPaginationMeta(response) {

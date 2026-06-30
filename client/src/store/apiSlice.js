@@ -21,9 +21,27 @@ const rawBaseQuery = fetchBaseQuery({
 
 let refreshPromise = null;
 
+// Optional numeric fields left blank in a form arrive here as "" (empty string).
+// Sent as-is they reach the API as "" and Postgres rejects them with
+// `invalid input syntax for type numeric: ""` — a 500 whose error page carries no
+// CORS header, so the browser surfaces it as an opaque "No Access-Control-Allow-Origin"
+// network failure. Normalising "" -> null at the single mutation chokepoint clears every
+// create/edit form at once. (The backend should ALSO coerce/validate these at its
+// boundary so a bad client can never 500 it — see QA report.) FormData bodies (file
+// uploads) are passed through untouched.
+function sanitizeBody(args) {
+  if (!args || typeof args !== "object") return args;
+  const { body } = args;
+  if (!body || typeof body !== "object" || body instanceof FormData) return args;
+  const cleaned = {};
+  for (const [k, v] of Object.entries(body)) cleaned[k] = v === "" ? null : v;
+  return { ...args, body: cleaned };
+}
+
 // Wraps the raw query so a single 401 triggers exactly one refresh attempt (shared across
 // concurrent requests via refreshPromise) before retrying the original request once.
 async function baseQueryWithReauth(args, api, extraOptions) {
+  if (typeof args === "object") args = sanitizeBody(args);
   let result = await rawBaseQuery(args, api, extraOptions);
 
   if (result.error?.status === 401 && getRefreshToken()) {

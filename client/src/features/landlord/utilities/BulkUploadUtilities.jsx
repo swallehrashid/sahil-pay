@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
 import Input from "@/components/ui/Input";
@@ -8,63 +8,95 @@ import { useBulkUploadUtilitiesMutation, useGenerateUtilityInvoicesMutation } fr
 import { UTILITY_ITEMS } from "@/utils/constants";
 import { currentMonth } from "@/utils/dateFormatter";
 
-// Select a property + utility item, feed readings to every tenant's unit, then optionally
-// generate utility invoices for the batch once readings are confirmed (§4.8).
+const STEP_TITLES = {
+  1: "Step 1 of 3 · Set filters",
+  2: "Step 2 of 3 · Record readings",
+  3: "Step 3 of 3 · Create invoices",
+};
+
+// Three-page bulk utilities flow:
+//   1) Filters    — who you're recording for (property + month).
+//   2) Record     — pick the utility, then enter each unit's previous (past month)
+//                   and current (this month) readings.
+//   3) Invoices   — bill the batch: add to each tenant's current invoice, or raise new ones.
 export default function BulkUploadUtilities({ isOpen, onClose, properties = [], units = [] }) {
   const [bulkUpload, { isLoading: isUploading }] = useBulkUploadUtilitiesMutation();
   const [generateInvoices, { isLoading: isGenerating }] = useGenerateUtilityInvoicesMutation();
 
   const [step, setStep] = useState(1);
   const [scope, setScope] = useState({ property_id: "", utility_item: "water", reading_month: currentMonth() });
-  const [readings, setReadings] = useState({});
+  const [readings, setReadings] = useState({}); // { [unit_id]: { previous, current } }
+  const [savedCount, setSavedCount] = useState(0);
 
-  const scopedUnits = units.filter((u) => !scope.property_id || String(u.property_id) === String(scope.property_id));
+  const scopedUnits = useMemo(
+    () => units.filter((u) => !scope.property_id || String(u.property_id) === String(scope.property_id)),
+    [units, scope.property_id]
+  );
 
-  const handleClose = () => {
+  const reset = () => {
     setStep(1);
     setReadings({});
+    setSavedCount(0);
+  };
+  const handleClose = () => {
+    reset();
     onClose();
   };
 
-  const handleNext = (e) => {
-    e.preventDefault();
-    setStep(2);
-  };
+  const setReading = (unitId, key, value) =>
+    setReadings((prev) => ({ ...prev, [unitId]: { ...prev[unitId], [key]: value } }));
 
   const handleUpload = async () => {
+    const entries = Object.entries(readings).filter(([, v]) => v?.current !== "" && v?.current !== undefined);
+    if (!entries.length) {
+      toast("Enter at least one current reading.", { type: "info" });
+      return;
+    }
     try {
-      const entries = Object.entries(readings).filter(([, v]) => v !== "" && v !== undefined);
       const result = await bulkUpload({
-        ...scope,
-        readings: entries.map(([unit_id, current_reading]) => ({ unit_id, current_reading })),
+        property_id: scope.property_id,
+        utility_item: scope.utility_item,
+        reading_month: scope.reading_month,
+        readings: entries.map(([unit_id, v]) => ({
+          unit_id,
+          current_reading: v.current,
+          ...(v.previous !== "" && v.previous !== undefined ? { previous_reading: v.previous } : {}),
+        })),
       }).unwrap();
-      const errorCount = result?.errors?.length ?? 0;
-      toast(
-        `${result?.created ?? 0} reading(s) recorded${errorCount ? `, ${errorCount} skipped` : ""}.`,
-        { type: errorCount ? "info" : "success" }
-      );
+      const skipped = result?.errors?.length ?? 0;
+      setSavedCount(result?.created ?? 0);
+      toast(`${result?.created ?? 0} reading(s) recorded${skipped ? `, ${skipped} skipped` : ""}.`, {
+        type: skipped ? "info" : "success",
+      });
       setStep(3);
     } catch {
       toast("Could not save the readings.", { type: "error" });
     }
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (combine) => {
     try {
-      // No batch concept server-side — generation re-scopes by property/item/month
-      // and defaults to every unlinked reading in that scope (i.e. what step 2 just saved).
-      await generateInvoices(scope).unwrap();
-      toast("Utility invoices generated.", { type: "success" });
+      const res = await generateInvoices({ ...scope, combine }).unwrap();
+      toast(res?.message || "Utility invoices created.", { type: "success" });
       handleClose();
     } catch {
-      toast("Could not generate invoices.", { type: "error" });
+      toast("Could not create the invoices.", { type: "error" });
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Bulk upload utilities" size="lg">
+    <Modal isOpen={isOpen} onClose={handleClose} title={STEP_TITLES[step]} size="lg">
+      {/* ── Step 1 — filters ───────────────────────────────────────────── */}
       {step === 1 && (
-        <form onSubmit={handleNext} className="space-y-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!scope.property_id) return toast("Choose a property.", { type: "info" });
+            setStep(2);
+          }}
+          className="space-y-4"
+        >
+          <p className="text-sm text-white/50">Choose who you're recording utilities for.</p>
           <Select
             label="Property"
             value={scope.property_id}
@@ -72,62 +104,93 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
             options={properties.map((p) => ({ value: p.id, label: p.name }))}
             required
           />
-          <Select
-            label="Utility item"
-            value={scope.utility_item}
-            onChange={(e) => setScope((s) => ({ ...s, utility_item: e.target.value }))}
-            options={UTILITY_ITEMS.map((u) => ({ value: u, label: u }))}
+          <Input
+            label="Reading month"
+            type="month"
+            value={scope.reading_month}
+            onChange={(e) => setScope((s) => ({ ...s, reading_month: e.target.value }))}
             required
           />
-          <Input label="Reading month" type="month" value={scope.reading_month} onChange={(e) => setScope((s) => ({ ...s, reading_month: e.target.value }))} required />
+          <p className="text-xs text-white/40">{scopedUnits.length} unit(s) in this property.</p>
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button type="submit">Next: enter readings</Button>
+            <Button type="button" variant="ghost" onClick={handleClose}>Cancel</Button>
+            <Button type="submit">Next: record readings</Button>
           </div>
         </form>
       )}
 
+      {/* ── Step 2 — record readings ───────────────────────────────────── */}
       {step === 2 && (
         <div className="space-y-4">
-          <p className="text-sm text-white/50">Enter the current reading for each tenant's unit.</p>
+          <Select
+            label="Which utility are you recording?"
+            value={scope.utility_item}
+            onChange={(e) => setScope((s) => ({ ...s, utility_item: e.target.value }))}
+            options={UTILITY_ITEMS.map((u) => ({ value: u, label: u.charAt(0).toUpperCase() + u.slice(1) }))}
+          />
+          <div className="grid grid-cols-12 px-3 text-[11px] uppercase tracking-wide text-white/40">
+            <span className="col-span-4">Unit</span>
+            <span className="col-span-4 text-right">Previous (last month)</span>
+            <span className="col-span-4 text-right">Current (this month)</span>
+          </div>
           <div className="max-h-72 space-y-2 overflow-y-auto">
             {scopedUnits.map((unit) => (
-              <div key={unit.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
-                <span className="text-sm text-white/70">{unit.name}</span>
+              <div key={unit.id} className="grid grid-cols-12 items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                <span className="col-span-4 truncate text-sm text-white/70">{unit.name}</span>
                 <input
                   type="number"
                   step="0.01"
-                  placeholder="Reading"
-                  value={readings[unit.id] ?? ""}
-                  onChange={(e) => setReadings((prev) => ({ ...prev, [unit.id]: e.target.value }))}
-                  className="glass-input w-32 text-right"
+                  placeholder="0.00"
+                  value={readings[unit.id]?.previous ?? ""}
+                  onChange={(e) => setReading(unit.id, "previous", e.target.value)}
+                  className="glass-input col-span-4 text-right"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={readings[unit.id]?.current ?? ""}
+                  onChange={(e) => setReading(unit.id, "current", e.target.value)}
+                  className="glass-input col-span-4 text-right"
                 />
               </div>
             ))}
           </div>
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={() => setStep(1)}>
-              Back
-            </Button>
-            <Button type="button" isLoading={isUploading} onClick={handleUpload}>
-              Save readings
-            </Button>
+            <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
+            <Button type="button" isLoading={isUploading} onClick={handleUpload}>Save readings</Button>
           </div>
         </div>
       )}
 
+      {/* ── Step 3 — create invoices ───────────────────────────────────── */}
       {step === 3 && (
-        <div className="space-y-4 text-center">
-          <p className="text-sm text-white/70">Readings saved. Generate utility invoices for this batch now?</p>
-          <div className="flex justify-center gap-3 pt-2">
-            <Button variant="ghost" onClick={handleClose}>
-              Not yet
-            </Button>
-            <Button isLoading={isGenerating} onClick={handleGenerate}>
-              Generate invoices
-            </Button>
+        <div className="space-y-5">
+          <p className="text-sm text-white/70">
+            {savedCount} {scope.utility_item} reading(s) saved for {scope.reading_month}. How do you want to bill them?
+          </p>
+          <div className="space-y-3">
+            <button
+              type="button"
+              disabled={isGenerating}
+              onClick={() => handleGenerate(true)}
+              className="glass w-full rounded-xl p-4 text-left transition-colors hover:bg-white/10 disabled:opacity-50"
+            >
+              <p className="font-medium text-white">Add to this month's invoice</p>
+              <p className="text-sm text-white/50">Append each charge to the tenant's open invoice for the month (creates one if none is open).</p>
+            </button>
+            <button
+              type="button"
+              disabled={isGenerating}
+              onClick={() => handleGenerate(false)}
+              className="glass w-full rounded-xl p-4 text-left transition-colors hover:bg-white/10 disabled:opacity-50"
+            >
+              <p className="font-medium text-white">Create new invoices</p>
+              <p className="text-sm text-white/50">Raise a separate utility invoice for each reading.</p>
+            </button>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="ghost" onClick={handleClose}>Not now</Button>
           </div>
         </div>
       )}

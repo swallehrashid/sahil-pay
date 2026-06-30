@@ -48,7 +48,14 @@ export default function CommunicationsPage() {
   const handleSend = async (e) => {
     e.preventDefault();
     try {
-      await sendCommunication(compose).unwrap();
+      // The composer holds { tenant_id, message_type, content } but POST /communications/send
+      // expects { tenant_ids: [int], channel, content }. Map the shape here, otherwise the
+      // API always rejects with "tenant_ids list is required."
+      await sendCommunication({
+        tenant_ids: compose.tenant_id ? [Number(compose.tenant_id)] : [],
+        channel: compose.message_type,
+        content: compose.content,
+      }).unwrap();
       toast("Message sent.", { type: "success" });
       setIsComposeOpen(false);
       setCompose({ tenant_id: "", message_type: "sms", content: "" });

@@ -68,13 +68,23 @@ export default function PaymentsPage() {
   };
 
   const handleSubmit = async (values) => {
+    // Pull the receipt intent out before it reaches the payment endpoint.
+    const { send_receipt, receipt_channels, ...payload } = values;
     try {
       if (activePayment?.id) {
-        await updatePayment({ id: activePayment.id, ...values }).unwrap();
+        await updatePayment({ id: activePayment.id, ...payload }).unwrap();
         toast("Payment updated.", { type: "success" });
       } else {
-        await createPayment(values).unwrap();
+        const created = await createPayment(payload).unwrap();
         toast("Payment recorded.", { type: "success" });
+        if (send_receipt && receipt_channels?.length && created?.id) {
+          try {
+            await sendReceipt({ id: created.id, channels: receipt_channels }).unwrap();
+            toast(`Receipt sent via ${receipt_channels.join(", ")}.`, { type: "success" });
+          } catch (err) {
+            toast(err?.data?.error || "Payment saved, but the receipt could not be sent.", { type: "error" });
+          }
+        }
       }
       setIsFormOpen(false);
     } catch {

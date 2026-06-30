@@ -11,7 +11,7 @@ import { USER_ROLES } from "@/utils/constants";
 // /team/invoices even by typing the URL directly. The backend still enforces every rule;
 // this is the UI-side gate that keeps the wrong screens from ever rendering.
 export default function ProtectedRoutes({ allowedRoles, requiredPermission }) {
-  const { isAuthenticated, isHydrating, role } = useAuth();
+  const { isAuthenticated, isHydrating, role, user } = useAuth();
   const { can } = usePermissions();
   const location = useLocation();
 
@@ -20,6 +20,13 @@ export default function ProtectedRoutes({ allowedRoles, requiredPermission }) {
   if (!isAuthenticated) {
     const loginPath = allowedRoles?.length === 1 && allowedRoles[0] === "tenant" ? AUTH_ROUTES.tenantLogin : AUTH_ROUTES.login;
     return <Navigate to={loginPath} state={{ from: location }} replace />;
+  }
+
+  // Accounts on a system-issued temporary password (e.g. newly-created team members)
+  // are funnelled to the change-password screen until they set their own — they can't
+  // reach any other protected screen, even by typing the URL directly.
+  if (user?.must_change_password && location.pathname !== AUTH_ROUTES.changePassword) {
+    return <Navigate to={AUTH_ROUTES.changePassword} replace />;
   }
 
   // Consent-based impersonation (§10.5): a system_admin who has entered a granted

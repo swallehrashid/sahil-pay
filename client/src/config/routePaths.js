@@ -22,6 +22,7 @@ export const AUTH_ROUTES = {
   teamActivate: "/team-activate/:token",
   teamActivatePath: (token) => `/team-activate/${token}`,
   tenantLogin: "/tenant/login",
+  changePassword: "/change-password",
 };
 
 // Module path suffixes shared between the Landlord portal and the Team Member

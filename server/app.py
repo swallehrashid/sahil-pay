@@ -150,6 +150,14 @@ def create_app(config_name: str | None = None) -> Flask:
     # routes/ folder exists.  Once routes are built this becomes the
     # normal (non-exception) path.
     try:
+        # Collection routes are registered as @bp.route("/") (e.g. /api/properties/),
+        # but the frontend calls them without the trailing slash (/api/properties).
+        # With the default strict_slashes=True, Werkzeug answers the OPTIONS preflight
+        # with a 308 redirect to the slashed URL — and browsers refuse to follow a
+        # redirect on a preflight, so every authenticated list/create request is blocked
+        # by CORS. Disabling strict slashes makes both forms match the same rule with
+        # no redirect. Must be set before blueprints register so every rule inherits it.
+        app.url_map.strict_slashes = False
         from routes import register_blueprints  # type: ignore[import]
         register_blueprints(app)
         logger.info("Blueprints registered successfully.")

@@ -34,6 +34,7 @@ const ForgotPassword = lazy(() => import("@/features/auth/ForgotPassword"));
 const ResetPassword = lazy(() => import("@/features/auth/ResetPassword"));
 const TeamActivation = lazy(() => import("@/features/auth/TeamActivation"));
 const TenantOtpLogin = lazy(() => import("@/features/auth/TenantOtpLogin"));
+const ChangePassword = lazy(() => import("@/features/auth/ChangePassword"));
 
 // ---- Landlord (and re-mounted by Team Member under permission guards) ----
 const LandlordDashboard = lazy(() => import("@/features/landlord/LandlordDashboard"));
@@ -198,6 +199,12 @@ export default function AppRoutes() {
         <Route path={AUTH_ROUTES.resetPassword} element={withSuspense(ResetPassword)} />
         <Route path={AUTH_ROUTES.teamActivate} element={withSuspense(TeamActivation)} />
         <Route path={AUTH_ROUTES.tenantLogin} element={withSuspense(TenantOtpLogin)} />
+
+        {/* Forced password change — any authenticated user on a temporary password.
+            ProtectedRoutes (no role filter) only checks that they're logged in. */}
+        <Route element={<ProtectedRoutes />}>
+          <Route path={AUTH_ROUTES.changePassword} element={withSuspense(ChangePassword)} />
+        </Route>
 
         {/* Landlord / Property Manager portal */}
         <Route element={<ProtectedRoutes allowedRoles={[USER_ROLES.LANDLORD, USER_ROLES.PROPERTY_MANAGER]} />}>

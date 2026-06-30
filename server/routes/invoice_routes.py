@@ -145,45 +145,90 @@ def create_invoice():
     issue_date   = data.get("issue_date")
     line_items   = data.get("line_items", [])
 
+    # The manual invoice form only collects a tenant (unit + property are implied by
+    # the tenant's current placement), so derive unit_id / property_id from the tenant
+    # when the client doesn't supply them — otherwise a perfectly valid manual invoice
+    # is rejected with a 400 for "missing" fields the UI never had a way to send.
+    if tenant_id and (not unit_id or not property_id):
+        _tenant = Tenant.query.filter_by(id=tenant_id, landlord_id=landlord_id).first()
+        if _tenant:
+            unit_id     = unit_id     or _tenant.unit_id
+            property_id = property_id or (_tenant.unit.property_id if _tenant.unit else None)
+
     if not all([tenant_id, unit_id, property_id, issue_date]):
         return jsonify({"error": "tenant_id, unit_id, property_id, and issue_date are required."}), 400
     if not line_items:
         return jsonify({"error": "At least one line_item is required."}), 400
 
-    # Validate line item total
-    computed_total = sum(
-        Decimal(str(li.get("amount", 0))) for li in line_items
-    )
+    # Validate line item total. The frontend sends quantity + unit_price per line (no
+    # pre-computed `amount`), so fall back to quantity * unit_price here exactly as the
+    # InvoiceLineItem rows below do — otherwise computed_total is 0 and every invoice is
+    # rejected for not matching its declared total_amount.
+    def _line_amount(li):
+        if li.get("amount") not in (None, ""):
+            return Decimal(str(li["amount"]))
+        return Decimal(str(li.get("quantity", 1))) * Decimal(str(li.get("unit_price", 0)))
+
+    computed_total = sum((_line_amount(li) for li in line_items), Decimal("0"))
     declared_total = Decimal(str(data.get("total_amount", computed_total)))
     if abs(computed_total - declared_total) > Decimal("0.01"):
         return jsonify({
             "error": f"total_amount ({declared_total}) does not equal sum of line items ({computed_total})."
         }), 400
 
-    invoice = Invoice(
-        invoice_number = _next_invoice_number(landlord_id),
-        landlord_id    = landlord_id,
-        tenant_id      = tenant_id,
-        unit_id        = unit_id,
-        property_id    = property_id,
-        invoice_type   = invoice_type,
-        issue_date     = issue_date,
-        due_date       = data.get("due_date"),
-        status         = data.get("status", InvoiceStatus.open.value),
-        total_amount   = computed_total,
-        amount_paid    = Decimal("0.00"),
-        balance        = computed_total,
-        title          = data.get("title"),
-    )
-    db.session.add(invoice)
-    db.session.flush()
+    # ── Resolve target invoice: combine into this month's open bill, or create new ─────
+    # "Current invoice" = the tenant's still open/partial invoice issued in the same
+    # calendar month as this one. When `combine` is on and such an invoice exists, append
+    # these charges to it instead of raising a separate bill; otherwise create a new one.
+    from datetime import date as _date
+    from sqlalchemy import extract
 
-    # Same ledger convention as tasks/invoice_tasks.py::_create_invoice — issuing a
-    # bill increases what the tenant owes, moving balance DOWN (more negative).
+    def _parse_date(d):
+        if isinstance(d, str):
+            try:
+                return _date.fromisoformat(d[:10])
+            except ValueError:
+                return None
+        return d
+
+    combine  = bool(data.get("combine"))
+    issue_d  = _parse_date(issue_date)
+    target   = None
+    if combine and issue_d:
+        target = (
+            Invoice.query
+            .filter_by(tenant_id=tenant_id, landlord_id=landlord_id, is_deleted=False)
+            .filter(Invoice.status.in_([InvoiceStatus.open.value, InvoiceStatus.partial.value]))
+            .filter(extract("year",  Invoice.issue_date) == issue_d.year)
+            .filter(extract("month", Invoice.issue_date) == issue_d.month)
+            .order_by(Invoice.id.desc())
+            .first()
+        )
+
     tenant = Tenant.query.filter_by(id=tenant_id, landlord_id=landlord_id).first()
-    if tenant:
-        tenant.balance = (tenant.balance or Decimal("0")) - computed_total
 
+    if target is not None:
+        invoice = target
+    else:
+        invoice = Invoice(
+            invoice_number = _next_invoice_number(landlord_id),
+            landlord_id    = landlord_id,
+            tenant_id      = tenant_id,
+            unit_id        = unit_id,
+            property_id    = property_id,
+            invoice_type   = invoice_type,
+            issue_date     = issue_date,
+            due_date       = data.get("due_date"),
+            status         = data.get("status", InvoiceStatus.open.value),
+            total_amount   = Decimal("0.00"),
+            amount_paid    = Decimal("0.00"),
+            balance        = Decimal("0.00"),
+            title          = data.get("title"),
+        )
+        db.session.add(invoice)
+        db.session.flush()
+
+    # Append the charges as line items (same for a new or a combined invoice).
     for li_data in line_items:
         qty        = Decimal(str(li_data.get("quantity", 1)))
         unit_price = Decimal(str(li_data.get("unit_price", 0)))
@@ -198,6 +243,20 @@ def create_invoice():
             utility_reading_id = li_data.get("utility_reading_id"),
         ))
 
+    # Recompute header totals + status from the (possibly larger) set of charges.
+    invoice.total_amount = (invoice.total_amount or Decimal("0")) + computed_total
+    invoice.balance      = invoice.total_amount - (invoice.amount_paid or Decimal("0"))
+    if invoice.balance <= 0:
+        invoice.status = InvoiceStatus.paid.value
+    elif (invoice.amount_paid or Decimal("0")) > 0:
+        invoice.status = InvoiceStatus.partial.value
+    else:
+        invoice.status = invoice.status or InvoiceStatus.open.value
+
+    # Ledger: issuing charges increases what the tenant owes (balance more negative).
+    if tenant:
+        tenant.balance = (tenant.balance or Decimal("0")) - computed_total
+
     db.session.commit()
 
     record_audit(
@@ -206,7 +265,11 @@ def create_invoice():
         action="create_invoice",
         entity_type="invoice",
         entity_id=invoice.id,
-        description=f"Invoice {invoice.invoice_number} created (type: {invoice_type}).",
+        description=(
+            f"Charges added to invoice {invoice.invoice_number} (combined)."
+            if target is not None else
+            f"Invoice {invoice.invoice_number} created (type: {invoice_type})."
+        ),
         after_data=invoice.to_dict(),
     )
     db.session.commit()

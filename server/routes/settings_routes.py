@@ -301,6 +301,7 @@ def account_settings():
         if len(new_pw) < 8:
             return jsonify({"error": "New password must be at least 8 characters."}), 400
         user.password_hash = generate_password_hash(new_pw)
+        user.must_change_password = False    # they've set their own password now
 
     db.session.commit()
 

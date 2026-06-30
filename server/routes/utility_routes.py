@@ -360,8 +360,128 @@ def bulk_generate_utility_invoices():
         data.get("reading_month"),
         data.get("reading_ids"),
         int(get_jwt_identity()),
+        bool(data.get("combine")),
     )
     return jsonify({"task_id": task.id, "message": "Utility invoice generation queued."}), 202
+
+
+# ---------------------------------------------------------------------------
+# POST /api/utilities/<id>/add-to-invoice
+# ---------------------------------------------------------------------------
+@utility_bp.route("/<int:reading_id>/add-to-invoice", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "edit")
+def add_reading_to_invoice(reading_id):
+    """
+    Bill a single utility reading by adding it as a line item to an invoice.
+    Body: { mode: "current" | "new", amount? }
+      - "current": append to the tenant's open/partial invoice for the reading month
+                   (creates one if none exists yet).
+      - "new":     always raise a fresh invoice for just this reading.
+    Amount defaults to consumption × the property's rate (water/electricity);
+    pass `amount` to override (needed for garbage/security, which have no rate).
+    ---
+    tags: [Utilities]
+    security:
+      - Bearer: []
+    responses:
+      201: {description: Reading billed onto an invoice.}
+      400: {description: Already billed, or amount could not be determined.}
+    """
+    from datetime import date as _date
+    from sqlalchemy import extract
+    from models import Invoice, InvoiceLineItem, InvoiceStatus
+    from tasks.invoice_tasks import _create_invoice
+
+    landlord_id = get_current_landlord_id()
+    reading     = _get_or_404(landlord_id, reading_id)
+    data        = request.get_json(silent=True) or {}
+    mode        = data.get("mode", "current")
+
+    if reading.invoice_id:
+        return jsonify({"error": "This reading is already on an invoice."}), 400
+
+    tenant = reading.unit.tenants[0] if reading.unit and reading.unit.tenants else None
+    if tenant is None:
+        return jsonify({"error": "This unit has no active tenant to bill."}), 400
+
+    # Resolve the amount to bill.
+    if data.get("amount") not in (None, ""):
+        amount = Decimal(str(data["amount"]))
+    else:
+        if reading.utility_item == "water":
+            rate = reading.property.water_rate if reading.property else None
+        elif reading.utility_item == "electricity":
+            rate = reading.property.electricity_rate if reading.property else None
+        else:
+            rate = None
+        if rate is None:
+            return jsonify({"error": f"No rate configured for {reading.utility_item}; pass an explicit amount."}), 400
+        amount = Decimal(str(reading.consumption or 0)) * Decimal(str(rate))
+
+    if amount <= 0:
+        return jsonify({"error": "Computed amount is zero — set a consumption/rate or pass an amount."}), 400
+
+    description = f"{reading.reading_month} — {reading.previous_reading or 0} to {reading.current_reading}"
+
+    # Try to append to the tenant's open invoice for that month.
+    target = None
+    if mode == "current":
+        try:
+            year, month = (int(x) for x in reading.reading_month.split("-")[:2])
+            target = (
+                Invoice.query
+                .filter_by(tenant_id=tenant.id, landlord_id=landlord_id, is_deleted=False)
+                .filter(Invoice.status.in_([InvoiceStatus.open.value, InvoiceStatus.partial.value]))
+                .filter(extract("year",  Invoice.issue_date) == year)
+                .filter(extract("month", Invoice.issue_date) == month)
+                .order_by(Invoice.id.desc())
+                .first()
+            )
+        except (ValueError, AttributeError):
+            target = None
+
+    if target is not None:
+        db.session.add(InvoiceLineItem(
+            invoice_id=target.id, item=reading.utility_item, description=description,
+            quantity=Decimal("1"), unit_price=amount, amount=amount, utility_reading_id=reading.id,
+        ))
+        target.total_amount = (target.total_amount or Decimal("0")) + amount
+        target.balance      = target.total_amount - (target.amount_paid or Decimal("0"))
+        tenant.balance      = (tenant.balance or Decimal("0")) - amount
+        invoice = target
+    else:
+        # New invoice (also the fallback when no open invoice exists for the month).
+        issue_dt = _date.today()
+        try:
+            year, month = (int(x) for x in reading.reading_month.split("-")[:2])
+            issue_dt = _date(year, month, 1)
+        except (ValueError, AttributeError):
+            pass
+        invoice = _create_invoice(
+            landlord_id, tenant, reading.unit, reading.property, "utility", issue_dt, None,
+            [{
+                "item": reading.utility_item, "description": description,
+                "quantity": 1, "unit_price": amount, "utility_reading_id": reading.id,
+            }],
+            title=f"{reading.utility_item.capitalize()} — {reading.reading_month}",
+        )
+
+    reading.invoice_id = invoice.id
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="bill_utility_reading",
+        entity_type="invoice",
+        entity_id=invoice.id,
+        description=f"{reading.utility_item} reading billed onto invoice {invoice.invoice_number} ({'combined' if target else 'new'}).",
+    )
+    db.session.commit()
+
+    return jsonify({"invoice": invoice.to_dict(), "combined": target is not None}), 201
 
 
 # ---------------------------------------------------------------------------

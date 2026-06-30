@@ -202,15 +202,23 @@ def generate_custom_invoices_task(landlord_id, tenant_ids, issue_date, line_item
 
 
 @celery.task(name="tasks.invoice_tasks.generate_utility_invoices_task")
-def generate_utility_invoices_task(landlord_id, property_id=None, utility_item=None, reading_month=None, reading_ids=None, actor_user_id=None) -> dict:
+def generate_utility_invoices_task(landlord_id, property_id=None, utility_item=None, reading_month=None, reading_ids=None, actor_user_id=None, combine=False) -> dict:
     """
-    One utility invoice per UtilityReading in scope (by reading_ids, or by
+    Bill each unlinked UtilityReading in scope (by reading_ids, or by
     property/item/month). Amount = consumption × the property's configured
     rate for water/electricity; garbage/security have no rate column on
     Property, so consumption is billed at face value for those items.
+
+    combine=False: one new utility invoice per reading.
+    combine=True:  append each reading to the tenant's open/partial invoice for
+                   the reading's month (creating one if none is open yet) — so a
+                   tenant gets a single combined bill for the month.
     """
+    from datetime import date as _date
+    from decimal import Decimal
+    from sqlalchemy import extract
     from extensions import db
-    from models import UtilityReading
+    from models import UtilityReading, Invoice, InvoiceLineItem, InvoiceStatus
     from services.audit_service import record_audit
 
     query = UtilityReading.query.filter_by(landlord_id=landlord_id, invoice_id=None)
@@ -224,7 +232,7 @@ def generate_utility_invoices_task(landlord_id, property_id=None, utility_item=N
         if reading_month:
             query = query.filter(UtilityReading.reading_month == reading_month)
 
-    created = 0
+    created = combined = 0
     for reading in query.all():
         tenant = reading.unit.tenants[0] if reading.unit and reading.unit.tenants else None
         if tenant is None:
@@ -237,29 +245,55 @@ def generate_utility_invoices_task(landlord_id, property_id=None, utility_item=N
         else:
             rate = None
 
-        unit_price = float(rate) if rate else 1.0
+        unit_price  = float(rate) if rate else 1.0
         consumption = float(reading.consumption or 0)
+        amount      = Decimal(str(consumption)) * Decimal(str(unit_price))
+        description = f"{reading.reading_month} — {reading.previous_reading or 0} to {reading.current_reading}"
 
-        invoice = _create_invoice(
-            landlord_id, tenant, reading.unit, reading.property, "utility", date.today(), None,
-            [
-                {
-                    "item": reading.utility_item,
-                    "description": f"{reading.reading_month} — {reading.previous_reading or 0} to {reading.current_reading}",
-                    "quantity": consumption,
-                    "unit_price": unit_price,
-                    "utility_reading_id": reading.id,
-                }
-            ],
-            title=f"{reading.utility_item.capitalize()} — {reading.reading_month}",
-        )
-        reading.invoice_id = invoice.id
+        target = None
+        if combine:
+            try:
+                year, month = (int(x) for x in reading.reading_month.split("-")[:2])
+                target = (
+                    Invoice.query
+                    .filter_by(tenant_id=tenant.id, landlord_id=landlord_id, is_deleted=False)
+                    .filter(Invoice.status.in_([InvoiceStatus.open.value, InvoiceStatus.partial.value]))
+                    .filter(extract("year",  Invoice.issue_date) == year)
+                    .filter(extract("month", Invoice.issue_date) == month)
+                    .order_by(Invoice.id.desc())
+                    .first()
+                )
+            except (ValueError, AttributeError):
+                target = None
+
+        if target is not None:
+            db.session.add(InvoiceLineItem(
+                invoice_id=target.id, item=reading.utility_item, description=description,
+                quantity=Decimal("1"), unit_price=amount, amount=amount, utility_reading_id=reading.id,
+            ))
+            target.total_amount = (target.total_amount or Decimal("0")) + amount
+            target.balance      = target.total_amount - (target.amount_paid or Decimal("0"))
+            tenant.balance      = Decimal(str(tenant.balance or 0)) - amount
+            reading.invoice_id  = target.id
+            combined += 1
+        else:
+            invoice = _create_invoice(
+                landlord_id, tenant, reading.unit, reading.property, "utility",
+                _date(*[int(x) for x in reading.reading_month.split("-")[:2]], 1) if reading.reading_month else date.today(),
+                None,
+                [{
+                    "item": reading.utility_item, "description": description,
+                    "quantity": consumption, "unit_price": unit_price, "utility_reading_id": reading.id,
+                }],
+                title=f"{reading.utility_item.capitalize()} — {reading.reading_month}",
+            )
+            reading.invoice_id = invoice.id
+            record_audit(actor_user_id, landlord_id, "generate_utility_invoice", "invoice", invoice.id, f"Utility invoice {invoice.invoice_number} generated for {tenant.first_name} {tenant.last_name}.")
+            created += 1
         db.session.add(reading)
-        record_audit(actor_user_id, landlord_id, "generate_utility_invoice", "invoice", invoice.id, f"Utility invoice {invoice.invoice_number} generated for {tenant.first_name} {tenant.last_name}.")
-        created += 1
 
     db.session.commit()
-    return {"created": created}
+    return {"created": created, "combined": combined}
 
 
 @celery.task(name="tasks.invoice_tasks.bulk_generate_invoices_task")

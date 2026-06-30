@@ -35,10 +35,30 @@ export default function Login() {
         refreshToken: result.refresh_token,
         role: result.role,
       });
+      // Team members (and anyone on a system-issued temporary password) must set a
+      // real password before they can use the app.
+      if (result.must_change_password) {
+        navigate(AUTH_ROUTES.changePassword, { replace: true });
+        return;
+      }
       const redirectTo = location.state?.from?.pathname || roleHomePath(result.role);
       navigate(redirectTo, { replace: true });
-    } catch {
-      toast("Invalid email or password.", { type: "error" });
+    } catch (err) {
+      // Surface the ACTUAL failure instead of always blaming the credentials —
+      // a network/CORS failure (status "FETCH_ERROR", no HTTP status) is a very
+      // different problem from a genuine 401, and showing the same message for
+      // both hides server-down / CORS issues during local testing.
+      let message;
+      if (err?.status === "FETCH_ERROR") {
+        message = "Cannot reach the server. Is the backend running on :5000?";
+      } else if (err?.status === 401) {
+        message = "Invalid email or password.";
+      } else if (err?.status === 429) {
+        message = "Too many attempts. Please wait a moment and try again.";
+      } else {
+        message = err?.data?.error || err?.data?.message || "Login failed. Please try again.";
+      }
+      toast(message, { type: "error" });
     }
   };
 

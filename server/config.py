@@ -195,6 +195,11 @@ class BaseConfig:
     MAIL_DEFAULT_SENDER: str = _env("MAIL_DEFAULT_SENDER", "noreply@sahilpay.com")
     MAIL_DEFAULT_SENDER_NAME: str = _env("MAIL_DEFAULT_SENDER_NAME", "SahilPay")
 
+    # When True, landlords/PMs must verify their email before they can log in.
+    # Defaults on; DevelopmentConfig flips it off so local testing isn't blocked
+    # before SendGrid is wired. Override per-environment with ENFORCE_EMAIL_VERIFICATION.
+    ENFORCE_EMAIL_VERIFICATION: bool = _env("ENFORCE_EMAIL_VERIFICATION", "true").lower() in ("1", "true", "yes", "on")
+
     # ------------------------------------------------------------------
     # M-Pesa / Daraja — payment callbacks  (§2 Third-Party Integrations)
     # ------------------------------------------------------------------
@@ -267,6 +272,22 @@ class DevelopmentConfig(BaseConfig):
     """
     APP_ENV: str = "development"
     DEBUG: bool = True
+
+    # Don't lock developers out before SendGrid is configured. Set
+    # ENFORCE_EMAIL_VERIFICATION=true in the environment to test the gated flow locally.
+    ENFORCE_EMAIL_VERIFICATION: bool = _env("ENFORCE_EMAIL_VERIFICATION", "false").lower() in ("1", "true", "yes", "on")
+
+    # In dev, Vite frequently lands on a different port than 5173 (e.g. 5174,
+    # 5175) when an earlier dev server is still holding 5173 — and it may be
+    # reached via either `localhost` or `127.0.0.1`. Rather than maintain an
+    # exact allowlist that breaks on every port bump, accept ANY localhost /
+    # 127.0.0.1 port in development only. These are regex patterns (Flask-CORS
+    # matches origins with re.match). Production keeps BaseConfig's strict,
+    # env-driven exact-origin list.
+    CORS_ORIGINS: list[str] = [
+        r"http://localhost:\d+$",
+        r"http://127\.0\.0\.1:\d+$",
+    ]
 
     # Slightly longer token expiry for developer convenience.
     JWT_ACCESS_TOKEN_EXPIRES: timedelta = timedelta(hours=2)
