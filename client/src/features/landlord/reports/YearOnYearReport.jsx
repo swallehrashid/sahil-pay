@@ -3,15 +3,15 @@ import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
 import ReportView from "./ReportView";
-import { useGetArrearsReportQuery } from "./reportApiSlice";
+import { useGetYearOnYearReportQuery } from "./reportApiSlice";
 
-// Tenants in arrears: unit, name, phone, arrears b/f, current-month bills,
-// total arrears, days in arrears.
-export default function ArrearsReport({ properties = [] }) {
+// Year-on-year comparative: same metrics as month-on-month, bucketed by year,
+// each with a graph.
+export default function YearOnYearReport({ properties = [] }) {
   const [propertyId, setPropertyId] = useState("");
   const [submitted, setSubmitted] = useState(null);
 
-  const { data, isFetching } = useGetArrearsReportQuery(submitted ?? undefined, { skip: !submitted });
+  const { data, isFetching } = useGetYearOnYearReportQuery(submitted ?? undefined, { skip: !submitted });
 
   return (
     <div className="glass space-y-6 p-6">
@@ -30,7 +30,7 @@ export default function ArrearsReport({ properties = [] }) {
 
       {isFetching && <Spinner className="mx-auto my-8" />}
       {!isFetching && submitted && data && (
-        <ReportView document={data} endpoint="/reports/statements/arrears" params={submitted} filenameBase="arrears-report" />
+        <ReportView document={data} endpoint="/reports/statements/year-on-year" params={submitted} filenameBase="year-on-year-report" />
       )}
     </div>
   );

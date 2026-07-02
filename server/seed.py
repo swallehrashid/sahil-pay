@@ -244,30 +244,48 @@ def _seed_financial_history(m, landlord, tenant, unit, prop, scenario, today, mo
     for i in range(months - 1, -1, -1):  # oldest first
         issue_date = _first_of_month(today, i)
         due_date = issue_date + timedelta(days=5)
+        month_label = issue_date.strftime("%B %Y")
+
+        # Categorized charges so property/tenant statements have real per-item
+        # breakdowns (rent + utilities + service/security, and a late penalty on
+        # the current unpaid month for arrears/partial tenants).
+        water = (Decimal("1000") + Decimal(i * 150)).quantize(Decimal("1"))  # varies month to month
+        charges = [
+            ("Rent",          f"Monthly rent for {month_label}",      rent),
+            ("Water",         f"Water usage for {month_label}",       water),
+            ("Garbage",       "Garbage collection",                   Decimal("300")),
+            ("Service Charge","Common-area service charge",           Decimal("2000")),
+            ("Security",      "Security services",                    Decimal("1500")),
+        ]
+        is_most_recent = (i == 0)
+        if is_most_recent and scenario in ("arrears", "partial"):
+            charges.append(("Penalty", "Late payment penalty", Decimal("500")))
+
+        invoice_total = sum((amt for _, _, amt in charges), Decimal("0"))
 
         invoice = m.Invoice(
             invoice_number=gen_reference("INV"), landlord_id=landlord.id, tenant_id=tenant.id,
             unit_id=unit.id, property_id=prop.id, invoice_type=m.InvoiceType.rent.value,
             issue_date=issue_date, due_date=due_date, status=m.InvoiceStatus.open.value,
-            total_amount=rent, amount_paid=Decimal("0.00"), balance=rent,
-            title=f"Rent — {issue_date.strftime('%B %Y')}",
+            total_amount=invoice_total, amount_paid=Decimal("0.00"), balance=invoice_total,
+            title=f"Rent & charges — {month_label}",
         )
         db.session.add(invoice)
         db.session.flush()
-        db.session.add(m.InvoiceLineItem(
-            invoice_id=invoice.id, item="Rent", description=f"Monthly rent for {issue_date.strftime('%B %Y')}",
-            quantity=Decimal("1"), unit_price=rent, amount=rent,
-        ))
-        tenant.balance = (tenant.balance or Decimal("0")) - rent
+        for item, desc, amt in charges:
+            db.session.add(m.InvoiceLineItem(
+                invoice_id=invoice.id, item=item, description=desc,
+                quantity=Decimal("1"), unit_price=amt, amount=amt,
+            ))
+        tenant.balance = (tenant.balance or Decimal("0")) - invoice_total
 
-        is_most_recent = (i == 0)
         pay_amount = Decimal("0")
         if scenario == "arrears" and is_most_recent and unpaid_recent:
             pay_amount = Decimal("0")  # leave this month's invoice fully unpaid
         elif scenario == "partial" and is_most_recent:
-            pay_amount = (rent / 2).quantize(Decimal("1"))  # half-paid most recent month
+            pay_amount = (invoice_total / 2).quantize(Decimal("1"))  # half-paid most recent month
         else:
-            pay_amount = rent  # paid / advance: every month paid in full
+            pay_amount = invoice_total  # paid / advance: every month paid in full
 
         if pay_amount > 0:
             payment = m.Payment(

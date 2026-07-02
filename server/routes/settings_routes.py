@@ -183,6 +183,28 @@ def automation_settings():
 
 
 # ---------------------------------------------------------------------------
+# POST /api/settings/automation/run  — run enabled scheduled automations now
+# ---------------------------------------------------------------------------
+@settings_bp.route("/automation/run", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "edit")
+def run_automations_now():
+    """
+    Run the landlord's ENABLED scheduled automations (monthly reminders, lease-
+    expiry notices) once, immediately. Same logic Celery Beat runs on schedule —
+    exposed so the toggles are verifiable without a running scheduler. Disabled
+    automations are skipped, so the result reflects exactly what's turned on.
+    """
+    from services.automation_service import run_all_scheduled
+
+    landlord = db.session.get(Landlord, get_current_landlord_id())
+    result = run_all_scheduled(landlord)
+    db.session.commit()
+    return jsonify({"message": "Automations run.", "result": result}), 200
+
+
+# ---------------------------------------------------------------------------
 # GET / PUT /api/settings/alerts
 # ---------------------------------------------------------------------------
 @settings_bp.route("/alerts", methods=["GET", "PUT"])
@@ -437,6 +459,49 @@ def generate_backup():
         "message":   "Backup generation queued.",
         "backup":    backup.to_dict(),
     }), 202
+
+
+# ---------------------------------------------------------------------------
+# GET /api/settings/backup/generate  — synchronous, detailed, column-selectable
+# ---------------------------------------------------------------------------
+@settings_bp.route("/backup/generate", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "view")
+def generate_backup_sync():
+    """
+    Build a detailed backup for a scope and return it immediately.
+    ?scope_type=tenants|payments|units|properties|property|grouping
+    ?scope_id=  (required for property / grouping)
+    ?format=json|excel|pdf   (json = on-screen preview + column catalog)
+    ?columns=section.col,...  (pick exactly which columns to back up)
+
+    Unlike POST /backup (which queues a Celery job), this generates synchronously
+    so the download works with nothing else running.
+    """
+    from services.backup_generator import build_backup
+    from services.report_builder import document_to_json, parse_column_selection, render_document
+
+    landlord = Landlord.query.filter_by(id=get_current_landlord_id()).first()
+    scope_type = request.args.get("scope_type", "tenants")
+    scope_id = request.args.get("scope_id", type=int)
+    fmt = (request.args.get("format") or "json").lower()
+    selection = parse_column_selection(request.args.get("columns"))
+
+    doc = build_backup(landlord, scope_type, scope_id)
+
+    if fmt == "json":
+        return jsonify(document_to_json(doc, selection)), 200
+
+    file_bytes = render_document(doc, fmt, selection)
+    mime = "application/pdf" if fmt == "pdf" else \
+           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ext = "pdf" if fmt == "pdf" else "xlsx"
+    fname = f"backup_{scope_type}" + (f"_{scope_id}" if scope_id else "")
+    return Response(
+        file_bytes, mimetype=mime,
+        headers={"Content-Disposition": f"attachment; filename={fname}.{ext}"},
+    ), 200
 
 
 # ---------------------------------------------------------------------------

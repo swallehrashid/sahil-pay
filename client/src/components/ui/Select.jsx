@@ -7,6 +7,10 @@ const Select = forwardRef(function Select(
   ref
 ) {
   const selectId = id || props.name;
+  // A controlled caller passes `value`; only fall back to an uncontrolled
+  // default when it doesn't — passing both triggers React's controlled/
+  // uncontrolled warning and can desync the field.
+  const isControlled = props.value !== undefined;
   return (
     <div className="w-full">
       {label && (
@@ -18,7 +22,7 @@ const Select = forwardRef(function Select(
         <select
           ref={ref}
           id={selectId}
-          defaultValue=""
+          {...(isControlled ? {} : { defaultValue: "" })}
           className={clsx("glass-input w-full appearance-none pr-10", error && "border-b-secondary", className)}
           {...props}
         >

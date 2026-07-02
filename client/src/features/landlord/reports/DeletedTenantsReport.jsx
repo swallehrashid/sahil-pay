@@ -3,15 +3,15 @@ import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
 import ReportView from "./ReportView";
-import { useGetArrearsReportQuery } from "./reportApiSlice";
+import { useGetDeletedTenantsReportQuery } from "./reportApiSlice";
 
-// Tenants in arrears: unit, name, phone, arrears b/f, current-month bills,
-// total arrears, days in arrears.
-export default function ArrearsReport({ properties = [] }) {
+// Archived (soft-deleted) tenants: unit, name, phone, move-in/out, date deleted,
+// balance left, deposit invoiced/refunded, notes.
+export default function DeletedTenantsReport({ properties = [] }) {
   const [propertyId, setPropertyId] = useState("");
   const [submitted, setSubmitted] = useState(null);
 
-  const { data, isFetching } = useGetArrearsReportQuery(submitted ?? undefined, { skip: !submitted });
+  const { data, isFetching } = useGetDeletedTenantsReportQuery(submitted ?? undefined, { skip: !submitted });
 
   return (
     <div className="glass space-y-6 p-6">
@@ -30,7 +30,7 @@ export default function ArrearsReport({ properties = [] }) {
 
       {isFetching && <Spinner className="mx-auto my-8" />}
       {!isFetching && submitted && data && (
-        <ReportView document={data} endpoint="/reports/statements/arrears" params={submitted} filenameBase="arrears-report" />
+        <ReportView document={data} endpoint="/reports/statements/deleted-tenants" params={submitted} filenameBase="deleted-tenants-report" />
       )}
     </div>
   );

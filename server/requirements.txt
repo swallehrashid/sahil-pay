@@ -70,3 +70,5 @@ webencodings==0.5.1
 Werkzeug==3.1.8
 wrapt==2.2.1
 zopfli==0.4.1
+requests==2.34.2
+openpyxl==3.1.5

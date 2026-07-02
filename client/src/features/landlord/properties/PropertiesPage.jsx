@@ -11,10 +11,13 @@ import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import PropertyForm from "./PropertyForm";
 import { useGetPropertiesQuery, useCreatePropertyMutation, useUpdatePropertyMutation, useDeletePropertyMutation } from "./propertyApiSlice";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 
 export default function PropertiesPage() {
-  const { data, isLoading } = useGetPropertiesQuery();
+  const pg = usePagination();
+  const { data, isLoading } = useGetPropertiesQuery(pg.params);
   const [createProperty, { isLoading: isCreating }] = useCreatePropertyMutation();
   const [updateProperty, { isLoading: isUpdating }] = useUpdatePropertyMutation();
   const [deleteProperty] = useDeletePropertyMutation();
@@ -24,6 +27,7 @@ export default function PropertiesPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const properties = toRows(data);
+  const meta = toPaginationMeta(data);
   const totals = {
     properties: data?.total_properties ?? properties.length,
     units: data?.total_units ?? properties.reduce((sum, p) => sum + (p.number_of_units ?? 0), 0),
@@ -109,6 +113,7 @@ export default function PropertiesPage() {
             />
           )}
         />
+        <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
       </div>
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={activeProperty ? "Edit property" : "Add property"} size="lg">

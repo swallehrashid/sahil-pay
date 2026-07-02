@@ -195,6 +195,15 @@ class BaseConfig:
     MAIL_DEFAULT_SENDER: str = _env("MAIL_DEFAULT_SENDER", "noreply@sahilpay.com")
     MAIL_DEFAULT_SENDER_NAME: str = _env("MAIL_DEFAULT_SENDER_NAME", "SahilPay")
 
+    # When True (default until real SMS/email/WhatsApp providers are wired),
+    # message dispatch is SIMULATED: no external API is called, and a message is
+    # marked "delivered" when the recipient has a usable destination (phone for
+    # SMS/WhatsApp, email for email) or "failed" when it doesn't. This lets the
+    # whole communications flow — send, log, and the sent/delivered/failed
+    # counters — work end to end. Set COMMS_SIMULATION_MODE=false (and add the
+    # provider keys) to switch to real sending with nothing else to change.
+    COMMS_SIMULATION_MODE: bool = _env("COMMS_SIMULATION_MODE", "true").lower() in ("1", "true", "yes", "on")
+
     # When True, landlords/PMs must verify their email before they can log in.
     # Defaults on; DevelopmentConfig flips it off so local testing isn't blocked
     # before SendGrid is wired. Override per-environment with ENFORCE_EMAIL_VERIFICATION.

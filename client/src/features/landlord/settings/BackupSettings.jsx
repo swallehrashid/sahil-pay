@@ -1,98 +1,77 @@
 import { useState } from "react";
-import { Download } from "lucide-react";
 import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
-import ResponsiveTable from "@/components/tables/ResponsiveTable";
-import { toast } from "@/components/ui/Toast";
-import { useGenerateBackupMutation, useGetBackupsQuery } from "./settingsApiSlice";
+import Spinner from "@/components/ui/Spinner";
+import ReportView from "@/features/landlord/reports/ReportView";
+import { useGetBackupPreviewQuery } from "./settingsApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetPropertyGroupsQuery } from "../groups/groupApiSlice";
-import { BACKUP_SCOPE_TYPES, BACKUP_FORMATS } from "@/utils/constants";
-import { downloadFile } from "@/utils/downloadFile";
-import { formatDate } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
 
-// §4.15 — scoped backups (property/grouping/tenants/payments/category) as Excel or PDF.
+// §4.15 — detailed, downloadable backups. Pick a scope, generate an on-screen
+// preview, choose exactly which columns to back up, then download Excel/PDF.
+const SCOPES = [
+  { value: "tenants", label: "All tenants" },
+  { value: "payments", label: "All payments" },
+  { value: "units", label: "All units" },
+  { value: "properties", label: "All properties" },
+  { value: "property", label: "One property (units + tenants + payments)" },
+  { value: "grouping", label: "One property group" },
+];
+
 export default function BackupSettings() {
-  const [generateBackup, { isLoading: isGenerating }] = useGenerateBackupMutation();
-  const { data, isLoading } = useGetBackupsQuery();
+  const [scopeType, setScopeType] = useState("tenants");
+  const [scopeId, setScopeId] = useState("");
+  const [submitted, setSubmitted] = useState(null);
+
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: groupsData } = useGetPropertyGroupsQuery();
-
-  const [form, setForm] = useState({ scope_type: "property", scope_id: "", format: "pdf" });
-
   const properties = toRows(propertiesData);
   const groups = toRows(groupsData);
-  const backups = toRows(data);
 
-  const scopeOptions = form.scope_type === "property" ? properties : form.scope_type === "grouping" ? groups : [];
+  const needsScopeId = scopeType === "property" || scopeType === "grouping";
+  const scopeOptions = scopeType === "property" ? properties : scopeType === "grouping" ? groups : [];
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      await generateBackup(form).unwrap();
-      toast("Backup generated.", { type: "success" });
-    } catch {
-      toast("Could not generate the backup.", { type: "error" });
-    }
+  const { data, isFetching } = useGetBackupPreviewQuery(submitted ?? undefined, { skip: !submitted });
+
+  const handleGenerate = () => {
+    const params = { scope_type: scopeType };
+    if (needsScopeId && scopeId) params.scope_id = scopeId;
+    setSubmitted(params);
   };
-
-  const columns = [
-    { key: "scope_type", header: "Scope" },
-    { key: "format", header: "Format" },
-    { key: "created_at", header: "Generated on", render: (row) => formatDate(row.created_at) },
-    {
-      key: "download",
-      header: "",
-      render: (row) =>
-        row.file_url && (
-          <button
-            onClick={() => downloadFile(row.file_url, { filename: `backup-${row.id}.${row.format}` })}
-            className="text-secondary hover:underline"
-          >
-            <Download className="h-4 w-4" />
-          </button>
-        ),
-    },
-  ];
 
   return (
     <div className="space-y-6">
-      <form onSubmit={handleSubmit} className="glass space-y-4 p-6">
+      <div className="glass space-y-4 p-6">
         <h3 className="text-base font-medium text-white">Generate a backup</h3>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Select
             label="Scope"
-            value={form.scope_type}
-            onChange={(e) => setForm({ scope_type: e.target.value, scope_id: "", format: form.format })}
-            options={BACKUP_SCOPE_TYPES.map((s) => ({ value: s, label: s }))}
+            value={scopeType}
+            onChange={(e) => { setScopeType(e.target.value); setScopeId(""); }}
+            options={SCOPES}
           />
-          {(form.scope_type === "property" || form.scope_type === "grouping") && (
+          {needsScopeId && (
             <Select
-              label="Select"
-              value={form.scope_id}
-              onChange={(e) => setForm((f) => ({ ...f, scope_id: e.target.value }))}
+              label={scopeType === "property" ? "Property" : "Group"}
+              value={scopeId}
+              onChange={(e) => setScopeId(e.target.value)}
               options={scopeOptions.map((o) => ({ value: o.id, label: o.name }))}
+              required
             />
           )}
-          <Select
-            label="Format"
-            value={form.format}
-            onChange={(e) => setForm((f) => ({ ...f, format: e.target.value }))}
-            options={BACKUP_FORMATS.map((f) => ({ value: f, label: f }))}
-          />
-        </div>
-        <div className="flex justify-end">
-          <Button type="submit" isLoading={isGenerating}>
+          <Button className="self-end" disabled={needsScopeId && !scopeId} onClick={handleGenerate}>
             Generate backup
           </Button>
         </div>
-      </form>
-
-      <div>
-        <h3 className="mb-3 text-base font-medium text-white">Generated backups</h3>
-        <ResponsiveTable columns={columns} rows={backups} isLoading={isLoading} />
       </div>
+
+      {isFetching && <Spinner className="mx-auto my-8" />}
+      {!isFetching && submitted && data && (
+        <div className="glass p-6">
+          <ReportView document={data} endpoint="/settings/backup/generate" params={submitted} filenameBase={`backup-${scopeType}`} />
+        </div>
+      )}
     </div>
   );
 }

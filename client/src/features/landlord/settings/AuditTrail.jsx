@@ -4,23 +4,27 @@ import FilterPanel from "@/components/tables/FilterPanel";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
+import Pagination from "@/components/ui/Pagination";
 import Modal from "@/components/ui/Modal";
 import { useGetAuditLogsQuery } from "./auditApiSlice";
 import { useGetTeamMembersQuery } from "./teamApiSlice";
 import { AUDIT_ENTITY_TYPES } from "@/utils/constants";
 import { formatDateTime } from "@/utils/dateFormatter";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
 
 // §4.23 — filterable audit trail with an expandable before/after detail view.
 export default function AuditTrail() {
   const [filters, setFilters] = useState({ start_date: "", end_date: "", actor_user_id: "", entity_type: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
   const [activeEntry, setActiveEntry] = useState(null);
+  const pg = usePagination();
 
-  const { data, isLoading } = useGetAuditLogsQuery(appliedFilters);
+  const { data, isLoading } = useGetAuditLogsQuery({ ...appliedFilters, ...pg.params });
   const { data: teamData } = useGetTeamMembersQuery();
 
   const logs = toRows(data);
+  const meta = toPaginationMeta(data);
   const teamMembers = toRows(teamData);
 
   const columns = [
@@ -37,10 +41,11 @@ export default function AuditTrail() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <FilterPanel
-          onApply={() => setAppliedFilters(filters)}
+          onApply={() => { setAppliedFilters(filters); pg.reset(); }}
           onReset={() => {
             setFilters({ start_date: "", end_date: "", actor_user_id: "", entity_type: "" });
             setAppliedFilters({});
+            pg.reset();
           }}
         >
           <DatePicker label="From" value={filters.start_date} onChange={(e) => setFilters((f) => ({ ...f, start_date: e.target.value }))} />
@@ -62,6 +67,13 @@ export default function AuditTrail() {
 
         <div className="flex-1">
           <ResponsiveTable columns={columns} rows={logs} isLoading={isLoading} onRowClick={(row) => setActiveEntry(row)} />
+          <Pagination
+            page={pg.page}
+            perPage={pg.perPage}
+            total={meta.total}
+            onPageChange={pg.setPage}
+            onPerPageChange={pg.setPerPage}
+          />
         </div>
       </div>
 

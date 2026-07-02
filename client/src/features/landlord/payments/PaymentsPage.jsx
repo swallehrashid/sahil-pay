@@ -23,7 +23,9 @@ import { useGetInvoicesQuery } from "../invoices/invoiceApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 import { PAYMENT_STATUSES, PAYMENT_SOURCES } from "@/utils/constants";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 
@@ -35,7 +37,8 @@ export default function PaymentsPage() {
   const [filters, setFilters] = useState({ status: "", source: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
 
-  const { data, isLoading } = useGetPaymentsQuery(appliedFilters);
+  const pg = usePagination();
+  const { data, isLoading } = useGetPaymentsQuery({ ...appliedFilters, ...pg.params });
   const { data: tenantsData } = useGetTenantsQuery();
   const { data: invoicesData } = useGetInvoicesQuery();
   const [createPayment, { isLoading: isCreating }] = useCreatePaymentMutation();
@@ -50,6 +53,7 @@ export default function PaymentsPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const payments = toRows(data);
+  const meta = toPaginationMeta(data);
   const tenants = toRows(tenantsData);
   const invoices = toRows(invoicesData);
 
@@ -143,7 +147,7 @@ export default function PaymentsPage() {
 
       <div className="mt-6 flex flex-col gap-6 lg:flex-row">
         <FilterPanel
-          onApply={() => setAppliedFilters(filters)}
+          onApply={() => { setAppliedFilters(filters); pg.reset(); }}
           onReset={() => {
             setFilters({ status: "", source: "", date_from: "", date_to: "" });
             setAppliedFilters({});
@@ -186,6 +190,7 @@ export default function PaymentsPage() {
               />
             )}
           />
+          <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
         </div>
       </div>
 

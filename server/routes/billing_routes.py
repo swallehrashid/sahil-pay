@@ -79,8 +79,13 @@ def get_billing_summary():
     if not landlord:
         return jsonify({"error": "Landlord not found."}), 404
 
-    subscription = landlord.subscription
-    package      = landlord.package
+    # Auto-categorise into the right package by unit count and refresh the
+    # derived figures (cost, next billing date, amount due) before returning.
+    from services.billing_service import recompute_subscription
+
+    subscription = recompute_subscription(landlord)
+    db.session.commit()
+    package = landlord.package
 
     return jsonify({
         "subscription":  subscription.to_dict() if subscription else None,

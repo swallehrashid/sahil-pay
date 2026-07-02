@@ -14,10 +14,13 @@ import UnitForm from "./UnitForm";
 import { useGetUnitsQuery, useCreateUnitMutation, useUpdateUnitMutation, useDeleteUnitMutation } from "./unitApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 
 export default function UnitsPage() {
-  const { data, isLoading } = useGetUnitsQuery();
+  const pg = usePagination();
+  const { data, isLoading } = useGetUnitsQuery(pg.params);
   const { data: propertiesData } = useGetPropertiesQuery();
   const [createUnit, { isLoading: isCreating }] = useCreateUnitMutation();
   const [updateUnit, { isLoading: isUpdating }] = useUpdateUnitMutation();
@@ -28,6 +31,7 @@ export default function UnitsPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const units = toRows(data);
+  const meta = toPaginationMeta(data);
   const properties = toRows(propertiesData);
   const totals = {
     properties: properties.length,
@@ -118,6 +122,7 @@ export default function UnitsPage() {
             />
           )}
         />
+        <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
       </div>
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={activeUnit ? "Edit unit" : "Add unit"}>

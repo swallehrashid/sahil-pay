@@ -19,7 +19,9 @@ import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommu
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { MESSAGE_CHANNELS, COMMUNICATION_STATUSES } from "@/utils/constants";
 import { formatDateTime } from "@/utils/dateFormatter";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 
 export default function CommunicationsPage() {
   const [searchParams] = useSearchParams();
@@ -31,18 +33,22 @@ export default function CommunicationsPage() {
   const [isComposeOpen, setIsComposeOpen] = useState(() => Boolean(tenantIdFromQuery));
   const [compose, setCompose] = useState({ tenant_id: tenantIdFromQuery ?? "", message_type: "sms", content: "" });
 
-  const { data, isLoading } = useGetCommunicationsQuery(appliedFilters);
+  const pg = usePagination();
+  const { data, isLoading } = useGetCommunicationsQuery({ ...appliedFilters, ...pg.params });
   const { data: tenantsData } = useGetTenantsQuery();
   const [sendCommunication, { isLoading: isSending }] = useSendCommunicationMutation();
   const [resend] = useResendCommunicationMutation();
 
   const logs = toRows(data);
+  const meta = toPaginationMeta(data);
   const tenants = toRows(tenantsData);
 
+  // The API returns lifetime counters under `summary`; fall back to the current
+  // page only if the summary isn't present.
   const totals = {
-    sent: data?.total_sent ?? logs.length,
-    delivered: data?.total_delivered ?? logs.filter((l) => l.status === "delivered").length,
-    failed: data?.total_failed ?? logs.filter((l) => l.status === "failed").length,
+    sent: data?.summary?.total_sent ?? logs.length,
+    delivered: data?.summary?.total_delivered ?? logs.filter((l) => l.status === "delivered").length,
+    failed: data?.summary?.total_failed ?? logs.filter((l) => l.status === "failed").length,
   };
 
   const handleSend = async (e) => {
@@ -111,7 +117,7 @@ export default function CommunicationsPage() {
 
           <div className="mt-6 flex flex-col gap-6 lg:flex-row">
             <FilterPanel
-              onApply={() => setAppliedFilters(filters)}
+              onApply={() => { setAppliedFilters(filters); pg.reset(); }}
               onReset={() => {
                 setFilters({ status: "", message_type: "", date_from: "", date_to: "" });
                 setAppliedFilters({});
@@ -149,6 +155,7 @@ export default function CommunicationsPage() {
                   )
                 }
               />
+              <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
             </div>
           </div>
         </>

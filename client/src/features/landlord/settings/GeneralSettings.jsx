@@ -11,6 +11,7 @@ import {
   useUpdateGeneralSettingsMutation,
   useGetAutomationSettingsQuery,
   useUpdateAutomationSettingsMutation,
+  useRunAutomationsMutation,
 } from "./settingsApiSlice";
 import { MPESA_TYPES, ACCOUNT_TYPES } from "@/utils/constants";
 
@@ -20,6 +21,7 @@ export default function GeneralSettings() {
   const { data: automation, isLoading: isAutomationLoading } = useGetAutomationSettingsQuery();
   const [updateGeneral, { isLoading: isSavingGeneral }] = useUpdateGeneralSettingsMutation();
   const [updateAutomation, { isLoading: isSavingAutomation }] = useUpdateAutomationSettingsMutation();
+  const [runAutomations, { isLoading: isRunningAutomations }] = useRunAutomationsMutation();
 
   const [prevData, setPrevData] = useState();
   const [form, setForm] = useState(null);
@@ -45,6 +47,19 @@ export default function GeneralSettings() {
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const updateAuto = (key) => (e) => setAutomationForm((f) => ({ ...f, [key]: e.target.checked }));
   const updateAutoValue = (key) => (e) => setAutomationForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const handleRunAutomations = async () => {
+    try {
+      const res = await runAutomations().unwrap();
+      const r = res.result ?? {};
+      toast(
+        `Automations run — ${r.monthly_reminders_sent ?? 0} reminder(s), ${r.lease_expiry_notices_sent ?? 0} lease notice(s) sent.`,
+        { type: "success" }
+      );
+    } catch {
+      toast("Could not run automations.", { type: "error" });
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -92,7 +107,12 @@ export default function GeneralSettings() {
       </div>
 
       <div className="glass space-y-3 p-6">
-        <h3 className="text-base font-medium text-white">Automated tasks</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-medium text-white">Automated tasks</h3>
+          <Button type="button" variant="ghost" size="sm" isLoading={isRunningAutomations} onClick={handleRunAutomations}>
+            Run scheduled automations now
+          </Button>
+        </div>
         <Checkbox
           label="Automatically generate recurring rent invoices"
           checked={Boolean(automationForm.auto_generate_recurring_invoices)}

@@ -11,7 +11,9 @@ import { toast } from "@/components/ui/Toast";
 import { useGetMasterAuditLogsQuery, useRevertAuditActionMutation, useGetAdminLandlordsQuery } from "./adminApiSlice";
 import { AUDIT_ENTITY_TYPES } from "@/utils/constants";
 import { formatDateTime } from "@/utils/dateFormatter";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 
 // §7.4 — master audit logs across every landlord account, with full revert authority.
 export default function MasterAuditLogs() {
@@ -20,11 +22,13 @@ export default function MasterAuditLogs() {
   const [pendingRevert, setPendingRevert] = useState(null);
   const [revertReason, setRevertReason] = useState("");
 
-  const { data, isLoading } = useGetMasterAuditLogsQuery(appliedFilters);
+  const pg = usePagination();
+  const { data, isLoading } = useGetMasterAuditLogsQuery({ ...appliedFilters, ...pg.params });
   const { data: landlordsData } = useGetAdminLandlordsQuery();
   const [revertAction, { isLoading: isReverting }] = useRevertAuditActionMutation();
 
   const logs = toRows(data);
+  const meta = toPaginationMeta(data);
   const landlords = toRows(landlordsData);
   // AuditLog only carries landlord_id, not a denormalized name — resolve it from the
   // landlords list we already fetch for the filter dropdown.
@@ -59,7 +63,7 @@ export default function MasterAuditLogs() {
 
       <div className="flex flex-col gap-6 lg:flex-row">
         <FilterPanel
-          onApply={() => setAppliedFilters(filters)}
+          onApply={() => { setAppliedFilters(filters); pg.reset(); }}
           onReset={() => {
             setFilters({ landlord_id: "", entity_type: "", start_date: "", end_date: "" });
             setAppliedFilters({});
@@ -93,6 +97,7 @@ export default function MasterAuditLogs() {
               </button>
             )}
           />
+          <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
         </div>
       </div>
 

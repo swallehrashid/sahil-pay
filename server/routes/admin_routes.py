@@ -17,6 +17,7 @@ Security contract:
 """
 
 from datetime import datetime
+from decimal import Decimal
 
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
@@ -276,6 +277,62 @@ def suspend_landlord(landlord_id):
     db.session.commit()
 
     return jsonify({"message": f"Account for '{landlord.company_name}' suspended."}), 200
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/admin/landlords/<id>/subscription  — override billing figures
+# ---------------------------------------------------------------------------
+@admin_bp.route("/landlords/<int:landlord_id>/subscription", methods=["PATCH"])
+@jwt_required()
+def override_subscription(landlord_id):
+    """
+    Admin override of a landlord's billing. The figures are auto-calculated
+    (unit count → package tier → per-unit cost; next billing date from the
+    registration date), but the admin can override the next billing date, the
+    amount due, and the unit count here.
+    Body (any subset): { next_billing_date: 'YYYY-MM-DD', amount_due: number,
+                         unit_count: int, status: str }
+    ---
+    tags: [Admin]
+    """
+    _require_admin()
+    landlord = _get_landlord_or_404(landlord_id)
+    data     = request.get_json(silent=True) or {}
+
+    from services.billing_service import recompute_subscription
+    from utils import parse_date
+
+    # Start from the auto-calculated baseline, then apply the admin's overrides.
+    sub = recompute_subscription(landlord)
+    before = sub.to_dict()
+
+    if "next_billing_date" in data and data["next_billing_date"]:
+        d = parse_date(data["next_billing_date"])
+        if not d:
+            return jsonify({"error": "next_billing_date must be YYYY-MM-DD."}), 400
+        sub.next_billing_date = d
+    if "amount_due" in data and data["amount_due"] is not None:
+        sub.amount_due = Decimal(str(data["amount_due"]))
+    if "unit_count" in data and data["unit_count"] is not None:
+        sub.unit_count = int(data["unit_count"])
+    if "status" in data and data["status"]:
+        sub.status = data["status"]
+
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=_admin_actor_id(),
+        landlord_id=landlord.id,
+        action="admin_override_subscription",
+        entity_type="subscription",
+        entity_id=sub.id,
+        description=f"ADMIN: Overrode billing for landlord {landlord.id} ({landlord.company_name}).",
+        before_data=before,
+        after_data=sub.to_dict(),
+    )
+    db.session.commit()
+
+    return jsonify({"message": "Subscription updated.", "subscription": sub.to_dict()}), 200
 
 
 # ---------------------------------------------------------------------------

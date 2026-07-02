@@ -2,49 +2,40 @@ import { useState } from "react";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
 import Button from "@/components/ui/Button";
-import ExportButtons from "@/components/ui/ExportButtons";
-import ResponsiveTable from "@/components/tables/ResponsiveTable";
+import Spinner from "@/components/ui/Spinner";
+import ReportView from "./ReportView";
 import { useGetExpensesReportQuery } from "./reportApiSlice";
-import { formatCurrency } from "@/utils/currencyFormatter";
-import { formatDate } from "@/utils/dateFormatter";
-import { toRows } from "@/utils/tableAdapters";
 
+// Detailed expenses: date, property, unit, category, description, amount.
 export default function ExpensesReport({ properties = [] }) {
-  const [filters, setFilters] = useState({ property_id: "", date_from: "", date_to: "" });
+  const [filters, setFilters] = useState({ property_id: "", start_date: "", end_date: "" });
   const [submitted, setSubmitted] = useState(null);
 
-  const { data, isFetching } = useGetExpensesReportQuery(submitted, { skip: !submitted });
-  const rows = toRows(data);
+  const { data, isFetching } = useGetExpensesReportQuery(submitted ?? undefined, { skip: !submitted });
 
-  const columns = [
-    { key: "date", header: "Date", render: (row) => formatDate(row.expense_date) },
-    { key: "property", header: "Property" },
-    { key: "category", header: "Category" },
-    { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
-  ];
+  const cleaned = () =>
+    Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== ""));
 
   return (
-    <div className="glass space-y-4 p-6">
+    <div className="glass space-y-6 p-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <Select
-          label="Property"
+          label="Property (optional)"
           value={filters.property_id}
           onChange={(e) => setFilters((f) => ({ ...f, property_id: e.target.value }))}
           placeholder="All properties"
           options={properties.map((p) => ({ value: p.id, label: p.name }))}
         />
-        <DatePicker label="From" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} />
-        <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
-        <Button className="self-end" onClick={() => setSubmitted(filters)}>
+        <DatePicker label="From" value={filters.start_date} onChange={(e) => setFilters((f) => ({ ...f, start_date: e.target.value }))} />
+        <DatePicker label="To" value={filters.end_date} onChange={(e) => setFilters((f) => ({ ...f, end_date: e.target.value }))} />
+        <Button className="self-end" onClick={() => setSubmitted(cleaned())}>
           Generate
         </Button>
       </div>
 
-      {submitted && (
-        <>
-          <ExportButtons endpoint="/reports/statements/expenses" filenameBase="expenses-report" params={submitted} />
-          <ResponsiveTable columns={columns} rows={rows} isLoading={isFetching} />
-        </>
+      {isFetching && <Spinner className="mx-auto my-8" />}
+      {!isFetching && submitted && data && (
+        <ReportView document={data} endpoint="/reports/statements/expenses" params={submitted} filenameBase="expenses-report" />
       )}
     </div>
   );

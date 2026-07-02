@@ -23,7 +23,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import (
-    Tenant, Unit, Property, TenantUnitHistory, TenantDocument,
+    Tenant, Unit, Property, TenantUnitHistory, TenantDocument, Landlord,
     Invoice, Payment, CommunicationLog,
     CommunicationStatus, MessageChannel, RecipientType,
 )
@@ -222,6 +222,11 @@ def create_tenant():
         description=f"Tenant '{first_name} {last_name}' added to unit '{unit.name}'.",
         after_data=tenant.to_dict(),
     )
+
+    # Run the new-tenant automation (Settings → Automation). No-op if disabled.
+    from services.automation_service import on_tenant_created
+
+    on_tenant_created(db.session.get(Landlord, landlord_id), tenant)
     db.session.commit()
 
     return jsonify(tenant.to_dict()), 201

@@ -26,7 +26,9 @@ import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 import { INVOICE_STATUSES } from "@/utils/constants";
 
 export default function InvoicesPage() {
@@ -37,7 +39,8 @@ export default function InvoicesPage() {
   const [appliedFilters, setAppliedFilters] = useState({});
   const [activeGenerator, setActiveGenerator] = useState(null);
 
-  const { data, isLoading } = useGetInvoicesQuery(appliedFilters);
+  const pg = usePagination();
+  const { data, isLoading } = useGetInvoicesQuery({ ...appliedFilters, ...pg.params });
   const { data: tenantsData } = useGetTenantsQuery();
   const { data: propertiesData } = useGetPropertiesQuery();
   const [createInvoice, { isLoading: isCreating }] = useCreateInvoiceMutation();
@@ -50,6 +53,7 @@ export default function InvoicesPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const invoices = toRows(data);
+  const meta = toPaginationMeta(data);
   const tenants = toRows(tenantsData);
   const properties = toRows(propertiesData);
 
@@ -150,7 +154,7 @@ export default function InvoicesPage() {
 
       <div className="mt-6 flex flex-col gap-6 lg:flex-row">
         <FilterPanel
-          onApply={() => setAppliedFilters(filters)}
+          onApply={() => { setAppliedFilters(filters); pg.reset(); }}
           onReset={() => {
             setFilters({ status: "", date_from: "", date_to: "" });
             setAppliedFilters({});
@@ -186,6 +190,7 @@ export default function InvoicesPage() {
               />
             )}
           />
+          <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
         </div>
       </div>
 

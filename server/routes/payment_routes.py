@@ -235,6 +235,26 @@ def create_payment():
         description=f"Payment {payment.payment_ref} of KES {amount} recorded for tenant {tenant_id}.",
         after_data=payment.to_dict(),
     )
+
+    # Fire the landlord's "payment" alert (respects Settings → Alerts: enabled +
+    # channel) and run the payment-acknowledgment automation (Settings →
+    # Automation). Both no-op if the landlord has them off.
+    if payment.status == PaymentStatus.confirmed.value:
+        from services.alert_service import dispatch_alert
+        from services.automation_service import on_payment_recorded
+
+        landlord = db.session.get(Landlord, landlord_id)
+        tenant_name = f"{tenant.first_name} {tenant.last_name}"
+        dispatch_alert(
+            landlord_id,
+            "payment",
+            title="Payment received",
+            body=f"{tenant_name} paid KES {amount} ({payment.payment_ref}).",
+            link="/landlord/payments",
+            entity_type="payment",
+            entity_id=payment.id,
+        )
+        on_payment_recorded(landlord, payment, tenant)
     db.session.commit()
 
     return jsonify(payment.to_dict()), 201

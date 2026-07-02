@@ -20,6 +20,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
+import Pagination from "@/components/ui/Pagination";
 import Dropdown from "@/components/ui/Dropdown";
 import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -41,12 +42,14 @@ import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 
 export default function TenantsPage() {
   const navigate = useNavigate();
-  const { data, isLoading } = useGetTenantsQuery();
+  const pg = usePagination();
+  const { data, isLoading } = useGetTenantsQuery(pg.params);
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: unitsData } = useGetUnitsQuery();
   const [createTenant, { isLoading: isCreating }] = useCreateTenantMutation();
@@ -63,6 +66,7 @@ export default function TenantsPage() {
   const [selectedIds, setSelectedIds] = useState([]);
 
   const tenants = toRows(data);
+  const meta = toPaginationMeta(data);
   const properties = toRows(propertiesData);
   const units = toRows(unitsData);
 
@@ -211,6 +215,13 @@ export default function TenantsPage() {
               ]}
             />
           )}
+        />
+        <Pagination
+          page={pg.page}
+          perPage={pg.perPage}
+          total={meta.total}
+          onPageChange={pg.setPage}
+          onPerPageChange={pg.setPerPage}
         />
       </div>
 

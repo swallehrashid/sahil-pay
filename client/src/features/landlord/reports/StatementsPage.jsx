@@ -5,8 +5,10 @@ import TenantStatement from "./TenantStatement";
 import PropertyStatement from "./PropertyStatement";
 import ArrearsReport from "./ArrearsReport";
 import ExpensesReport from "./ExpensesReport";
-import ComparativeReport from "./ComparativeReport";
+import MonthOnMonthReport from "./MonthOnMonthReport";
+import YearOnYearReport from "./YearOnYearReport";
 import GroupingReport from "./GroupingReport";
+import DeletedTenantsReport from "./DeletedTenantsReport";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetPropertyGroupsQuery } from "../groups/groupApiSlice";
@@ -17,11 +19,15 @@ const TABS = [
   { key: "property", label: "Property Statement" },
   { key: "arrears", label: "Arrears" },
   { key: "expenses", label: "Expenses" },
-  { key: "comparative", label: "Comparative" },
+  { key: "mom", label: "Month-on-Month" },
+  { key: "yoy", label: "Year-on-Year" },
   { key: "grouping", label: "Grouping" },
+  { key: "deleted", label: "Deleted Tenants" },
 ];
 
-// §4.11 — hub for every statement type. Each generates on demand and exports to PDF/Excel.
+// §4.11 — hub for every statement type. Each generates an on-screen preview with
+// editable columns (and graphs where relevant), then exports to PDF/Excel with
+// the landlord's letterhead + signature.
 export default function StatementsPage() {
   const [tab, setTab] = useState("tenant");
   const { data: tenantsData } = useGetTenantsQuery();
@@ -40,8 +46,10 @@ export default function StatementsPage() {
       {tab === "property" && <PropertyStatement properties={properties} />}
       {tab === "arrears" && <ArrearsReport properties={properties} />}
       {tab === "expenses" && <ExpensesReport properties={properties} />}
-      {tab === "comparative" && <ComparativeReport />}
+      {tab === "mom" && <MonthOnMonthReport properties={properties} />}
+      {tab === "yoy" && <YearOnYearReport properties={properties} />}
       {tab === "grouping" && <GroupingReport groups={groups} />}
+      {tab === "deleted" && <DeletedTenantsReport properties={properties} />}
     </div>
   );
 }

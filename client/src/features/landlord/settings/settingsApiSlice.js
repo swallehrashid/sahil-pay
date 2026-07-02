@@ -47,6 +47,15 @@ export const settingsApiSlice = apiSlice.injectEndpoints({
       query: () => "/settings/backup",
       providesTags: ["Backup"],
     }),
+    // Synchronous, detailed backup preview (JSON) for a scope — the download
+    // (Excel/PDF, with column selection) hits the same endpoint via ReportView.
+    getBackupPreview: builder.query({
+      query: (params) => ({ url: "/settings/backup/generate", params }),
+    }),
+    // Run the enabled scheduled automations now (verifies the toggles work).
+    runAutomations: builder.mutation({
+      query: () => ({ url: "/settings/automation/run", method: "POST" }),
+    }),
   }),
 });
 
@@ -62,4 +71,6 @@ export const {
   useGenerateAgentCodeMutation,
   useGenerateBackupMutation,
   useGetBackupsQuery,
+  useGetBackupPreviewQuery,
+  useRunAutomationsMutation,
 } = settingsApiSlice;

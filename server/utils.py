@@ -887,6 +887,7 @@ def decrement_sms_balance(landlord, n: int = 1) -> None:
     if landlord.sms_balance is None:
         landlord.sms_balance = 0
 
+    before = landlord.sms_balance
     landlord.sms_balance = max(0, landlord.sms_balance - n)
     db.session.add(landlord)
 
@@ -903,3 +904,18 @@ def decrement_sms_balance(landlord, n: int = 1) -> None:
             landlord.sms_balance,
             threshold,
         )
+        # Fire the "low_sms" alert once, on the crossing (respects Settings →
+        # Alerts). Realtime here; the Celery Beat digest handles non-realtime.
+        if before > threshold:
+            try:
+                from services.alert_service import dispatch_alert
+
+                dispatch_alert(
+                    landlord.id,
+                    "low_sms",
+                    title="Low SMS balance",
+                    body=f"Your SMS balance is down to {landlord.sms_balance} credits. Top up to keep sending reminders.",
+                    link="/landlord/settings/billing",
+                )
+            except Exception as exc:  # never let an alert break an SMS send
+                logger.error("low_sms alert dispatch failed: %s", exc)

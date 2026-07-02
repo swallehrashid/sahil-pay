@@ -21,7 +21,9 @@ import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 import { EXPENSE_CATEGORIES, EXPENSE_STATUSES } from "@/utils/constants";
 
 export default function ExpensesPage() {
@@ -29,7 +31,8 @@ export default function ExpensesPage() {
   const [filters, setFilters] = useState({ property_id: "", category: "", status: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
 
-  const { data, isLoading } = useGetExpensesQuery(appliedFilters);
+  const pg = usePagination();
+  const { data, isLoading } = useGetExpensesQuery({ ...appliedFilters, ...pg.params });
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: unitsData } = useGetUnitsQuery();
   const [createExpense, { isLoading: isCreating }] = useCreateExpenseMutation();
@@ -41,6 +44,7 @@ export default function ExpensesPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const expenses = toRows(data);
+  const meta = toPaginationMeta(data);
   const properties = toRows(propertiesData);
   const units = toRows(unitsData);
 
@@ -123,7 +127,7 @@ export default function ExpensesPage() {
 
           <div className="mt-6 flex flex-col gap-6 lg:flex-row">
             <FilterPanel
-              onApply={() => setAppliedFilters(filters)}
+              onApply={() => { setAppliedFilters(filters); pg.reset(); }}
               onReset={() => {
                 setFilters({ property_id: "", category: "", status: "", date_from: "", date_to: "" });
                 setAppliedFilters({});
@@ -173,6 +177,7 @@ export default function ExpensesPage() {
                   />
                 )}
               />
+              <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
             </div>
           </div>
         </>

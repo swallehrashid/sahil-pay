@@ -175,10 +175,8 @@ def send_message():
             content=personalized,
         )
         log_ids.append(log.id if log else None)
-
-        # Decrement SMS balance in-process (atomic commit follows)
-        if channel == MessageChannel.sms.value:
-            landlord.sms_balance = max(0, landlord.sms_balance - _SMS_COST_PER_MESSAGE)
+        # NB: the SMS balance is decremented inside dispatch_message() (the single
+        # chokepoint). Decrementing again here would double-charge every SMS.
 
     db.session.commit()
 

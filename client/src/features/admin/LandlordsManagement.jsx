@@ -11,7 +11,9 @@ import Badge from "@/components/ui/Badge";
 import { useDebounce } from "@/hooks/useDebounce";
 import { toast } from "@/components/ui/Toast";
 import { useGetAdminLandlordsQuery, useSuspendLandlordMutation, useReactivateLandlordMutation } from "./adminApiSlice";
-import { toRows } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { usePagination } from "@/hooks/usePagination";
+import Pagination from "@/components/ui/Pagination";
 import { ADMIN_ROUTES } from "@/config/routePaths";
 
 // §7 — list/search every registered account.
@@ -20,7 +22,8 @@ export default function LandlordsManagement() {
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search);
 
-  const { data, isLoading } = useGetAdminLandlordsQuery({ search: debouncedSearch });
+  const pg = usePagination();
+  const { data, isLoading } = useGetAdminLandlordsQuery({ search: debouncedSearch, ...pg.params });
   const [suspend, { isLoading: isSuspending }] = useSuspendLandlordMutation();
   const [reactivate, { isLoading: isReactivating }] = useReactivateLandlordMutation();
 
@@ -49,6 +52,7 @@ export default function LandlordsManagement() {
   };
 
   const rows = toRows(data);
+  const meta = toPaginationMeta(data);
 
   const columns = [
     { key: "company_name", header: "Company" },
@@ -92,6 +96,7 @@ export default function LandlordsManagement() {
           />
         )}
       />
+      <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
 
       <ConfirmDialog
         isOpen={Boolean(pendingChange)}

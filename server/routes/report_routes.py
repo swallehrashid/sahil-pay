@@ -13,19 +13,45 @@ from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required
 
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
-from services.export_service import (
-    generate_tenant_statement,
-    generate_property_statement,
-    generate_arrears_report,
-    generate_expenses_report,
-    generate_mom_report,
-    generate_yoy_report,
-    generate_grouping_report,
-    generate_deleted_tenants_report,
-    generate_occupancy_report,
+from services.export_service import generate_occupancy_report
+from services.report_builder import document_to_json, parse_column_selection, render_document
+from services.report_generators import (
+    build_arrears_report,
+    build_deleted_tenants_report,
+    build_expenses_report,
+    build_grouping_report,
+    build_mom_report,
+    build_property_statement,
+    build_tenant_statement,
+    build_yoy_report,
 )
 
 report_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
+
+
+def _current_landlord():
+    """Resolve the Landlord ORM row for the calling (landlord or team) user."""
+    from models import Landlord
+
+    return Landlord.query.filter_by(id=get_current_landlord_id()).first()
+
+
+def _serve_report(doc, filename: str):
+    """
+    One response path for every structured report:
+      ?format=json (default)  -> preview JSON + column catalog
+      ?format=pdf | excel      -> downloadable file honoring ?columns=
+    """
+    fmt = (request.args.get("format") or "json").lower()
+    selection = parse_column_selection(request.args.get("columns"))
+    charts_raw = request.args.get("charts")
+    chart_keys = [c.strip() for c in charts_raw.split(",") if c.strip()] if charts_raw else None
+
+    if fmt == "json":
+        return jsonify(document_to_json(doc, selection)), 200
+
+    file_bytes = render_document(doc, fmt, selection, chart_keys)
+    return _fmt_response(file_bytes, fmt, filename), 200
 
 
 def _fmt_response(file_bytes, fmt: str, filename: str):
@@ -48,18 +74,17 @@ def _fmt_response(file_bytes, fmt: str, filename: str):
 @require_permission("tenants", "view")
 def tenant_statement(tenant_id):
     """
-    Tenant statement: transaction date, item, money due, money paid, running balance.
-    ?format=pdf|excel, ?start_date=, ?end_date=
+    Tenant statement: transaction date, item, description, money due, money paid,
+    running balance. ?format=json|pdf|excel (json=preview), ?start_date=, ?end_date=,
+    ?columns=date,item,paid,...
     ---
     tags: [Reports]
     """
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    start_date  = request.args.get("start_date")
-    end_date    = request.args.get("end_date")
-
-    file_bytes = generate_tenant_statement(landlord_id, tenant_id, fmt, start_date, end_date)
-    return _fmt_response(file_bytes, fmt, f"tenant_statement_{tenant_id}"), 200
+    doc = build_tenant_statement(
+        _current_landlord(), tenant_id,
+        request.args.get("start_date"), request.args.get("end_date"),
+    )
+    return _serve_report(doc, f"tenant_statement_{tenant_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -70,15 +95,16 @@ def tenant_statement(tenant_id):
 @require_landlord_or_team()
 @require_permission("properties", "view")
 def property_statement(property_id):
-    """Property-level income/expense statement. ?format=, ?start_date=, ?end_date="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_property_statement(
-        landlord_id, property_id, fmt,
-        request.args.get("start_date"),
-        request.args.get("end_date"),
+    """
+    Property statement — 4 sections (tenants, expenses, occupancy, summary) with
+    net-income roll-up using the per-property tax rate.
+    ?format=json|pdf|excel, ?start_date=, ?end_date=, ?columns=tenants.rent,...
+    """
+    doc = build_property_statement(
+        _current_landlord(), property_id,
+        request.args.get("start_date"), request.args.get("end_date"),
     )
-    return _fmt_response(file_bytes, fmt, f"property_statement_{property_id}"), 200
+    return _serve_report(doc, f"property_statement_{property_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -89,15 +115,14 @@ def property_statement(property_id):
 @require_landlord_or_team()
 @require_permission("tenants", "view")
 def arrears_report():
-    """All tenants with a negative balance. ?format=, ?property_id=, ?as_of_date="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_arrears_report(
-        landlord_id, fmt,
+    """Tenants in arrears (unit, name, phone, arrears b/f, current bills, total, days).
+    ?format=json|pdf|excel, ?property_id=, ?as_of_date=, ?columns="""
+    doc = build_arrears_report(
+        _current_landlord(),
         request.args.get("property_id", type=int),
         request.args.get("as_of_date"),
     )
-    return _fmt_response(file_bytes, fmt, "arrears_report"), 200
+    return _serve_report(doc, "arrears_report")
 
 
 # ---------------------------------------------------------------------------
@@ -108,16 +133,15 @@ def arrears_report():
 @require_landlord_or_team()
 @require_permission("payments", "view")
 def expenses_report():
-    """Expenses report. ?format=, ?property_id=, ?start_date=, ?end_date="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_expenses_report(
-        landlord_id, fmt,
+    """Expenses report (date, property, unit, category, description, amount).
+    ?format=json|pdf|excel, ?property_id=, ?start_date=, ?end_date=, ?columns="""
+    doc = build_expenses_report(
+        _current_landlord(),
         request.args.get("property_id", type=int),
         request.args.get("start_date"),
         request.args.get("end_date"),
     )
-    return _fmt_response(file_bytes, fmt, "expenses_report"), 200
+    return _serve_report(doc, "expenses_report")
 
 
 # ---------------------------------------------------------------------------
@@ -128,15 +152,15 @@ def expenses_report():
 @require_landlord_or_team()
 @require_permission("payments", "view")
 def mom_report():
-    """Month-on-month comparative. ?format=, ?property_id=, ?year="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_mom_report(
-        landlord_id, fmt,
+    """Month-on-month comparative (occupancy, rent, water, bills, paid, %, expense
+    per month) with per-metric graphs. ?format=json|pdf|excel, ?property_id=,
+    ?year=, ?columns=, ?charts="""
+    doc = build_mom_report(
+        _current_landlord(),
         request.args.get("property_id", type=int),
         request.args.get("year", type=int),
     )
-    return _fmt_response(file_bytes, fmt, "month_on_month_report"), 200
+    return _serve_report(doc, "month_on_month_report")
 
 
 # ---------------------------------------------------------------------------
@@ -147,14 +171,13 @@ def mom_report():
 @require_landlord_or_team()
 @require_permission("payments", "view")
 def yoy_report():
-    """Year-on-year comparative. ?format=, ?property_id="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_yoy_report(
-        landlord_id, fmt,
+    """Year-on-year comparative (same metrics as MoM, bucketed by year) with graphs.
+    ?format=json|pdf|excel, ?property_id=, ?columns=, ?charts="""
+    doc = build_yoy_report(
+        _current_landlord(),
         request.args.get("property_id", type=int),
     )
-    return _fmt_response(file_bytes, fmt, "year_on_year_report"), 200
+    return _serve_report(doc, "year_on_year_report")
 
 
 # ---------------------------------------------------------------------------
@@ -165,15 +188,15 @@ def yoy_report():
 @require_landlord_or_team()
 @require_permission("properties", "view")
 def grouping_report(group_id):
-    """Property-grouping report. ?format=, ?start_date=, ?end_date="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_grouping_report(
-        landlord_id, group_id, fmt,
+    """Property-grouping report — every property in the group compared across the
+    comparative metrics, with a group total. ?format=json|pdf|excel, ?start_date=,
+    ?end_date=, ?columns=, ?charts="""
+    doc = build_grouping_report(
+        _current_landlord(), group_id,
         request.args.get("start_date"),
         request.args.get("end_date"),
     )
-    return _fmt_response(file_bytes, fmt, f"grouping_report_{group_id}"), 200
+    return _serve_report(doc, f"grouping_report_{group_id}")
 
 
 # ---------------------------------------------------------------------------
@@ -184,14 +207,13 @@ def grouping_report(group_id):
 @require_landlord_or_team()
 @require_permission("tenants", "view")
 def deleted_tenants_report():
-    """Report of all soft-deleted tenants. ?format=, ?property_id="""
-    landlord_id = get_current_landlord_id()
-    fmt         = request.args.get("format", "pdf")
-    file_bytes  = generate_deleted_tenants_report(
-        landlord_id, fmt,
+    """Archived (soft-deleted) tenants — unit, name, phone, move-in/out, deleted-on,
+    balance, deposits, notes. ?format=json|pdf|excel, ?property_id=, ?columns="""
+    doc = build_deleted_tenants_report(
+        _current_landlord(),
         request.args.get("property_id", type=int),
     )
-    return _fmt_response(file_bytes, fmt, "deleted_tenants_report"), 200
+    return _serve_report(doc, "deleted_tenants_report")
 
 
 # ---------------------------------------------------------------------------
