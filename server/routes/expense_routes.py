@@ -33,7 +33,7 @@ expense_bp = Blueprint("expenses", __name__, url_prefix="/api/expenses")
 @expense_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "view")
+@require_permission("expenses", "view")
 @scope_to_accessible_properties
 def list_expenses():
     """
@@ -104,7 +104,7 @@ def list_expenses():
 @expense_bp.route("/", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("expenses", "edit")
 def create_expense():
     """
     Record a one-off expense.
@@ -173,7 +173,7 @@ def create_expense():
 @expense_bp.route("/<int:expense_id>", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "view")
+@require_permission("expenses", "view")
 def get_expense(expense_id):
     landlord_id = get_current_landlord_id()
     expense     = _get_or_404(landlord_id, expense_id)
@@ -189,7 +189,7 @@ def get_expense(expense_id):
 @expense_bp.route("/<int:expense_id>", methods=["PUT"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("expenses", "edit")
 def update_expense(expense_id):
     landlord_id = get_current_landlord_id()
     expense     = _get_or_404(landlord_id, expense_id)
@@ -223,7 +223,7 @@ def update_expense(expense_id):
 @expense_bp.route("/<int:expense_id>", methods=["DELETE"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("expenses", "edit")
 def delete_expense(expense_id):
     landlord_id = get_current_landlord_id()
     expense     = _get_or_404(landlord_id, expense_id)
@@ -256,7 +256,7 @@ def delete_expense(expense_id):
 @expense_bp.route("/recurring", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "view")
+@require_permission("expenses", "view")
 def list_recurring_expenses():
     """
     List all active recurring expense templates.
@@ -283,7 +283,7 @@ def list_recurring_expenses():
 @expense_bp.route("/recurring", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("expenses", "edit")
 def create_recurring_expense():
     """
     Create a recurring expense template.
@@ -344,7 +344,7 @@ def create_recurring_expense():
 @expense_bp.route("/recurring/<int:template_id>", methods=["PUT"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("expenses", "edit")
 def update_recurring_expense(template_id):
     landlord_id = get_current_landlord_id()
     template    = RecurringExpense.query.filter_by(
@@ -383,7 +383,7 @@ def update_recurring_expense(template_id):
 @expense_bp.route("/recurring/<int:template_id>", methods=["DELETE"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("expenses", "edit")
 def deactivate_recurring_expense(template_id):
     """Deactivate (not hard-delete) a recurring expense template."""
     landlord_id = get_current_landlord_id()

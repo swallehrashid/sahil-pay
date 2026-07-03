@@ -278,6 +278,35 @@ def get_landlord_trial(landlord_id):
 
 
 # ---------------------------------------------------------------------------
+# POST /api/admin/trials/expire-due
+# ---------------------------------------------------------------------------
+@admin_trial_bp.route("/expire-due", methods=["POST"])
+@jwt_required()
+def run_trial_expiry():
+    """
+    Manually run the trial-expiration sweep now: end every trial whose
+    trial_ends_at has passed (flip is_on_trial, move the subscription to
+    active, notify + audit). This is the same routine Celery Beat runs daily;
+    exposing it lets an admin force the check without waiting for the schedule.
+    ---
+    tags: [Admin — Trials]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Number of trials expired.}
+    """
+    _require_admin()
+    from services.trial_service import expire_due_trials
+
+    result = expire_due_trials()
+    return jsonify({
+        "message":      f"{result['count']} trial(s) expired.",
+        "count":        result["count"],
+        "landlord_ids": result["landlord_ids"],
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 def _get_or_create_global_config() -> TrialConfig:

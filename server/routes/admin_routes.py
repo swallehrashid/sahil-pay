@@ -26,6 +26,8 @@ from extensions import db
 from models import (
     User, Landlord, TeamMember, Tenant, Unit, Property,
     AuditLog, Subscription, SubscriptionStatus, UserRole,
+    Package, TeamMemberPermission, TeamMemberPropertyAccess,
+    Payment, Invoice,
 )
 from services.audit_service import record_audit
 
@@ -82,10 +84,11 @@ def admin_dashboard():
     )
 
     platform_totals = {
-        "total_landlords":    Landlord.query.count(),
-        "total_properties":   Property.query.filter_by(is_deleted=False).count(),
-        "total_units":        Unit.query.filter_by(is_deleted=False).count(),
+        "total_landlords":      Landlord.query.count(),
+        "total_properties":     Property.query.filter_by(is_deleted=False).count(),
+        "total_units":          Unit.query.filter_by(is_deleted=False).count(),
         "total_active_tenants": Tenant.query.filter_by(is_deleted=False).count(),
+        "total_team_members":   TeamMember.query.count(),
     }
 
     items = []
@@ -513,10 +516,20 @@ def master_audit_log():
         query = query.filter(AuditLog.landlord_id == v)
     if v := request.args.get("actor_user_id", type=int):
         query = query.filter(AuditLog.actor_user_id == v)
+    # Filter by the actor's role (landlord / property_manager / team_member /
+    # tenant / system_admin) — lets the admin scope the trail to "what tenants
+    # did" or "what team members did", not just a single named user.
+    if v := request.args.get("actor_role"):
+        query = query.join(User, User.id == AuditLog.actor_user_id)\
+                     .filter(User.role == v)
     if v := request.args.get("entity_type"):
         query = query.filter(AuditLog.entity_type == v)
     if v := request.args.get("action"):
         query = query.filter(AuditLog.action.ilike(f"%{v}%"))
+    # Impersonation-only view: utils.audit() prefixes every impersonated action's
+    # description with "[Impersonating landlord #<id>]".
+    if request.args.get("impersonated") == "true":
+        query = query.filter(AuditLog.description.ilike("%[Impersonating%"))
     if v := request.args.get("start_date"):
         query = query.filter(AuditLog.created_at >= v)
     if v := request.args.get("end_date"):
@@ -650,3 +663,554 @@ def _get_landlord_or_404(landlord_id: int) -> Landlord:
     if not landlord:
         abort(404, description="Landlord not found.")
     return landlord
+
+
+# ===========================================================================
+# DRILL-DOWNS — clickable dashboard entities
+#
+# Every admin dashboard stat card and entity is clickable and resolves to
+# one of these read-only directory endpoints.  They join across landlord
+# boundaries (admin sees the whole platform) and denormalise the context a
+# human needs to understand a row without a second click: who owns it, which
+# property/unit it belongs to, who occupies it, what plan funds it.
+# ===========================================================================
+
+def _current_occupant(unit_id: int):
+    """The active (non-deleted, not moved-out) tenant on a unit, or None."""
+    return (
+        Tenant.query
+        .filter_by(unit_id=unit_id, is_deleted=False)
+        .filter(Tenant.move_out_date.is_(None))
+        .order_by(Tenant.created_at.desc())
+        .first()
+    )
+
+
+def _landlord_label(landlord: Landlord) -> dict:
+    """Compact landlord identity block reused across every drill-down."""
+    return {
+        "landlord_id":   landlord.id if landlord else None,
+        "company_name":  landlord.company_name if landlord else None,
+        "landlord_email": (landlord.user.email if landlord and landlord.user else None),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/units      — every unit on the platform, with occupant
+# ---------------------------------------------------------------------------
+@admin_bp.route("/units", methods=["GET"])
+@jwt_required()
+def list_units():
+    """
+    Platform-wide unit directory.  One row per unit with its property,
+    owning landlord, occupancy state and current occupant.
+    Filters: ?search= (unit/property name), ?occupied= (true|false),
+             ?landlord_id=, ?property_id=, ?page=, ?per_page=
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Unit directory.}
+    """
+    _require_admin()
+
+    page     = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    search   = request.args.get("search", "").strip()
+
+    query = (
+        Unit.query
+        .join(Property, Property.id == Unit.property_id)
+        .join(Landlord, Landlord.id == Property.landlord_id)
+        .filter(Unit.is_deleted.is_(False), Property.is_deleted.is_(False))
+    )
+
+    if search:
+        query = query.filter(
+            db.or_(
+                Unit.name.ilike(f"%{search}%"),
+                Property.name.ilike(f"%{search}%"),
+            )
+        )
+    if (occ := request.args.get("occupied")) in ("true", "false"):
+        query = query.filter(Unit.is_occupied.is_(occ == "true"))
+    if v := request.args.get("landlord_id", type=int):
+        query = query.filter(Property.landlord_id == v)
+    if v := request.args.get("property_id", type=int):
+        query = query.filter(Unit.property_id == v)
+
+    paginated = query.order_by(Property.name, Unit.name).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+
+    items = []
+    for unit in paginated.items:
+        d = unit.to_dict()
+        d["property_name"] = unit.property.name if unit.property else None
+        d["city"]          = unit.property.city if unit.property else None
+        d.update(_landlord_label(unit.property.landlord if unit.property else None))
+        occupant = _current_occupant(unit.id) if unit.is_occupied else None
+        d["occupant"] = (
+            {
+                "id":      occupant.id,
+                "name":    f"{occupant.first_name} {occupant.last_name}".strip(),
+                "phone":   occupant.phone,
+                "balance": _serialise_num(occupant.balance),
+            }
+            if occupant else None
+        )
+        items.append(d)
+
+    return jsonify({
+        "units":        items,
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/units/<id> — full unit detail
+# ---------------------------------------------------------------------------
+@admin_bp.route("/units/<int:unit_id>", methods=["GET"])
+@jwt_required()
+def get_unit(unit_id):
+    """
+    Full detail on a single unit: unit fields, its property, owning
+    landlord, the current occupant and their balance, and recent activity.
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Unit detail.}
+      404: {description: Not found.}
+    """
+    _require_admin()
+    unit = db.session.get(Unit, unit_id)
+    if not unit or unit.is_deleted:
+        abort(404, description="Unit not found.")
+
+    d = unit.to_dict()
+    d["property"] = unit.property.to_dict() if unit.property else None
+    landlord = unit.property.landlord if unit.property else None
+    d.update(_landlord_label(landlord))
+
+    occupant = _current_occupant(unit.id)
+    d["occupant"] = occupant.to_dict() if occupant else None
+
+    # Everyone who has ever occupied this unit (history + current)
+    past = (
+        Tenant.query.filter_by(unit_id=unit.id)
+        .order_by(Tenant.created_at.desc()).all()
+    )
+    d["tenants_all"] = [
+        {
+            "id":            t.id,
+            "name":          f"{t.first_name} {t.last_name}".strip(),
+            "phone":         t.phone,
+            "is_deleted":    t.is_deleted,
+            "move_in_date":  _serialise_date(t.move_in_date),
+            "move_out_date": _serialise_date(t.move_out_date),
+        }
+        for t in past
+    ]
+
+    # Recent payments on this unit
+    recent_payments = (
+        Payment.query.filter_by(unit_id=unit.id, is_deleted=False)
+        .order_by(Payment.created_at.desc()).limit(10).all()
+    )
+    d["recent_payments"] = [p.to_dict() for p in recent_payments]
+
+    return jsonify(d), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/tenants    — every active tenant on the platform
+# ---------------------------------------------------------------------------
+@admin_bp.route("/tenants", methods=["GET"])
+@jwt_required()
+def list_tenants():
+    """
+    Platform-wide tenant directory.  One row per tenant with unit,
+    property, owning landlord and outstanding balance.
+    Filters: ?search= (name/phone/email), ?landlord_id=,
+             ?include_deleted= (true), ?page=, ?per_page=
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Tenant directory.}
+    """
+    _require_admin()
+
+    page     = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    search   = request.args.get("search", "").strip()
+
+    query = (
+        Tenant.query
+        .join(Landlord, Landlord.id == Tenant.landlord_id)
+    )
+    if request.args.get("include_deleted") != "true":
+        query = query.filter(Tenant.is_deleted.is_(False))
+    if search:
+        query = query.filter(
+            db.or_(
+                Tenant.first_name.ilike(f"%{search}%"),
+                Tenant.last_name.ilike(f"%{search}%"),
+                Tenant.phone.ilike(f"%{search}%"),
+                Tenant.email.ilike(f"%{search}%"),
+            )
+        )
+    if v := request.args.get("landlord_id", type=int):
+        query = query.filter(Tenant.landlord_id == v)
+
+    paginated = query.order_by(Tenant.first_name, Tenant.last_name).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+
+    items = []
+    for t in paginated.items:
+        d = t.to_dict()
+        d["name"]          = f"{t.first_name} {t.last_name}".strip()
+        d["unit_name"]     = t.unit.name if t.unit else None
+        d["property_name"] = t.unit.property.name if t.unit and t.unit.property else None
+        d.update(_landlord_label(t.landlord))
+        items.append(d)
+
+    return jsonify({
+        "tenants":      items,
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/tenants/<id> — full tenant detail
+# ---------------------------------------------------------------------------
+@admin_bp.route("/tenants/<int:tenant_id>", methods=["GET"])
+@jwt_required()
+def get_tenant(tenant_id):
+    """
+    Full tenant profile: personal + lease + deposit fields, unit,
+    property, owning landlord, recent payments and open invoices.
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Tenant detail.}
+      404: {description: Not found.}
+    """
+    _require_admin()
+    t = db.session.get(Tenant, tenant_id)
+    if not t:
+        abort(404, description="Tenant not found.")
+
+    d = t.to_dict()
+    d["name"]     = f"{t.first_name} {t.last_name}".strip()
+    d["unit"]     = t.unit.to_dict() if t.unit else None
+    d["property"] = t.unit.property.to_dict() if t.unit and t.unit.property else None
+    d.update(_landlord_label(t.landlord))
+
+    recent_payments = (
+        Payment.query.filter_by(tenant_id=t.id, is_deleted=False)
+        .order_by(Payment.created_at.desc()).limit(10).all()
+    )
+    d["recent_payments"] = [p.to_dict() for p in recent_payments]
+
+    open_invoices = (
+        Invoice.query.filter_by(tenant_id=t.id, is_deleted=False)
+        .order_by(Invoice.created_at.desc()).limit(10).all()
+    )
+    d["recent_invoices"] = [i.to_dict() for i in open_invoices]
+
+    return jsonify(d), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/team-members — every sub-account on the platform
+# ---------------------------------------------------------------------------
+@admin_bp.route("/team-members", methods=["GET"])
+@jwt_required()
+def list_team_members():
+    """
+    Platform-wide team-member directory.  One row per sub-account with the
+    landlord they belong to, their role, active state and a permission count.
+    Filters: ?search= (name/email), ?landlord_id=, ?page=, ?per_page=
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Team-member directory.}
+    """
+    _require_admin()
+
+    page     = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    search   = request.args.get("search", "").strip()
+
+    query = (
+        TeamMember.query
+        .join(User, User.id == TeamMember.user_id)
+        .join(Landlord, Landlord.id == TeamMember.landlord_id)
+    )
+    if search:
+        query = query.filter(
+            db.or_(
+                TeamMember.username.ilike(f"%{search}%"),
+                TeamMember.first_name.ilike(f"%{search}%"),
+                TeamMember.last_name.ilike(f"%{search}%"),
+                User.email.ilike(f"%{search}%"),
+            )
+        )
+    if v := request.args.get("landlord_id", type=int):
+        query = query.filter(TeamMember.landlord_id == v)
+
+    paginated = query.order_by(TeamMember.username).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+
+    items = []
+    for tm in paginated.items:
+        d = tm.to_dict()
+        d["email"] = tm.user.email if tm.user else None
+        d.update(_landlord_label(tm.landlord))
+        granted = [p for p in tm.permissions if p.can_view or p.can_edit]
+        d["permission_count"] = len(granted)
+        d["modules"] = sorted({p.module for p in granted})
+        items.append(d)
+
+    return jsonify({
+        "team_members": items,
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/team-members/<id> — full detail incl. permissions & activity
+# ---------------------------------------------------------------------------
+@admin_bp.route("/team-members/<int:team_member_id>", methods=["GET"])
+@jwt_required()
+def get_team_member(team_member_id):
+    """
+    Full team-member detail: profile, the landlord they belong to, every
+    per-module permission (view/edit — what they can do), the properties
+    they are scoped to, and their recent activity from the audit trail
+    (what they have been doing).
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Team-member detail.}
+      404: {description: Not found.}
+    """
+    _require_admin()
+    tm = db.session.get(TeamMember, team_member_id)
+    if not tm:
+        abort(404, description="Team member not found.")
+
+    d = tm.to_dict()
+    d["email"] = tm.user.email if tm.user else None
+    d["landlord"] = _landlord_label(tm.landlord)
+
+    # What they can do — every module permission
+    d["permissions"] = [
+        {"module": p.module, "can_view": p.can_view, "can_edit": p.can_edit}
+        for p in sorted(tm.permissions, key=lambda p: p.module)
+    ]
+
+    # Which properties they are scoped to (unless property_access_all)
+    if tm.property_access_all:
+        d["property_access"] = "all"
+    else:
+        access = (
+            db.session.query(Property)
+            .join(TeamMemberPropertyAccess,
+                  TeamMemberPropertyAccess.property_id == Property.id)
+            .filter(TeamMemberPropertyAccess.team_member_id == tm.id)
+            .all()
+        )
+        d["property_access"] = [
+            {"id": p.id, "name": p.name, "city": p.city} for p in access
+        ]
+
+    # What they have been doing — recent audit activity as the actor
+    recent = (
+        AuditLog.query
+        .filter_by(actor_user_id=tm.user_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(25)
+        .all()
+    )
+    d["recent_activity"] = [a.to_dict() for a in recent]
+
+    return jsonify(d), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/properties — every property/company on the platform
+# ---------------------------------------------------------------------------
+@admin_bp.route("/properties", methods=["GET"])
+@jwt_required()
+def list_properties():
+    """
+    Platform-wide property directory.  One row per property with owning
+    landlord, unit/occupancy counts, the landlord's package and
+    subscription amount, and trial state.
+    Filters: ?search= (property/company name), ?landlord_id=,
+             ?page=, ?per_page=
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Property directory.}
+    """
+    _require_admin()
+
+    page     = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
+    search   = request.args.get("search", "").strip()
+
+    query = (
+        Property.query
+        .join(Landlord, Landlord.id == Property.landlord_id)
+        .filter(Property.is_deleted.is_(False))
+    )
+    if search:
+        query = query.filter(
+            db.or_(
+                Property.name.ilike(f"%{search}%"),
+                Landlord.company_name.ilike(f"%{search}%"),
+            )
+        )
+    if v := request.args.get("landlord_id", type=int):
+        query = query.filter(Property.landlord_id == v)
+
+    paginated = query.order_by(Property.name).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+
+    items = []
+    for prop in paginated.items:
+        d = prop.to_dict()
+        landlord = prop.landlord
+        d.update(_landlord_label(landlord))
+        total = Unit.query.filter_by(property_id=prop.id, is_deleted=False).count()
+        occupied = Unit.query.filter_by(
+            property_id=prop.id, is_deleted=False, is_occupied=True
+        ).count()
+        d["unit_count"]     = total
+        d["occupied_units"] = occupied
+        d["vacant_units"]   = total - occupied
+        d.update(_landlord_plan_block(landlord))
+        items.append(d)
+
+    return jsonify({
+        "properties":   items,
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/properties/<id> — full property detail with units
+# ---------------------------------------------------------------------------
+@admin_bp.route("/properties/<int:property_id>", methods=["GET"])
+@jwt_required()
+def get_property(property_id):
+    """
+    Full property detail: all property fields, owning landlord, the plan/
+    trial funding it, occupancy summary, and every unit with its occupant.
+    ---
+    tags: [Admin]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Property detail.}
+      404: {description: Not found.}
+    """
+    _require_admin()
+    prop = db.session.get(Property, property_id)
+    if not prop or prop.is_deleted:
+        abort(404, description="Property not found.")
+
+    d = prop.to_dict()
+    landlord = prop.landlord
+    d["landlord"] = _landlord_label(landlord)
+    d.update(_landlord_plan_block(landlord))
+
+    units = (
+        Unit.query.filter_by(property_id=prop.id, is_deleted=False)
+        .order_by(Unit.name).all()
+    )
+    unit_rows = []
+    for u in units:
+        occupant = _current_occupant(u.id) if u.is_occupied else None
+        unit_rows.append({
+            "id":          u.id,
+            "name":        u.name,
+            "rent_amount": _serialise_num(u.rent_amount),
+            "is_occupied": u.is_occupied,
+            "occupant":    (
+                {
+                    "id":      occupant.id,
+                    "name":    f"{occupant.first_name} {occupant.last_name}".strip(),
+                    "phone":   occupant.phone,
+                    "balance": _serialise_num(occupant.balance),
+                } if occupant else None
+            ),
+        })
+    d["units"]          = unit_rows
+    d["unit_count"]     = len(unit_rows)
+    d["occupied_units"] = sum(1 for u in unit_rows if u["is_occupied"])
+    d["vacant_units"]   = d["unit_count"] - d["occupied_units"]
+
+    return jsonify(d), 200
+
+
+# ---------------------------------------------------------------------------
+# Drill-down helpers
+# ---------------------------------------------------------------------------
+def _landlord_plan_block(landlord: Landlord) -> dict:
+    """Package / subscription-cost / trial funding block for a landlord."""
+    if not landlord:
+        return {"package": None, "subscription_cost": None,
+                "is_on_trial": None, "trial_ends_at": None}
+    package = landlord.package
+    sub = landlord.subscription
+    return {
+        "package": (
+            {"id": package.id, "name": package.name,
+             "price_per_unit": _serialise_num(package.price_per_unit),
+             "flat_price": _serialise_num(package.flat_price)}
+            if package else None
+        ),
+        "subscription_cost": _serialise_num(sub.subscription_cost) if sub else None,
+        "subscription_status": sub.status if sub else None,
+        "is_on_trial":         landlord.is_on_trial,
+        "trial_ends_at":       _serialise_dt(landlord.trial_ends_at),
+    }
+
+
+def _serialise_num(v):
+    return float(v) if v is not None else None
+
+
+def _serialise_date(v):
+    return v.isoformat() if v is not None else None
+
+
+def _serialise_dt(v):
+    return v.isoformat() if v is not None else None

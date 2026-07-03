@@ -37,7 +37,7 @@ maintenance_bp = Blueprint("maintenance", __name__, url_prefix="/api/maintenance
 @maintenance_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("maintenance", "view")
 @scope_to_accessible_properties
 def list_requests():
     """
@@ -106,7 +106,7 @@ def list_requests():
 @maintenance_bp.route("/", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("maintenance", "edit")
 def create_request():
     """
     Create a maintenance request.
@@ -171,7 +171,7 @@ def create_request():
 @maintenance_bp.route("/<int:request_id>", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("maintenance", "view")
 def get_request(request_id):
     landlord_id = get_current_landlord_id()
     req         = _get_or_404(landlord_id, request_id)
@@ -188,7 +188,7 @@ def get_request(request_id):
 @maintenance_bp.route("/<int:request_id>", methods=["PUT"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("maintenance", "edit")
 def update_request(request_id):
     """Update a maintenance request (status, category, description, etc.)."""
     landlord_id = get_current_landlord_id()
@@ -222,7 +222,7 @@ def update_request(request_id):
 @maintenance_bp.route("/<int:request_id>", methods=["DELETE"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("maintenance", "edit")
 def delete_request(request_id):
     """Hard-delete a maintenance request (no financial data — no soft-delete needed)."""
     landlord_id = get_current_landlord_id()
@@ -250,7 +250,7 @@ def delete_request(request_id):
 @maintenance_bp.route("/<int:request_id>/create-expense", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "edit")
+@require_permission("maintenance", "edit")
 def create_expense_from_request(request_id):
     """
     Create a linked Expense record pre-filled from this maintenance request.

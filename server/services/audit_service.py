@@ -15,7 +15,7 @@ import logging
 
 from flask import request
 
-from utils import to_json_safe
+from utils import to_json_safe, active_impersonation
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,20 @@ def record_audit(
     """
     from extensions import db
     from models import AuditLog, User
+
+    # Mark impersonated actions. record_audit() is the chokepoint for most CRUD
+    # routes, so without this an admin operating a granted session would leave
+    # unmarked rows. active_impersonation() only resolves when the request
+    # carries X-Impersonate-Landlord (or the impersonation JWT claim) AND a
+    # matching granted, non-expired request exists — so a direct admin action
+    # (suspend, correct-data) is never falsely marked.
+    try:
+        imp = active_impersonation()
+    except Exception:
+        imp = None
+    if imp is not None:
+        prefix = f"[Impersonating landlord #{imp.landlord_id}]"
+        description = f"{prefix} {description}" if description else prefix
 
     actor_username = None
     actor_full_name = None

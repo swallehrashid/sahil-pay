@@ -305,6 +305,84 @@ def set_per_unit_price(landlord_id):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/admin/pricing/packages/<id>/analytics
+# ---------------------------------------------------------------------------
+@admin_pricing_bp.route("/packages/<int:package_id>/analytics", methods=["GET"])
+@jwt_required()
+def package_analytics_view(package_id):
+    """
+    Per-package performance: subscriber count, active/inactive split,
+    all-time and period revenue, an estimated MRR, a monthly series for
+    charting, and the subscriber roster with what each landlord pays.
+    Filters: ?start_date=, ?end_date=, ?months= (default 6)
+    ---
+    tags: [Admin — Pricing]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Package analytics.}
+      404: {description: Package not found.}
+    """
+    _require_admin()
+    from services.pricing_analytics_service import package_analytics
+
+    months = request.args.get("months", 6, type=int)
+    data = package_analytics(
+        package_id,
+        start_date=request.args.get("start_date"),
+        end_date=request.args.get("end_date"),
+        months=max(1, min(months, 24)),
+    )
+    if data is None:
+        abort(404, description="Package not found.")
+    return jsonify(data), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/pricing/packages/<id>/report
+# ---------------------------------------------------------------------------
+@admin_pricing_bp.route("/packages/<int:package_id>/report", methods=["GET"])
+@jwt_required()
+def package_report_view(package_id):
+    """
+    Download a per-package performance report as PDF or Excel.
+    ?format=pdf|excel (default pdf), ?start_date=, ?end_date=
+    ---
+    tags: [Admin — Pricing]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Report file (PDF/Excel).}
+      404: {description: Package not found.}
+    """
+    _require_admin()
+    from services.pricing_analytics_service import package_report
+    from flask import Response
+
+    fmt = request.args.get("format", "pdf").lower()
+    fmt = "excel" if fmt in ("excel", "xlsx") else "pdf"
+
+    file_bytes = package_report(
+        package_id, fmt,
+        start_date=request.args.get("start_date"),
+        end_date=request.args.get("end_date"),
+    )
+    if file_bytes is None:
+        abort(404, description="Package not found.")
+
+    pkg = _get_pkg_or_404(package_id)
+    safe_name = "".join(c if c.isalnum() else "_" for c in pkg.name) or "package"
+    mime = "application/pdf" if fmt == "pdf" else \
+           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ext = "pdf" if fmt == "pdf" else "xlsx"
+    return Response(
+        file_bytes,
+        mimetype=mime,
+        headers={"Content-Disposition": f"attachment; filename=package_report_{safe_name}.{ext}"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 def _get_pkg_or_404(package_id: int) -> Package:

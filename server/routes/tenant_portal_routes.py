@@ -116,7 +116,8 @@ def portal_dashboard():
     )
     month_payments_total = sum(
         float(pay.amount) for pay in tenant.payments
-        if not pay.is_deleted and pay.payment_date and pay.payment_date >= month_start
+        if not pay.is_deleted and pay.status == PaymentStatus.confirmed.value
+        and pay.payment_date and pay.payment_date >= month_start
     )
     previous_balance = float(tenant.balance) + month_invoices_total - month_payments_total
 
@@ -148,50 +149,156 @@ def portal_dashboard():
 # ---------------------------------------------------------------------------
 # POST /api/portal/pay
 # ---------------------------------------------------------------------------
-@tenant_portal_bp.route("/pay", methods=["POST"])
+@tenant_portal_bp.route("/payment-details", methods=["GET"])
 @jwt_required()
-def portal_pay():
+def payment_details():
     """
-    Tenant makes a payment in-portal.
-    Body:
-      { amount: number,
-        payment_method: str,         -- e.g. 'mpesa', 'card'
-        mpesa_reference?: str,
-        allocations?: [{ invoice_id, amount_allocated }]
-      }
-
-    Allocation rules (same as payment_routes.py):
-      - sum(allocations) <= amount
-      - Remainder credited to tenant.balance (advance)
-      - Each allocated invoice status is recalculated
-
-    On success, a receipt PDF is auto-emailed if the tenant has an email.
+    Everything the tenant needs to make a payment: the landlord's pay
+    directives (paybill/till, account number, expected name, instructions),
+    the tenant's outstanding invoices, and their current balance. Read-only.
     ---
     tags: [Tenant Portal]
     security:
       - Bearer: []
     responses:
-      201: {description: Payment recorded. Receipt emailed if email on file.}
+      200: {description: Payment directives + outstanding charges.}
+    """
+    from models import Landlord
+    tenant, landlord_id = _require_tenant()
+    landlord = db.session.get(Landlord, landlord_id)
+    unit     = tenant.unit
+    property = unit.property if unit else None
+
+    account_number = (
+        tenant.account_number
+        or (property.mpesa_details if property else None)
+        or (landlord.default_account_number if landlord else None)
+    )
+
+    outstanding = []
+    total_due = Decimal("0")
+    for inv in tenant.invoices:
+        if inv.is_deleted:
+            continue
+        bal = (inv.total_amount or Decimal("0")) - (inv.amount_paid or Decimal("0"))
+        if bal <= 0:
+            continue
+        total_due += bal
+        outstanding.append({
+            "id":            inv.id,
+            "invoice_number": inv.invoice_number,
+            "invoice_type":  inv.invoice_type,
+            "title":         inv.title or inv.invoice_type,
+            "issue_date":    str(inv.issue_date),
+            "due_date":      str(inv.due_date) if inv.due_date else None,
+            "total_amount":  float(inv.total_amount or 0),
+            "amount_paid":   float(inv.amount_paid or 0),
+            "balance":       float(bal),
+        })
+    outstanding.sort(key=lambda x: x["issue_date"])
+
+    return jsonify({
+        "mpesa_type":           landlord.mpesa_type if landlord else None,
+        "mpesa_number":         landlord.mpesa_number if landlord else None,
+        "account_number":       account_number,
+        "expected_name":        landlord.company_name if landlord else None,
+        "payment_instructions": landlord.payment_instructions if landlord else None,
+        "currency":             landlord.currency if landlord else "KES",
+        "tenant_account":       tenant.account_number,
+        "outstanding_invoices": outstanding,
+        "total_due":            float(total_due),
+        "current_balance":      float(tenant.balance or 0),
+    }), 200
+
+
+@tenant_portal_bp.route("/payments", methods=["GET"])
+@jwt_required()
+def list_portal_payments():
+    """
+    Tenant's payment history, split into confirmed (with downloadable receipt),
+    pending (submitted, awaiting the landlord's confirmation), and declined.
+    ---
+    tags: [Tenant Portal]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Payments grouped by status.}
+    """
+    tenant, _ = _require_tenant()
+
+    def _row(p):
+        return {
+            "id":              p.id,
+            "payment_ref":     p.payment_ref,
+            "amount":          float(p.amount or 0),
+            "payment_date":    str(p.payment_date) if p.payment_date else None,
+            "status":          p.status,
+            "payment_method":  p.payment_method,
+            "mpesa_reference": p.mpesa_reference,
+            "proof_url":       p.proof_url,
+            "submitted_at":    p.created_at.isoformat() if p.created_at else None,
+        }
+
+    pays = [p for p in tenant.payments if not p.is_deleted]
+    return jsonify({
+        "confirmed": [_row(p) for p in pays if p.status == PaymentStatus.confirmed.value],
+        "pending":   [_row(p) for p in pays if p.status == PaymentStatus.pending.value],
+        "declined":  [_row(p) for p in pays if p.status == PaymentStatus.declined.value],
+    }), 200
+
+
+@tenant_portal_bp.route("/payments/submit", methods=["POST"])
+@jwt_required()
+def submit_payment():
+    """
+    Tenant SUBMITS a payment for the landlord to confirm — they cannot record a
+    confirmed payment themselves. Creates a `pending` Payment with the tenant's
+    proof-of-payment attachment; the ledger is NOT touched until a landlord (or
+    permitted team member) confirms it. The landlord and every team member with
+    the `payments` permission are notified.
+
+    Accepts multipart/form-data (proof file) or JSON.
+    Fields: amount (required), mpesa_reference?, payment_method?, note?, proof (file).
+    ---
+    tags: [Tenant Portal]
+    security:
+      - Bearer: []
+    responses:
+      201: {description: Payment submitted for confirmation.}
       400: {description: Validation error.}
     """
+    from models import Landlord, TeamMember, TeamMemberPermission
+    from services.notification_service import notify
+
     tenant, landlord_id = _require_tenant()
-    data                = request.get_json(silent=True) or {}
+
+    if request.is_json:
+        data      = request.get_json(silent=True) or {}
+        proof_url = data.get("proof_url")
+    else:
+        data  = request.form.to_dict()
+        proof = request.files.get("proof")
+        if proof:
+            from services.storage_service import upload_to_s3
+            proof_url = upload_to_s3(proof, folder=f"payment-proofs/{landlord_id}")
+        else:
+            proof_url = None
 
     amount         = Decimal(str(data.get("amount", 0)))
     payment_method = data.get("payment_method", "mpesa")
     mpesa_ref      = data.get("mpesa_reference")
-    allocations    = data.get("allocations", [])
+    note           = (data.get("note") or "").strip()
 
     if amount <= 0:
         return jsonify({"error": "A positive payment amount is required."}), 400
 
-    # Validate allocation total
-    alloc_total = sum(Decimal(str(a.get("amount_allocated", 0))) for a in allocations)
-    if alloc_total > amount:
-        return jsonify({"error": "Allocation total exceeds payment amount."}), 400
-
     unit     = tenant.unit
     property = unit.property if unit else None
+    tenant_name = f"{tenant.first_name} {tenant.last_name}".strip()
+
+    notes = "Submitted via tenant portal — awaiting confirmation."
+    if note:
+        notes += f" Tenant note: {note}"
 
     payment = Payment(
         payment_ref     = _payment_ref(landlord_id),
@@ -201,59 +308,44 @@ def portal_pay():
         property_id     = property.id if property else None,
         amount          = amount,
         payment_date    = date.today(),
-        status          = PaymentStatus.confirmed.value,
+        status          = PaymentStatus.pending.value,
         source          = PaymentSource.mpesa.value
                           if payment_method == "mpesa" else PaymentSource.manual.value,
         payment_method  = payment_method,
         mpesa_reference = mpesa_ref,
-        notes           = "Tenant self-service portal payment",
+        proof_url       = proof_url,
+        notes           = notes,
     )
     db.session.add(payment)
     db.session.flush()
 
-    # Apply allocations
-    for alloc in allocations:
-        inv_id    = alloc.get("invoice_id")
-        alloc_amt = Decimal(str(alloc.get("amount_allocated", 0)))
-        if not inv_id or alloc_amt <= 0:
-            continue
-        inv = Invoice.query.filter_by(
-            id=inv_id, tenant_id=tenant.id, is_deleted=False
-        ).first()
-        if not inv:
-            continue
-        db.session.add(PaymentAllocation(
-            payment_id=payment.id, invoice_id=inv.id, amount_allocated=alloc_amt
-        ))
-        inv.amount_paid = (inv.amount_paid or Decimal("0")) + alloc_amt
-        inv.balance     = inv.total_amount - inv.amount_paid
-        inv.status      = (
-            InvoiceStatus.paid.value    if inv.balance <= 0
-            else InvoiceStatus.partial.value if inv.amount_paid > 0
-            else InvoiceStatus.open.value
-        )
-
-    # Ledger convention (matches landlord_dashboard_routes/report_routes/export_service):
-    # negative balance = arrears (owed), positive = advance (credit). The FULL payment
-    # reduces what's owed regardless of allocation split — see payment_routes.py's
-    # create_payment for the identical landlord-side logic.
-    tenant.balance = (tenant.balance or Decimal("0")) + amount
-
-    from models import Landlord
-    from services.notification_service import notify
+    # Notify the landlord + every active team member with the payments permission.
+    title   = f"Payment awaiting confirmation — {tenant_name}"
+    body    = f"{tenant_name} submitted KES {amount:,.2f} for confirmation."
+    recipients: list[int] = []
     landlord_row = db.session.get(Landlord, landlord_id)
     if landlord_row and landlord_row.user_id:
+        recipients.append(landlord_row.user_id)
+    team_rows = (
+        db.session.query(TeamMember)
+        .join(TeamMemberPermission, TeamMemberPermission.team_member_id == TeamMember.id)
+        .filter(
+            TeamMember.landlord_id == landlord_id,
+            TeamMember.is_active.is_(True),
+            TeamMemberPermission.module == "payments",
+            db.or_(TeamMemberPermission.can_view.is_(True), TeamMemberPermission.can_edit.is_(True)),
+        )
+        .all()
+    )
+    recipients.extend(tm.user_id for tm in team_rows if tm.user_id)
+    for uid in set(recipients):
         notify(
-            recipient_user_id=landlord_row.user_id,
+            recipient_user_id=uid,
             category="payment_received",
-            template_key="payment_received",
-            template_kwargs={
-                "amount": f"{amount:,.2f}",
-                "tenant_name": f"{tenant.first_name} {tenant.last_name}",
-                "unit_name": unit.name if unit else "—",
-            },
+            title=title,
+            body=body,
             landlord_id=landlord_id,
-            link="/landlord/payments",
+            link=f"/landlord/payments?status=pending&highlight={payment.id}",
             entity_type="payment",
             entity_id=payment.id,
         )
@@ -264,28 +356,17 @@ def portal_pay():
     record_audit(
         actor_user_id=int(get_jwt_identity()),
         landlord_id=landlord_id,
-        action="create_payment",
+        action="submit_payment",
         entity_type="payment",
         entity_id=payment.id,
-        description=f"Payment {payment.payment_ref} of KES {amount} recorded via tenant portal by {tenant.first_name} {tenant.last_name}.",
+        description=f"Payment {payment.payment_ref} of KES {amount} submitted for confirmation via tenant portal by {tenant_name}.",
         after_data=payment.to_dict(),
     )
     db.session.commit()
 
-    # Auto-email receipt if tenant has an email address
-    if tenant.email:
-        try:
-            pdf_bytes = generate_receipt_pdf(payment)
-            send_receipt_email.delay(
-                tenant.email, tenant.first_name, pdf_bytes, payment.payment_ref
-            )
-        except Exception:
-            pass  # Non-blocking — payment is recorded regardless
-
     return jsonify({
-        "message":   "Payment recorded successfully.",
-        "payment":   payment.to_dict(),
-        "new_balance": float(tenant.balance),
+        "message": "Payment submitted. Your landlord will confirm it shortly.",
+        "payment": payment.to_dict(),
     }), 201
 
 
@@ -296,28 +377,38 @@ def portal_pay():
 @jwt_required()
 def download_receipt(payment_id):
     """
-    Download the PDF receipt for a specific payment.
-    Also auto-emails a copy to the tenant if email is on file.
-    The tenant can only access their own payment receipts.
+    Receipt for a CONFIRMED payment. Mirrors the landlord's report flow:
+      ?format=json  -> structured receipt data to view on screen first
+      ?format=pdf   -> the branded PDF download (also emailed to the tenant)
+    A pending/declined payment has no receipt (403). Own payments only.
     ---
     tags: [Tenant Portal]
     security:
       - Bearer: []
     responses:
-      200: {description: PDF receipt stream.}
+      200: {description: Receipt (JSON view or PDF stream).}
+      403: {description: Payment not yet confirmed.}
       404: {description: Payment not found.}
     """
+    from services.receipt_service import build_receipt, render_receipt_pdf
+
     tenant, _ = _require_tenant()
+    fmt = (request.args.get("format") or "pdf").lower()
 
     payment = Payment.query.filter_by(
         id=payment_id, tenant_id=tenant.id, is_deleted=False
     ).first()
     if not payment:
         return jsonify({"error": "Payment not found."}), 404
+    if payment.status != PaymentStatus.confirmed.value:
+        return jsonify({"error": "A receipt is only available once the payment is confirmed."}), 403
 
-    pdf_bytes = generate_receipt_pdf(payment)
+    if fmt == "json":
+        return jsonify(build_receipt(payment)), 200
 
-    # Auto-email copy
+    pdf_bytes = render_receipt_pdf(payment)
+
+    # Auto-email a copy on download.
     if tenant.email:
         try:
             send_receipt_email.delay(
@@ -369,6 +460,7 @@ def portal_statement():
         if end_date and d > end_date:
             continue
         entries.append({
+            "id":          f"inv-{inv.id}",
             "date":        d,
             "type":        "invoice",
             "description": inv.title or inv.invoice_type,
@@ -379,21 +471,30 @@ def portal_statement():
         })
 
     for pay in tenant.payments:
-        if pay.is_deleted:
+        # Only landlord-confirmed payments belong on the ledger; pending
+        # submissions await confirmation and must not move the balance.
+        if pay.is_deleted or pay.status != PaymentStatus.confirmed.value:
             continue
         d = str(pay.payment_date)
         if start_date and d < start_date:
             continue
         if end_date and d > end_date:
             continue
+        # Surface the payment "proof" the tenant can verify against their own
+        # records: the M-Pesa transaction code / till, else the internal ref.
+        proof_ref = pay.mpesa_reference or pay.till_number or pay.payment_ref
+        method_label = pay.payment_method or (pay.source.value if hasattr(pay.source, "value") else pay.source)
         entries.append({
-            "id":          pay.id,
-            "date":        d,
-            "type":        "payment",
-            "description": f"Payment via {pay.source}",
-            "payment_ref": pay.payment_ref,
-            "amount":      float(pay.amount),
-            "status":      pay.status,
+            "id":              f"pay-{pay.id}",
+            "date":            d,
+            "type":            "payment",
+            "description":     f"Payment — {method_label}",
+            "payment_ref":     pay.payment_ref,
+            "mpesa_reference": pay.mpesa_reference,
+            "till_number":     pay.till_number,
+            "proof_ref":       proof_ref,
+            "amount":          float(pay.amount),
+            "status":          pay.status,
         })
 
     entries.sort(key=lambda x: x["date"])
@@ -672,4 +773,151 @@ def create_maintenance():
     return jsonify({
         "message": "Maintenance request submitted successfully.",
         "request": req.to_dict(),
+    }), 201
+
+
+# ---------------------------------------------------------------------------
+# Tenant ↔ Landlord message thread
+# ---------------------------------------------------------------------------
+# Categories a tenant may tag a message with, so the landlord/team can triage
+# "what they want" at a glance.
+PORTAL_MESSAGE_CATEGORIES = {"rent", "repairs", "complaint", "documents", "general"}
+
+
+@tenant_portal_bp.route("/messages", methods=["GET"])
+@jwt_required()
+def list_messages():
+    """
+    Return the authenticated tenant's full conversation thread with their
+    landlord (both directions), oldest-first. Opening the thread marks every
+    landlord/team message as read.
+    ---
+    tags: [Tenant Portal]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Conversation thread.}
+    """
+    from models import TenantMessage
+    tenant, landlord_id = _require_tenant()
+
+    msgs = (
+        TenantMessage.query
+        .filter_by(landlord_id=landlord_id, tenant_id=tenant.id)
+        .order_by(TenantMessage.created_at.asc())
+        .all()
+    )
+
+    # Mark inbound (landlord/team) messages as read now that the tenant sees them.
+    unread = [m for m in msgs if m.sender_role != "tenant" and not m.is_read]
+    if unread:
+        for m in unread:
+            m.is_read = True
+            m.read_at = datetime.utcnow()
+        db.session.commit()
+
+    return jsonify({
+        "messages":   [m.to_dict() for m in msgs],
+        "total":      len(msgs),
+        "categories": sorted(PORTAL_MESSAGE_CATEGORIES),
+    }), 200
+
+
+@tenant_portal_bp.route("/messages", methods=["POST"])
+@jwt_required()
+def send_message():
+    """
+    Tenant sends a message to their landlord/team. Fans out an in-app
+    notification to the landlord and every team member holding the
+    `messages` permission, so they're alerted the same way maintenance
+    requests already alert them.
+
+    Body: { body (required), category? }
+    ---
+    tags: [Tenant Portal]
+    security:
+      - Bearer: []
+    responses:
+      201: {description: Message sent.}
+      400: {description: Validation error.}
+    """
+    from models import (
+        TenantMessage, Landlord, TeamMember, TeamMemberPermission,
+    )
+    from services.notification_service import notify
+
+    tenant, landlord_id = _require_tenant()
+    data     = request.get_json(silent=True) or {}
+    body     = (data.get("body") or "").strip()
+    category = (data.get("category") or "general").strip().lower()
+
+    if not body:
+        return jsonify({"error": "Message body is required."}), 400
+    if category not in PORTAL_MESSAGE_CATEGORIES:
+        category = "general"
+
+    tenant_name = f"{tenant.first_name} {tenant.last_name}".strip()
+    msg = TenantMessage(
+        landlord_id    = landlord_id,
+        tenant_id      = tenant.id,
+        sender_role    = "tenant",
+        sender_user_id = tenant.user_id,
+        sender_name    = tenant_name,
+        category       = category,
+        body           = body,
+        is_read        = False,
+    )
+    db.session.add(msg)
+    db.session.flush()
+
+    title   = f"New message from {tenant_name}"
+    preview = body if len(body) <= 120 else body[:117] + "…"
+
+    # Notify the landlord.
+    landlord_row = db.session.get(Landlord, landlord_id)
+    if landlord_row and landlord_row.user_id:
+        notify(
+            recipient_user_id=landlord_row.user_id,
+            category="tenant_message",
+            title=title,
+            body=preview,
+            landlord_id=landlord_id,
+            link=f"/landlord/messages?tenant={tenant.id}",
+            entity_type="tenant_message",
+            entity_id=msg.id,
+        )
+
+    # Notify every active team member who can see the `messages` module.
+    team_rows = (
+        db.session.query(TeamMember)
+        .join(TeamMemberPermission, TeamMemberPermission.team_member_id == TeamMember.id)
+        .filter(
+            TeamMember.landlord_id == landlord_id,
+            TeamMember.is_active.is_(True),
+            TeamMemberPermission.module == "messages",
+            db.or_(
+                TeamMemberPermission.can_view.is_(True),
+                TeamMemberPermission.can_edit.is_(True),
+            ),
+        )
+        .all()
+    )
+    for tm in team_rows:
+        if tm.user_id:
+            notify(
+                recipient_user_id=tm.user_id,
+                category="tenant_message",
+                title=title,
+                body=preview,
+                landlord_id=landlord_id,
+                link=f"/team/messages?tenant={tenant.id}",
+                entity_type="tenant_message",
+                entity_id=msg.id,
+            )
+
+    db.session.commit()
+
+    return jsonify({
+        "message": "Message sent.",
+        "data":    msg.to_dict(),
     }), 201

@@ -105,23 +105,95 @@ def generate_receipt_pdf(payment) -> bytes:
 
 
 def generate_tax_invoice_pdf(transaction, landlord) -> bytes:
-    """Render a platform-fee tax invoice (subscription / SMS purchase) to PDF."""
+    """
+    Render a branded SahilPay payment receipt / tax invoice for a platform
+    charge (subscription or SMS purchase). VAT is shown as inclusive of the
+    charged amount (Kenya standard-rate 16%), which is the format landlords
+    submit for their own records.
+    """
+    from decimal import Decimal, ROUND_HALF_UP
+
+    # Human line-item description for the charge.
+    if transaction.type == "sms_purchase":
+        line_desc = f"SMS credit purchase — {transaction.sms_count or 0} credits"
+    else:
+        line_desc = "SahilPay subscription — platform fee"
+
+    gross = Decimal(str(transaction.amount or 0))
+    net = (gross / Decimal("1.16")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    vat = gross - net
+
+    issued = transaction.created_at.strftime("%d %b %Y") if transaction.created_at else "—"
+    receipt_no = f"SP-RCPT-{transaction.id:06d}"
+    is_paid = (transaction.status or "").lower() == "paid"
+    status_pill = (
+        f"<span style='display:inline-block;padding:4px 12px;border-radius:999px;"
+        f"font-weight:700;font-size:11px;letter-spacing:.05em;"
+        f"background:{'#e6f7ef' if is_paid else '#fdeceb'};"
+        f"color:{'#0f7a4d' if is_paid else '#b5382f'};'>"
+        f"{escape((transaction.status or 'PENDING').upper())}</span>"
+    )
+
+    style = """
+    <style>
+      .brand { font-size: 24px; font-weight: 700; color: #200497; letter-spacing: -0.5px; }
+      .brand-tag { color: #6b6b80; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      .rcpt-title { text-align: right; }
+      .rcpt-title h2 { color:#200497; margin:0 0 4px; font-size:18px; font-weight:600; }
+      .block { margin-top: 18px; }
+      .foot { margin-top: 28px; border-top: 1px solid #e2e2e8; padding-top: 12px; }
+    </style>
+    """
+
     body = f"""
-    <div class="header">
-      <div><strong>SahilPay</strong><br/><span class="muted">Property Management Platform</span></div>
-      <div class="muted">Billed to: {escape(landlord.company_name)}</div>
+    {style}
+    <div class="header" style="align-items:flex-start;">
+      <div>
+        <div class="brand">SahilPay</div>
+        <div class="brand-tag">Property Management Platform</div>
+      </div>
+      <div class="rcpt-title">
+        <h2>Payment Receipt</h2>
+        <div class="muted">Receipt No: <strong>{receipt_no}</strong></div>
+        <div class="muted">Date: {issued}</div>
+        <div class="block">{status_pill}</div>
+      </div>
     </div>
-    <table>
+
+    <div class="block">
+      <div class="muted">Billed to</div>
+      <strong>{escape(landlord.company_name)}</strong><br/>
+      <span class="muted">{escape(landlord.company_address or '')}</span>
+    </div>
+
+    <table class="block">
+      <thead><tr><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
       <tbody>
-        <tr><td>Transaction type</td><td>{escape(transaction.type or '')}</td></tr>
-        <tr><td>Amount</td><td>{_money(transaction.amount)}</td></tr>
-        <tr><td>SMS credits</td><td>{transaction.sms_count or '—'}</td></tr>
-        <tr><td>Reference</td><td>{escape(transaction.payment_reference or '')}</td></tr>
-        <tr><td>Status</td><td>{escape(transaction.status or '')}</td></tr>
+        <tr><td>{escape(line_desc)}</td><td style="text-align:right;">{_money(net)}</td></tr>
+        <tr><td>VAT (16%)</td><td style="text-align:right;">{_money(vat)}</td></tr>
+      </tbody>
+      <tfoot>
+        <tr class="total-row"><td>Total paid</td><td style="text-align:right;">{_money(gross)}</td></tr>
+      </tfoot>
+    </table>
+
+    <table class="block">
+      <tbody>
+        <tr><td>Payment reference</td><td>{escape(transaction.payment_reference or '—')}</td></tr>
+        <tr><td>Transaction ID</td><td>#{transaction.id}</td></tr>
       </tbody>
     </table>
+
+    <div class="foot muted">
+      Thank you for your business. This is a system-generated receipt and is valid
+      without a signature. Amounts are shown in KES and are inclusive of VAT where applicable.
+    </div>
     """
-    return render_pdf(_shell(f"Tax Invoice #{transaction.id}", body))
+    html = (
+        f"<!doctype html><html><head><meta charset='utf-8'>{_BASE_STYLE}</head>"
+        f"<body>{body}</body></html>"
+    )
+    return render_pdf(html)
 
 
 def generate_tenant_statement_pdf(tenant) -> bytes:

@@ -71,7 +71,7 @@ def _fmt_response(file_bytes, fmt: str, filename: str):
 @report_bp.route("/statements/tenant/<int:tenant_id>", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("reports", "view")
 def tenant_statement(tenant_id):
     """
     Tenant statement: transaction date, item, description, money due, money paid,
@@ -93,7 +93,7 @@ def tenant_statement(tenant_id):
 @report_bp.route("/statements/property/<int:property_id>", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("reports", "view")
 def property_statement(property_id):
     """
     Property statement — 4 sections (tenants, expenses, occupancy, summary) with
@@ -113,7 +113,7 @@ def property_statement(property_id):
 @report_bp.route("/statements/arrears", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("reports", "view")
 def arrears_report():
     """Tenants in arrears (unit, name, phone, arrears b/f, current bills, total, days).
     ?format=json|pdf|excel, ?property_id=, ?as_of_date=, ?columns="""
@@ -131,7 +131,7 @@ def arrears_report():
 @report_bp.route("/statements/expenses", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "view")
+@require_permission("reports", "view")
 def expenses_report():
     """Expenses report (date, property, unit, category, description, amount).
     ?format=json|pdf|excel, ?property_id=, ?start_date=, ?end_date=, ?columns="""
@@ -150,7 +150,7 @@ def expenses_report():
 @report_bp.route("/statements/month-on-month", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "view")
+@require_permission("reports", "view")
 def mom_report():
     """Month-on-month comparative (occupancy, rent, water, bills, paid, %, expense
     per month) with per-metric graphs. ?format=json|pdf|excel, ?property_id=,
@@ -169,7 +169,7 @@ def mom_report():
 @report_bp.route("/statements/year-on-year", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("payments", "view")
+@require_permission("reports", "view")
 def yoy_report():
     """Year-on-year comparative (same metrics as MoM, bucketed by year) with graphs.
     ?format=json|pdf|excel, ?property_id=, ?columns=, ?charts="""
@@ -186,7 +186,7 @@ def yoy_report():
 @report_bp.route("/statements/grouping/<int:group_id>", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("reports", "view")
 def grouping_report(group_id):
     """Property-grouping report — every property in the group compared across the
     comparative metrics, with a group total. ?format=json|pdf|excel, ?start_date=,
@@ -205,7 +205,7 @@ def grouping_report(group_id):
 @report_bp.route("/statements/deleted-tenants", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("reports", "view")
 def deleted_tenants_report():
     """Archived (soft-deleted) tenants — unit, name, phone, move-in/out, deleted-on,
     balance, deposits, notes. ?format=json|pdf|excel, ?property_id=, ?columns="""
@@ -222,7 +222,7 @@ def deleted_tenants_report():
 @report_bp.route("/insights", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("reports", "view")
 def insights():
     """
     Per-property breakdown: tenants with arrears / advances / zero balance.
@@ -280,7 +280,7 @@ def insights():
 @report_bp.route("/insights/occupancy", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("reports", "view")
 def occupancy_insights():
     """
     Occupancy dashboard with lost-rent estimate.

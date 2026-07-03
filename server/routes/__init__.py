@@ -33,6 +33,7 @@ from .admin_pricing_routes    import admin_pricing_bp
 from .admin_trial_routes      import admin_trial_bp
 from .admin_impersonation_routes import admin_impersonation_bp
 from .notification_routes     import notification_bp
+from .tenant_message_routes   import tenant_message_bp
 
 
 def register_blueprints(app):
@@ -76,3 +77,4 @@ def register_blueprints(app):
 
     # ── Notifications (every role) ─────────────────────────────────────────────
     app.register_blueprint(notification_bp)       # /api/notifications
+    app.register_blueprint(tenant_message_bp)     # /api/tenant-messages

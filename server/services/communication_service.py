@@ -36,6 +36,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     from models import CommunicationLog, Landlord
     from services.email_service import _send_email
     from services.sms_service import send_sms
+    from services.sms_billing import resolve_sender, compute_sms_charge
     from utils import decrement_sms_balance
 
     simulate = current_app.config.get("COMMS_SIMULATION_MODE", True)
@@ -44,12 +45,24 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
 
     status = "failed"
     sms_charge = Decimal("0.00")
+    sender_id = None
+    at_username = None
+    at_api_key = None
 
     if channel == "sms":
-        sms_charge = _SMS_UNIT_CHARGE
+        # §9.3 reselling charge model: own connected sender ID → flat rate;
+        # SahilPay's shared sender ID → billed by message length.
         landlord = db.session.get(Landlord, landlord_id)
+        settings = landlord.landlord_settings if landlord else None
+        sender_id, uses_own = resolve_sender(settings)
+        sms_charge = compute_sms_charge(content, uses_own)
+        if uses_own and settings is not None:
+            at_username = settings.at_username
+            at_api_key = settings.at_api_key
         if landlord is not None:
-            decrement_sms_balance(landlord)
+            # Decrement one balance credit per segment charged (charge is KES,
+            # balance is credit count; they map 1:1 at the current rate).
+            decrement_sms_balance(landlord, int(sms_charge))
 
     if channel not in ("sms", "email", "whatsapp"):
         logger.warning("dispatch_message: unknown channel '%s'", channel)
@@ -59,11 +72,11 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         # deliver to, failed otherwise. Flip COMMS_SIMULATION_MODE off + add the
         # provider key to switch to real sending with no other change.
         status = "delivered" if destination else "failed"
-        logger.info("SIMULATED %s to tenant %s → %s (%s)", channel, tenant.id, status, destination or "no destination")
+        logger.info("SIMULATED %s to tenant %s → %s (from %s, %s)", channel, tenant.id, status, sender_id or "-", destination or "no destination")
     elif not destination:
         status = "failed"
     elif channel == "sms":
-        status = "delivered" if send_sms(tenant.phone, content) else "failed"
+        status = "delivered" if send_sms(tenant.phone, content, sender_id=sender_id, username=at_username, api_key=at_api_key) else "failed"
     elif channel == "email":
         status = "delivered" if _send_email(tenant.email, "Message from your landlord", f"<p>{content}</p>") else "failed"
     elif channel == "whatsapp":

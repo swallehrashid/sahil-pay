@@ -24,6 +24,7 @@ from models import (
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service        import record_audit
 from services.communication_service import dispatch_message
+from services.message_variables     import render_message, UNIVERSAL_VARIABLES, DEFAULT_TEMPLATES
 
 comms_bp = Blueprint("communications", __name__, url_prefix="/api/communications")
 
@@ -163,10 +164,9 @@ def send_message():
 
     log_ids = []
     for tenant in tenants:
-        personalized = content\
-            .replace("{tenant_name}", tenant.first_name or "")\
-            .replace("{balance}", str(abs(float(tenant.balance or 0))))\
-            .replace("{phone}", tenant.phone or "")
+        # Substitute every universal variable ({tenant_name}, {unit}, {balance},
+        # {payment_method}, …) for this specific tenant + landlord.
+        personalized = render_message(content, tenant, landlord)
 
         log = dispatch_message(
             landlord_id=landlord_id,
@@ -243,6 +243,106 @@ def resend_message(log_id):
 # ===========================================================================
 # Message Templates
 # ===========================================================================
+
+# ---------------------------------------------------------------------------
+# GET /api/communications/variables
+# ---------------------------------------------------------------------------
+@comms_bp.route("/variables", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("messages", "view")
+def list_variables():
+    """
+    The universal placeholder catalogue landlords can drop into any template
+    ({tenant_name}, {unit}, {balance}, {payment_method}, …). Substituted per
+    tenant at send time.
+    ---
+    tags: [Communications]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Variable catalogue.}
+    """
+    get_current_landlord_id()
+    return jsonify({"variables": UNIVERSAL_VARIABLES}), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/communications/default-templates
+# ---------------------------------------------------------------------------
+@comms_bp.route("/default-templates", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("messages", "view")
+def list_default_templates():
+    """
+    The ready-to-use starter templates (invoice, payment reminder, overdue
+    balance) — each already includes {payment_method}. A landlord can send
+    these as-is or install them as editable copies.
+    ---
+    tags: [Communications]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Default template catalogue.}
+    """
+    get_current_landlord_id()
+    return jsonify({"templates": DEFAULT_TEMPLATES}), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/communications/templates/install-defaults
+# ---------------------------------------------------------------------------
+@comms_bp.route("/templates/install-defaults", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("messages", "edit")
+def install_default_templates():
+    """
+    Copy the default starter templates into this landlord's own editable
+    templates. Skips any whose name already exists, so it is safe to re-run.
+    ---
+    tags: [Communications]
+    security:
+      - Bearer: []
+    responses:
+      201: {description: Defaults installed.}
+    """
+    landlord_id = get_current_landlord_id()
+    existing = {t.name for t in MessageTemplate.query.filter_by(landlord_id=landlord_id).all()}
+
+    created = []
+    for spec in DEFAULT_TEMPLATES:
+        if spec["name"] in existing:
+            continue
+        tmpl = MessageTemplate(
+            landlord_id   = landlord_id,
+            name          = spec["name"],
+            channel       = spec["channel"],
+            template_type = spec["template_type"],
+            body          = spec["body"],
+        )
+        db.session.add(tmpl)
+        created.append(tmpl)
+
+    db.session.commit()
+    for tmpl in created:
+        record_audit(
+            actor_user_id=int(get_jwt_identity()),
+            landlord_id=landlord_id,
+            action="install_default_template",
+            entity_type="template",
+            entity_id=tmpl.id,
+            description=f"Default template '{tmpl.name}' installed.",
+            after_data=tmpl.to_dict(),
+        )
+    db.session.commit()
+
+    return jsonify({
+        "message":   f"{len(created)} default template(s) installed.",
+        "installed": [t.to_dict() for t in created],
+    }), 201
+
 
 # ---------------------------------------------------------------------------
 # GET /api/communications/templates

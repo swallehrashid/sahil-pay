@@ -315,6 +315,223 @@ def update_payment(payment_id):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/payments/<id>/allocation-preview  — proposed auto-allocation
+# ---------------------------------------------------------------------------
+@payment_bp.route("/<int:payment_id>/allocation-preview", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "view")
+def allocation_preview(payment_id):
+    """
+    Show how this payment WOULD be auto-allocated across the tenant's
+    outstanding invoices (in the landlord's configured priority order), so the
+    landlord can accept it or switch to manual before confirming. Read-only.
+    ---
+    tags: [Payments]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Outstanding invoices + proposed auto-allocation.}
+    """
+    from services.allocation_service import (
+        auto_allocate, outstanding_invoices, categorize_invoice,
+        CATEGORY_LABELS, get_allocation_priority,
+    )
+    landlord_id = get_current_landlord_id()
+    pay = _get_or_404(landlord_id, payment_id)
+    tenant = pay.tenant
+    landlord = db.session.get(Landlord, landlord_id)
+    ref_date = pay.payment_date or date.today()
+
+    proposed = auto_allocate(tenant, pay.amount, landlord, ref_date=ref_date)
+    proposed_by_inv = {a["invoice_id"]: float(a["amount_allocated"]) for a in proposed}
+
+    invoices = []
+    for inv in sorted(outstanding_invoices(tenant), key=lambda i: (i.issue_date or ref_date, i.id)):
+        bal = float((inv.total_amount or 0) - (inv.amount_paid or 0))
+        cat = categorize_invoice(inv, ref_date)
+        invoices.append({
+            "id":             inv.id,
+            "invoice_number": inv.invoice_number,
+            "title":          inv.title or inv.invoice_type,
+            "invoice_type":   inv.invoice_type,
+            "category":       cat,
+            "category_label": CATEGORY_LABELS.get(cat, cat),
+            "issue_date":     str(inv.issue_date),
+            "balance":        bal,
+            "proposed_amount": proposed_by_inv.get(inv.id, 0.0),
+        })
+
+    total_allocated = round(sum(proposed_by_inv.values()), 2)
+    return jsonify({
+        "payment_id":      pay.id,
+        "amount":          float(pay.amount),
+        "priority_order":  get_allocation_priority(landlord),
+        "outstanding":     invoices,
+        "proposed_total":  total_allocated,
+        "advance_credit":  round(max(0.0, float(pay.amount) - total_allocated), 2),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/payments/<id>/confirm  — landlord/team confirms a submitted payment
+# ---------------------------------------------------------------------------
+@payment_bp.route("/<int:payment_id>/confirm", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "edit")
+def confirm_payment(payment_id):
+    """
+    Confirm a pending (tenant-submitted) payment. Applies it to the tenant's
+    invoices — either `manual` (explicit allocations) or `auto` (the landlord's
+    priority order) — moves the tenant's balance, marks the payment confirmed,
+    and notifies the tenant. Only now does the payment reflect on the tenant's
+    ledger and become a downloadable receipt.
+
+    Body: { mode: 'auto'|'manual', allocations?: [{invoice_id, amount_allocated}] }
+    ---
+    tags: [Payments]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Payment confirmed.}
+      400: {description: Already confirmed or invalid allocation.}
+    """
+    from services.allocation_service import auto_allocate, apply_allocations
+
+    landlord_id = get_current_landlord_id()
+    pay = _get_or_404(landlord_id, payment_id)
+    if pay.status == PaymentStatus.confirmed.value:
+        return jsonify({"error": "This payment is already confirmed."}), 400
+
+    tenant = pay.tenant
+    if not tenant:
+        return jsonify({"error": "Payment has no tenant to allocate to."}), 400
+
+    landlord = db.session.get(Landlord, landlord_id)
+    data     = request.get_json(silent=True) or {}
+    mode     = (data.get("mode") or "auto").lower()
+    before   = pay.to_dict()
+
+    if mode == "manual":
+        allocations = data.get("allocations", [])
+        alloc_total = sum(Decimal(str(a.get("amount_allocated", 0))) for a in allocations)
+        if alloc_total > pay.amount:
+            return jsonify({"error": "Allocation total exceeds the payment amount."}), 400
+    else:
+        allocations = auto_allocate(tenant, pay.amount, landlord, ref_date=pay.payment_date or date.today())
+
+    apply_allocations(pay, tenant, allocations, landlord_id)
+
+    # Ledger convention: the FULL payment reduces what's owed; any unallocated
+    # remainder is advance credit (matches create_payment / the landlord side).
+    tenant.balance = (tenant.balance or Decimal("0")) + pay.amount
+    pay.status = PaymentStatus.confirmed.value
+    db.session.commit()
+
+    tenant_name = f"{tenant.first_name} {tenant.last_name}".strip()
+    if tenant.user_id:
+        notify(
+            recipient_user_id=tenant.user_id,
+            category="payment_received",
+            title="Payment confirmed",
+            body=f"Your payment of KES {pay.amount:,.2f} ({pay.payment_ref}) has been confirmed. Your receipt is now available.",
+            landlord_id=landlord_id,
+            link="/portal/pay",
+            entity_type="payment",
+            entity_id=pay.id,
+        )
+
+    # Landlord-side alert + acknowledgment automation (both no-op if disabled).
+    from services.alert_service import dispatch_alert
+    from services.automation_service import on_payment_recorded
+    dispatch_alert(
+        landlord_id, "payment",
+        title="Payment confirmed",
+        body=f"{tenant_name} — KES {pay.amount:,.2f} ({pay.payment_ref}).",
+        link="/landlord/payments", entity_type="payment", entity_id=pay.id,
+    )
+    on_payment_recorded(landlord, pay, tenant)
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="confirm_payment",
+        entity_type="payment",
+        entity_id=pay.id,
+        description=f"Payment {pay.payment_ref} of KES {pay.amount} confirmed ({mode} allocation) for {tenant_name}.",
+        before_data=before,
+        after_data=pay.to_dict(),
+    )
+    db.session.commit()
+    return jsonify({"message": "Payment confirmed.", "payment": pay.to_dict()}), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/payments/<id>/decline  — reject a submitted payment
+# ---------------------------------------------------------------------------
+@payment_bp.route("/<int:payment_id>/decline", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "edit")
+def decline_payment(payment_id):
+    """
+    Decline a pending (tenant-submitted) payment — e.g. proof doesn't check
+    out. No ledger effect; the tenant is notified with the optional reason.
+    Body: { reason?: str }
+    ---
+    tags: [Payments]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Payment declined.}
+      400: {description: Only pending payments can be declined.}
+    """
+    landlord_id = get_current_landlord_id()
+    pay = _get_or_404(landlord_id, payment_id)
+    if pay.status == PaymentStatus.confirmed.value:
+        return jsonify({"error": "A confirmed payment cannot be declined; delete it instead."}), 400
+
+    data   = request.get_json(silent=True) or {}
+    reason = (data.get("reason") or "").strip()
+    before = pay.to_dict()
+
+    pay.status = PaymentStatus.declined.value
+    if reason:
+        pay.notes = f"{pay.notes or ''}\nDeclined: {reason}".strip()
+    db.session.commit()
+
+    tenant = pay.tenant
+    if tenant and tenant.user_id:
+        body = f"Your payment of KES {pay.amount:,.2f} ({pay.payment_ref}) could not be confirmed."
+        if reason:
+            body += f" Reason: {reason}"
+        notify(
+            recipient_user_id=tenant.user_id,
+            category="payment_received",
+            title="Payment not confirmed",
+            body=body,
+            landlord_id=landlord_id,
+            link="/portal/pay",
+            entity_type="payment",
+            entity_id=pay.id,
+        )
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="decline_payment",
+        entity_type="payment",
+        entity_id=pay.id,
+        description=f"Payment {pay.payment_ref} declined." + (f" Reason: {reason}" if reason else ""),
+        before_data=before,
+        after_data=pay.to_dict(),
+    )
+    db.session.commit()
+    return jsonify({"message": "Payment declined.", "payment": pay.to_dict()}), 200
+
+
+# ---------------------------------------------------------------------------
 # DELETE /api/payments/<id>  (soft delete)
 # ---------------------------------------------------------------------------
 @payment_bp.route("/<int:payment_id>", methods=["DELETE"])

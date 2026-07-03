@@ -338,7 +338,18 @@ def _create_team_member(m, landlord, tm_spec, property_ids):
     db.session.add(tm)
     db.session.flush()
 
-    for module, (can_view, can_edit) in tm_spec["permissions"].items():
+    perms = dict(tm_spec["permissions"])
+
+    # Backfill the four first-class modules added later (expenses, maintenance,
+    # reports, groups) with role-based defaults when a spec predates them, so
+    # every seeded member can exercise those pages. Editors get view+edit;
+    # viewers get view-only; reports is inherently read-only for both.
+    is_editor = tm_spec["role"] == "editor"
+    for mod in ("expenses", "maintenance", "groups"):
+        perms.setdefault(mod, (True, is_editor))
+    perms.setdefault("reports", (True, False))
+
+    for module, (can_view, can_edit) in perms.items():
         db.session.add(m.TeamMemberPermission(
             team_member_id=tm.id, module=module, can_view=can_view, can_edit=can_edit,
         ))

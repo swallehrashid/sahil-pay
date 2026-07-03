@@ -28,19 +28,29 @@ logger = logging.getLogger(__name__)
 AFRICASTALKING_SMS_URL = "https://api.africastalking.com/version1/messaging"
 
 
-def send_sms(recipient: str, content: str) -> str | None:
+def send_sms(
+    recipient: str,
+    content: str,
+    sender_id: str | None = None,
+    username: str | None = None,
+    api_key: str | None = None,
+) -> str | None:
     """
     Send a single SMS. Returns the raw provider response on success, or None
     if Africa's Talking isn't configured (the message is logged instead) or
     the send fails. Never raises — a failed SMS should never fail the
     request/task that triggered it.
+
+    §9.3 reselling: a landlord who has connected their own Africa's Talking
+    account passes their `username`/`api_key`/`sender_id`; otherwise the
+    platform's global credentials + shared sender ID are used.
     """
-    username = current_app.config.get("AT_USERNAME")
-    api_key = current_app.config.get("AT_API_KEY")
-    sender_id = current_app.config.get("AT_SENDER_ID")
+    username = username or current_app.config.get("AT_USERNAME")
+    api_key = api_key or current_app.config.get("AT_API_KEY")
+    sender_id = sender_id or current_app.config.get("AT_SENDER_ID")
 
     if not username or not api_key:
-        logger.info("SMS [stub — Africa's Talking not configured] to %s: %s", recipient, content)
+        logger.info("SMS [stub — Africa's Talking not configured] to %s (from %s): %s", recipient, sender_id or "-", content)
         return None
 
     body = {"username": username, "to": recipient, "message": content}

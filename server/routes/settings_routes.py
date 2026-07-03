@@ -96,6 +96,7 @@ def general_settings():
         "company_name", "abbreviated_name", "company_address", "invoice_title",
         "currency", "timezone", "account_type",
         "mpesa_type", "mpesa_number", "default_account_number",
+        "payment_instructions", "allocation_priority",
     ]
     for field in landlord_fields:
         if field in data:
@@ -123,6 +124,144 @@ def general_settings():
     )
     db.session.commit()
     return jsonify(landlord.to_dict()), 200
+
+
+def _get_or_create_settings(landlord_id: int) -> LandlordSettings:
+    ls = LandlordSettings.query.filter_by(landlord_id=landlord_id).first()
+    if ls is None:
+        ls = LandlordSettings(landlord_id=landlord_id)
+        db.session.add(ls)
+        db.session.flush()
+    return ls
+
+
+# ---------------------------------------------------------------------------
+# GET / PUT /api/settings/sms-provider
+# ---------------------------------------------------------------------------
+@settings_bp.route("/sms-provider", methods=["GET", "PUT"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "view")
+def sms_provider_settings():
+    """
+    §9.3 Africa's Talking SMS reselling connection.
+
+    GET: return the landlord's SMS-provider config (api key masked).
+    PUT: save api key / username / sender ID. Body:
+         { at_api_key?, at_username?, at_sender_id? }
+         Sending an empty at_api_key clears the stored key.
+
+    Connecting an AT sender ID lets the landlord send under their own sender
+    ID (billed a flat rate per SMS). Without one, SahilPay's shared sender ID
+    is used and messages are billed by length.
+    ---
+    tags: [Settings]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: SMS provider config.}
+    """
+    landlord_id = get_current_landlord_id()
+    ls = _get_or_create_settings(landlord_id)
+
+    if request.method == "GET":
+        db.session.commit()
+        return jsonify(ls.to_dict()), 200
+
+    from decorators import _check_permission
+    _check_permission("settings", "edit")
+
+    data = request.get_json(silent=True) or {}
+    if "at_api_key" in data:
+        ls.at_api_key = (data["at_api_key"] or "").strip() or None
+    if "at_username" in data:
+        ls.at_username = (data["at_username"] or "").strip() or None
+    if "at_sender_id" in data:
+        ls.at_sender_id = (data["at_sender_id"] or "").strip() or None
+
+    db.session.commit()
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="update_sms_provider",
+        entity_type="settings",
+        entity_id=landlord_id,
+        description="SMS provider credentials updated.",
+    )
+    db.session.commit()
+    return jsonify(ls.to_dict()), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/settings/sms-provider/connect  |  /disconnect
+# ---------------------------------------------------------------------------
+@settings_bp.route("/sms-provider/connect", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "edit")
+def connect_sms_provider():
+    """
+    Mark the landlord's Africa's Talking account connected. Requires an API
+    key, username and sender ID to be saved first.
+    ---
+    tags: [Settings]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Connected.}
+      400: {description: Missing credentials.}
+    """
+    landlord_id = get_current_landlord_id()
+    ls = _get_or_create_settings(landlord_id)
+
+    missing = [f for f in ("at_api_key", "at_username", "at_sender_id") if not getattr(ls, f)]
+    if missing:
+        return jsonify({"error": f"Save these first: {', '.join(missing)}."}), 400
+
+    ls.at_connected = True
+    db.session.commit()
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="connect_sms_provider",
+        entity_type="settings",
+        entity_id=landlord_id,
+        description=f"Africa's Talking connected — sender ID '{ls.at_sender_id}'.",
+    )
+    db.session.commit()
+    return jsonify({"message": "Africa's Talking connected.", "settings": ls.to_dict()}), 200
+
+
+@settings_bp.route("/sms-provider/disconnect", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "edit")
+def disconnect_sms_provider():
+    """
+    Disconnect the landlord's Africa's Talking account. Their messages revert
+    to SahilPay's shared sender ID (billed by length). Credentials are kept so
+    they can reconnect without re-entering them.
+    ---
+    tags: [Settings]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Disconnected.}
+    """
+    landlord_id = get_current_landlord_id()
+    ls = _get_or_create_settings(landlord_id)
+    ls.at_connected = False
+    db.session.commit()
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="disconnect_sms_provider",
+        entity_type="settings",
+        entity_id=landlord_id,
+        description="Africa's Talking disconnected.",
+    )
+    db.session.commit()
+    return jsonify({"message": "Africa's Talking disconnected.", "settings": ls.to_dict()}), 200
 
 
 # ---------------------------------------------------------------------------

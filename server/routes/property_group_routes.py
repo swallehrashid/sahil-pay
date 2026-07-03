@@ -28,7 +28,7 @@ group_bp = Blueprint("property_groups", __name__, url_prefix="/api/property-grou
 @group_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "view")
+@require_permission("groups", "view")
 def list_groups():
     """
     List all property groups for the current landlord with property counts
@@ -72,7 +72,7 @@ def list_groups():
 @group_bp.route("/", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("groups", "edit")
 def create_group():
     """
     Create a property group and optionally attach properties to it.
@@ -131,7 +131,7 @@ def create_group():
 @group_bp.route("/<int:group_id>", methods=["PUT"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("groups", "edit")
 def update_group(group_id):
     """
     Update a group's name and/or its attached properties.
@@ -188,7 +188,7 @@ def update_group(group_id):
 @group_bp.route("/<int:group_id>", methods=["DELETE"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("groups", "edit")
 def delete_group(group_id):
     """
     Delete a property group. Properties inside are detached (not deleted).
@@ -231,7 +231,7 @@ def delete_group(group_id):
 @group_bp.route("/<int:group_id>/assign-manager", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("groups", "edit")
 def assign_manager(group_id):
     """
     Assign a team member as manager scoped to a unit, property, or the whole group.

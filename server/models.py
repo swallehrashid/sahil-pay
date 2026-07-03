@@ -164,6 +164,10 @@ class PermissionModule(str, enum.Enum):
     units          = "units"
     properties     = "properties"
     messages       = "messages"
+    expenses       = "expenses"
+    maintenance    = "maintenance"
+    reports        = "reports"
+    groups         = "groups"
 
 
 class ManagerScopeType(str, enum.Enum):
@@ -384,6 +388,7 @@ class AuditEntityType(str, enum.Enum):
 class NotificationCategory(str, enum.Enum):
     """One value per template in services/notification_service.py's registry."""
     broadcast               = "broadcast"                 # free-form admin/landlord message
+    tenant_message          = "tenant_message"            # tenant↔landlord conversation reply
     payment_received        = "payment_received"
     new_maintenance_request = "new_maintenance_request"
     trial_expiring           = "trial_expiring"
@@ -570,6 +575,8 @@ class Landlord(TimestampMixin, Base):
     mpesa_number           = Column(String(20),  nullable=True)
     default_account_number = Column(String(50),  nullable=True)
     account_type           = Column(String(30),  nullable=True)    # enum AccountType
+    payment_instructions   = Column(Text, nullable=True)           # free-text directives shown to tenants on the pay page
+    allocation_priority    = Column(String(255), nullable=True)    # CSV of allocation category keys, highest priority first
     default_tax_rate       = Column(Numeric(5, 2),  default=Decimal("7.50"), nullable=False)
     agent_code             = Column(String(50),  unique=True, nullable=True)
     sms_balance            = Column(Integer, default=0, nullable=False)
@@ -634,6 +641,8 @@ class Landlord(TimestampMixin, Base):
             "mpesa_number":           self.mpesa_number,
             "default_account_number": self.default_account_number,
             "account_type":           self.account_type,
+            "payment_instructions":   self.payment_instructions,
+            "allocation_priority":    self.allocation_priority,
             "default_tax_rate":       _serialise(self.default_tax_rate),
             "agent_code":             self.agent_code,
             "sms_balance":            self.sms_balance,
@@ -1303,6 +1312,7 @@ class Payment(SoftDeleteMixin, TimestampMixin, Base):
     till_number       = Column(String(20), nullable=True)
     bank_statement_id = Column(Integer, ForeignKey("bank_statement_uploads.id"), nullable=True, index=True)
     receipt_url       = Column(String(255), nullable=True)
+    proof_url         = Column(String(255), nullable=True)   # tenant-uploaded proof of payment (pending submissions)
     notes             = Column(Text, nullable=True)
 
     __table_args__ = (
@@ -1339,6 +1349,7 @@ class Payment(SoftDeleteMixin, TimestampMixin, Base):
             "till_number":       self.till_number,
             "bank_statement_id": self.bank_statement_id,
             "receipt_url":       self.receipt_url,
+            "proof_url":         self.proof_url,
             "notes":             self.notes,
             "is_deleted":        self.is_deleted,
             "deleted_at":        _serialise(self.deleted_at),
@@ -1742,6 +1753,56 @@ class CommunicationLog(CreatedAtMixin, Base):
         }
 
 
+class TenantMessage(CreatedAtMixin, Base):
+    """
+    §12b  Two-way tenant↔landlord conversation. One row per message; the
+    "thread" is every row sharing (landlord_id, tenant_id), ordered by
+    created_at. Tenants raise these from their portal; the landlord and any
+    team member holding the `messages` permission see and reply to them.
+
+    sender_role drives bubble alignment in the UI and defines who is_read
+    refers to: a message stays unread until the *other* party opens the
+    thread. category is a tenant-chosen topic ("rent", "repairs",
+    "complaint", "general") so the landlord/team can triage what the tenant
+    actually wants.
+    """
+    __tablename__ = "tenant_messages"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id    = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    tenant_id      = Column(Integer, ForeignKey("tenants.id"),   nullable=False, index=True)
+    sender_role    = Column(String(15), nullable=False)          # 'tenant' | 'landlord' | 'team_member'
+    sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    sender_name    = Column(String(120), nullable=True)
+    category       = Column(String(30), nullable=True)           # tenant-chosen topic
+    body           = Column(Text, nullable=False)
+    is_read        = Column(Boolean, default=False, nullable=False)
+    read_at        = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_tenant_messages_thread", "landlord_id", "tenant_id", "created_at"),
+    )
+
+    landlord = relationship("Landlord", foreign_keys=[landlord_id])
+    tenant   = relationship("Tenant",   foreign_keys=[tenant_id])
+    sender   = relationship("User",     foreign_keys=[sender_user_id])
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "landlord_id":    self.landlord_id,
+            "tenant_id":      self.tenant_id,
+            "sender_role":    self.sender_role,
+            "sender_user_id": self.sender_user_id,
+            "sender_name":    self.sender_name,
+            "category":       self.category,
+            "body":           self.body,
+            "is_read":        self.is_read,
+            "read_at":        _serialise(self.read_at),
+            "created_at":     _serialise(self.created_at),
+        }
+
+
 class DocumentTemplate(TimestampMixin, Base):
     """§9.3  Lease / tenancy / deposit document templates."""
     __tablename__ = "document_templates"
@@ -1974,9 +2035,23 @@ class LandlordSettings(TimestampMixin, Base):
     email_enabled            = Column(Boolean, default=True,  nullable=False)
     low_sms_balance_threshold = Column(Integer, default=50,   nullable=False)
 
+    # §9.3 Africa's Talking SMS reselling. A landlord connects their own AT
+    # credentials + registered sender ID; SahilPay then delivers SMS under
+    # that sender ID and bills a flat rate per SMS. Landlords without a sender
+    # ID fall back to SahilPay's shared sender ID, billed by message length.
+    at_api_key   = Column(String(255), nullable=True)   # landlord's Africa's Talking API key
+    at_username  = Column(String(120), nullable=True)   # landlord's AT username
+    at_sender_id = Column(String(20),  nullable=True)   # their registered alphanumeric sender ID
+    at_connected = Column(Boolean, default=False, nullable=False)
+
     landlord = relationship("Landlord", back_populates="landlord_settings")
 
-    def to_dict(self):
+    def to_dict(self, mask_secrets: bool = True):
+        # api key is a secret — only ever expose whether one is set, plus a
+        # masked tail, never the full value.
+        api_key_display = None
+        if self.at_api_key:
+            api_key_display = f"••••{self.at_api_key[-4:]}" if mask_secrets else self.at_api_key
         return {
             "id":                        self.id,
             "landlord_id":               self.landlord_id,
@@ -1984,6 +2059,11 @@ class LandlordSettings(TimestampMixin, Base):
             "whatsapp_enabled":          self.whatsapp_enabled,
             "email_enabled":             self.email_enabled,
             "low_sms_balance_threshold": self.low_sms_balance_threshold,
+            "at_username":               self.at_username,
+            "at_sender_id":              self.at_sender_id,
+            "at_connected":              self.at_connected,
+            "at_api_key_set":            bool(self.at_api_key),
+            "at_api_key_masked":         api_key_display,
             "created_at":                _serialise(self.created_at),
             "updated_at":                _serialise(self.updated_at),
         }
