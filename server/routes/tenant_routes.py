@@ -567,21 +567,48 @@ def send_reminder(tenant_id):
     tenant      = _get_or_404(landlord_id, tenant_id)
     data        = request.get_json(silent=True) or {}
 
-    channel = data.get("channel", MessageChannel.sms.value)
+    # #4 — the landlord picks the channels at send time (SMS / email / in-app / WhatsApp),
+    # pre-filled from their settings default but always confirmable. Accept a `channels`
+    # list; fall back to the legacy single `channel` for older callers.
+    channels = data.get("channels")
+    if not channels:
+        channels = [data.get("channel", MessageChannel.sms.value)]
+    channels = [c for c in channels if c in ("sms", "email", "whatsapp", "in_app")]
+    if not channels:
+        return jsonify({"error": "Select at least one channel."}), 400
+
     message = data.get("message") or (
         f"Dear {tenant.first_name}, your outstanding balance is "
         f"KES {abs(float(tenant.balance)):,.2f}. "
         f"Please make your payment to avoid penalties."
     )
 
-    dispatch_message(
-        landlord_id=landlord_id,
-        tenant=tenant,
-        channel=channel,
-        content=message,
-    )
+    sent = []
+    for channel in channels:
+        if channel == "in_app":
+            # In-app notification — only deliverable if the tenant has a linked login.
+            if tenant.user_id:
+                from services.notification_service import notify
+                notify(
+                    recipient_user_id=tenant.user_id,
+                    category="broadcast",
+                    title="Balance reminder",
+                    body=message,
+                    landlord_id=landlord_id,
+                    link="/portal/statement",
+                    entity_type="tenant",
+                    entity_id=tenant.id,
+                )
+                db.session.commit()  # notify() only flushes — persist the notification row
+                sent.append("in_app")
+        else:
+            dispatch_message(landlord_id=landlord_id, tenant=tenant, channel=channel, content=message)
+            sent.append(channel)
 
-    return jsonify({"message": f"Reminder sent to {tenant.first_name} via {channel}."}), 200
+    return jsonify({
+        "message": f"Reminder sent to {tenant.first_name} via {', '.join(sent) or 'no channel'}.",
+        "channels": sent,
+    }), 200
 
 
 # ---------------------------------------------------------------------------

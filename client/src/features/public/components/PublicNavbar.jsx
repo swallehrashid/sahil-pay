@@ -41,10 +41,23 @@ export default function PublicNavbar() {
               key={link.to}
               to={link.to}
               className={({ isActive }) =>
-                clsx("text-sm transition-colors duration-200", isActive ? "text-white" : "text-white/60 hover:text-white")
+                clsx(
+                  "group relative text-sm transition-colors duration-200",
+                  isActive ? "text-white" : "text-white/60 hover:text-white"
+                )
               }
             >
-              {link.label}
+              {({ isActive }) => (
+                <>
+                  {link.label}
+                  <span
+                    className={clsx(
+                      "absolute -bottom-1.5 left-0 h-0.5 rounded-full bg-secondary transition-all duration-300",
+                      isActive ? "w-full" : "w-0 group-hover:w-full"
+                    )}
+                  />
+                </>
+              )}
             </NavLink>
           ))}
         </nav>

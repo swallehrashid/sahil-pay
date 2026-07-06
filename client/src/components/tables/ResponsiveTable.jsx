@@ -49,9 +49,11 @@ export default function ResponsiveTable({
   }
 
   return (
-    <div className="glass overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead>
+    // #1 — min-w-0 lets this box shrink inside flex/grid ancestors so the page body
+    // never scrolls sideways; .table-scroll forces an always-present horizontal bar.
+    <div className="glass table-scroll max-h-[65vh] w-full min-w-0 max-w-full">
+      <table className="min-w-full text-left text-sm">
+        <thead className="sticky top-0 z-10 bg-primary-800">
           <tr className="border-b border-white/10 text-white/40">
             {columns.map((col) => (
               <th key={col.key} className={clsx("whitespace-nowrap px-4 py-3 font-medium", col.className)}>

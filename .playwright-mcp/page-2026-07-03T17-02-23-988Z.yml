@@ -1,0 +1,71 @@
+- generic [ref=f11e8]:
+  - banner [ref=f11e9]:
+    - generic [ref=f11e10]: SahilPay
+    - navigation [ref=f11e11]:
+      - link "Dashboard" [ref=f11e12] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f11e13]
+        - generic [ref=f11e18]: Dashboard
+      - link "Pay" [ref=f11e19] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f11e20]
+        - generic [ref=f11e23]: Pay
+      - link "Statement" [ref=f11e24] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f11e25]
+        - generic [ref=f11e28]: Statement
+      - link "Maintenance" [ref=f11e29] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f11e30]
+        - generic [ref=f11e32]: Maintenance
+      - link "Messages" [active] [ref=f11e33] [cursor=pointer]:
+        - /url: /portal/messages
+        - img [ref=f11e34]
+        - generic [ref=f11e36]: Messages
+      - link "Profile" [ref=f11e37] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f11e38]
+        - generic [ref=f11e41]: Profile
+    - generic [ref=f11e42]:
+      - button "2" [ref=f11e44]:
+        - img [ref=f11e45]
+        - generic [ref=f11e48]: "2"
+      - button [ref=f11e49]:
+        - img [ref=f11e50]
+  - main [ref=f11e53]:
+    - generic [ref=f11e117]:
+      - generic [ref=f11e118]:
+        - heading "Messages" [level=1] [ref=f11e119]
+        - paragraph [ref=f11e120]: Talk directly to your landlord and property team.
+      - generic [ref=f11e121]:
+        - generic [ref=f11e122]:
+          - generic [ref=f11e124]:
+            - generic [ref=f11e125]:
+              - generic [ref=f11e126]: You
+              - generic [ref=f11e127]: repairs
+              - generic [ref=f11e128]: Jul 03, 04:50 PM
+            - paragraph [ref=f11e129]: Hello, my kitchen sink is still leaking after the last repair. Can someone come this week? (MSG-TEST-001)
+          - generic [ref=f11e131]:
+            - generic [ref=f11e132]:
+              - generic [ref=f11e133]: Acme Properties Ltd
+              - generic [ref=f11e134]: Jul 03, 04:50 PM
+            - paragraph [ref=f11e135]: Hi James, sorry to hear that. I will send the plumber Thursday morning. (REPLY-TEST-001)
+        - generic [ref=f11e136]:
+          - generic [ref=f11e137]:
+            - generic [ref=f11e139]:
+              - generic [ref=f11e140]: Topic
+              - generic [ref=f11e141]:
+                - combobox [ref=f11e142]:
+                  - option "Complaint"
+                  - option "Documents"
+                  - option "General"
+                  - option "Rent" [selected]
+                  - option "Repairs"
+                - img
+            - generic [ref=f11e144]:
+              - generic [ref=f11e145]: Message
+              - textbox "Type your message to the landlord…" [ref=f11e146]
+          - generic [ref=f11e147]:
+            - button "Send" [disabled]:
+              - img
+              - generic: Send

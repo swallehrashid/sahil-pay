@@ -1,0 +1,68 @@
+- generic [active] [ref=f6e1]:
+  - generic [ref=f6e8]:
+    - banner [ref=f6e9]:
+      - generic [ref=f6e10]: SahilPay
+      - navigation [ref=f6e11]:
+        - link "Dashboard" [ref=f6e12] [cursor=pointer]:
+          - /url: /portal/dashboard
+          - img [ref=f6e13]
+          - generic [ref=f6e18]: Dashboard
+        - link "Pay" [ref=f6e19] [cursor=pointer]:
+          - /url: /portal/pay
+          - img [ref=f6e20]
+          - generic [ref=f6e23]: Pay
+        - link "Statement" [ref=f6e24] [cursor=pointer]:
+          - /url: /portal/statement
+          - img [ref=f6e25]
+          - generic [ref=f6e28]: Statement
+        - link "Maintenance" [ref=f6e29] [cursor=pointer]:
+          - /url: /portal/maintenance
+          - img [ref=f6e30]
+          - generic [ref=f6e32]: Maintenance
+        - link "Profile" [ref=f6e33] [cursor=pointer]:
+          - /url: /portal/profile
+          - img [ref=f6e34]
+          - generic [ref=f6e37]: Profile
+      - generic [ref=f6e38]:
+        - button [ref=f6e40]:
+          - img [ref=f6e41]
+        - button [ref=f6e44]:
+          - img [ref=f6e45]
+    - main [ref=f6e48]:
+      - generic [ref=f6e49]:
+        - generic [ref=f6e50]:
+          - heading "Maintenance requests" [level=1] [ref=f6e51]
+          - button "New request" [ref=f6e52]:
+            - img [ref=f6e53]
+            - generic [ref=f6e54]: New request
+        - table [ref=f6e56]:
+          - rowgroup [ref=f6e57]:
+            - row "Date Summary Category Status" [ref=f6e58]:
+              - columnheader "Date" [ref=f6e59]
+              - columnheader "Summary" [ref=f6e60]
+              - columnheader "Category" [ref=f6e61]
+              - columnheader "Status" [ref=f6e62]
+          - rowgroup [ref=f6e63]:
+            - row "03 Jul 2026 Broken bedroom window latch (QA-TEST-451) security Open" [ref=f6e113]:
+              - cell "03 Jul 2026" [ref=f6e114]
+              - cell "Broken bedroom window latch (QA-TEST-451)" [ref=f6e115]
+              - cell "security" [ref=f6e116]
+              - cell "Open" [ref=f6e117]:
+                - generic [ref=f6e118]: Open
+            - row "03 Jul 2026 Roof repair after storm damage roofing Closed" [ref=f6e64]:
+              - cell "03 Jul 2026" [ref=f6e65]
+              - cell "Roof repair after storm damage" [ref=f6e66]
+              - cell "roofing" [ref=f6e67]
+              - cell "Closed" [ref=f6e68]:
+                - generic [ref=f6e69]: Closed
+            - row "03 Jul 2026 Leaking kitchen tap plumbing Open" [ref=f6e71]:
+              - cell "03 Jul 2026" [ref=f6e72]
+              - cell "Leaking kitchen tap" [ref=f6e73]
+              - cell "plumbing" [ref=f6e74]
+              - cell "Open" [ref=f6e75]:
+                - generic [ref=f6e76]: Open
+  - generic [ref=f6e121]:
+    - img [ref=f6e122]
+    - paragraph [ref=f6e125]: Maintenance request submitted.
+    - button [ref=f6e126]:
+      - img [ref=f6e127]

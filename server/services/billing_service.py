@@ -63,10 +63,20 @@ def _cost_for(package, unit_count: int) -> Decimal:
 
 
 def _next_billing_from_registration(landlord) -> date:
-    """The next monthly anniversary of the registration date that is >= today."""
-    reg = (landlord.created_at.date() if landlord.created_at else date.today())
-    nb = reg
+    """
+    The landlord's first billing date.
+
+    #15 — billing begins the day the trial ends: for a landlord with a trial end
+    date still in the future, that date IS the first billing cycle. Otherwise fall
+    back to the next monthly anniversary of the registration date.
+    """
     today = date.today()
+    trial_end = landlord.trial_ends_at.date() if landlord.trial_ends_at else None
+    if trial_end is not None and trial_end >= today:
+        return trial_end
+
+    reg = (landlord.created_at.date() if landlord.created_at else today)
+    nb = reg
     # advance to the first anniversary not in the past
     while nb < today:
         nb += relativedelta(months=1)
@@ -83,8 +93,22 @@ def recompute_subscription(landlord):
     from models import Subscription, SubscriptionStatus
 
     unit_count = count_units(landlord.id)
-    package = resolve_package(unit_count)
-    cost = _cost_for(package, unit_count)
+
+    # #17 — a landlord in the Custom package is NOT auto-recategorised by unit band;
+    # they keep Custom, and their cost uses the admin-set per-unit override.
+    current_pkg = landlord.package
+    is_custom = bool(current_pkg and getattr(current_pkg, "is_custom", False))
+    if is_custom:
+        package = current_pkg
+    else:
+        package = resolve_package(unit_count)
+
+    # A per-unit price override on the landlord (set for Custom or negotiated deals)
+    # supersedes the package's own price.
+    if landlord.per_unit_price is not None:
+        cost = (Decimal(str(landlord.per_unit_price)) * unit_count).quantize(Decimal("0.01"))
+    else:
+        cost = _cost_for(package, unit_count)
 
     sub = landlord.subscription
     if sub is None:
@@ -99,7 +123,8 @@ def recompute_subscription(landlord):
     # Derived truths — always refreshed.
     sub.unit_count = unit_count
     sub.subscription_cost = cost
-    if package is not None:
+    # Only auto-assign the band package for non-custom landlords.
+    if not is_custom and package is not None:
         landlord.package_id = package.id
 
     # Auto-filled only when unset, so an admin override sticks.

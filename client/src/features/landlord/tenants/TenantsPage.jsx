@@ -34,17 +34,17 @@ import {
   useCreateTenantMutation,
   useUpdateTenantMutation,
   useDeleteTenantMutation,
-  useSendTenantReminderMutation,
   useSendBulkReminderMutation,
   useSendTenantStatementMutation,
 } from "./tenantApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetUnitsQuery } from "../units/unitApiSlice";
-import { formatCurrency } from "@/utils/currencyFormatter";
+import { formatCurrency, formatBalance } from "@/utils/currencyFormatter";
 import { downloadFile } from "@/utils/downloadFile";
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
+import SendReminderModal from "../communications/SendReminderModal";
 
 export default function TenantsPage() {
   const navigate = useNavigate();
@@ -55,7 +55,6 @@ export default function TenantsPage() {
   const [createTenant, { isLoading: isCreating }] = useCreateTenantMutation();
   const [updateTenant, { isLoading: isUpdating }] = useUpdateTenantMutation();
   const [deleteTenant] = useDeleteTenantMutation();
-  const [sendReminder] = useSendTenantReminderMutation();
   const [sendBulkReminder] = useSendBulkReminderMutation();
   const [sendStatement] = useSendTenantStatementMutation();
 
@@ -63,6 +62,7 @@ export default function TenantsPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [shiftTenant, setShiftTenant] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [reminderTenant, setReminderTenant] = useState(null); // #4 — channel-picker modal
   const [selectedIds, setSelectedIds] = useState([]);
 
   const tenants = toRows(data);
@@ -134,7 +134,7 @@ export default function TenantsPage() {
     { key: "property", header: "Property", render: (row) => row.property_name },
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
     { key: "phone", header: "Phone" },
-    { key: "balance", header: "Balance", render: (row) => formatCurrency(row.balance) },
+    { key: "balance", header: "Balance", render: (row) => formatBalance(row.balance) },
     { key: "account_number", header: "Account #", render: (row) => row.account_number ?? "—" },
   ];
 
@@ -186,7 +186,7 @@ export default function TenantsPage() {
                 {
                   label: "Send balance reminder",
                   icon: <Bell className="h-4 w-4" />,
-                  onClick: () => sendReminder(row.id).then(() => toast("Reminder sent.", { type: "success" })),
+                  onClick: () => setReminderTenant(row),
                 },
                 { label: "Add invoice", icon: <FileText className="h-4 w-4" />, onClick: () => navigate(`${LANDLORD_ROUTES.invoices}?tenant_id=${row.id}`) },
                 { label: "Add payment", icon: <Wallet className="h-4 w-4" />, onClick: () => navigate(`${LANDLORD_ROUTES.payments}?tenant_id=${row.id}`) },
@@ -246,6 +246,8 @@ export default function TenantsPage() {
       </Modal>
 
       <ShiftTenantModal tenant={shiftTenant} units={units} onClose={() => setShiftTenant(null)} />
+
+      <SendReminderModal tenant={reminderTenant} onClose={() => setReminderTenant(null)} />
 
       <ConfirmDialog
         isOpen={Boolean(pendingDelete)}

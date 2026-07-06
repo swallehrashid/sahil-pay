@@ -160,6 +160,10 @@ def create_payment():
     payment_date   = data.get("payment_date", str(date.today()))
     source         = data.get("source", PaymentSource.manual.value)
     allocations    = data.get("allocations", [])
+    # #5 — the landlord chooses how the payment is spread over the tenant's invoices:
+    #   'auto'   → follow Settings → Payments auto-allocation priority
+    #   'manual' → apply the explicit {invoice_id, amount_allocated} rows they passed
+    allocation_mode = data.get("allocation_mode") or ("manual" if allocations else "auto")
 
     if not tenant_id or amount <= 0:
         return jsonify({"error": "tenant_id and a positive amount are required."}), 400
@@ -170,9 +174,9 @@ def create_payment():
     if not tenant:
         return jsonify({"error": "Tenant not found."}), 404
 
-    # Validate allocation total
+    # Validate allocation total (manual only; auto never exceeds the amount by design)
     alloc_total = sum(Decimal(str(a.get("amount_allocated", 0))) for a in allocations)
-    if alloc_total > amount:
+    if allocation_mode == "manual" and alloc_total > amount:
         return jsonify({"error": "Allocation total exceeds payment amount."}), 400
 
     payment = Payment(
@@ -193,36 +197,25 @@ def create_payment():
     db.session.add(payment)
     db.session.flush()
 
-    # Apply allocations
-    for alloc in allocations:
-        inv_id  = alloc.get("invoice_id")
-        alloc_amt = Decimal(str(alloc.get("amount_allocated", 0)))
-        if not inv_id or alloc_amt <= 0:
-            continue
-        inv = Invoice.query.filter_by(id=inv_id, landlord_id=landlord_id, is_deleted=False).first()
-        if not inv:
-            continue
-
-        db.session.add(PaymentAllocation(
-            payment_id       = payment.id,
-            invoice_id       = inv.id,
-            amount_allocated = alloc_amt,
-        ))
-
-        # Update invoice amounts paid + status
-        inv.amount_paid = (inv.amount_paid or Decimal("0")) + alloc_amt
-        inv.balance     = inv.total_amount - inv.amount_paid
-        if inv.balance <= 0:
-            inv.status = InvoiceStatus.paid.value
-        elif inv.amount_paid > 0:
-            inv.status = InvoiceStatus.partial.value
+    # #5/#7 — the allocation service is the single writer of PaymentAllocation rows and
+    # invoice amount_paid/balance/status (fully-cleared invoices auto-flip to 'paid').
+    from services.allocation_service import auto_allocate, apply_allocations
+    landlord = db.session.get(Landlord, landlord_id)
+    if allocation_mode == "auto" and payment.status == PaymentStatus.confirmed.value:
+        allocations = auto_allocate(tenant, amount, landlord, ref_date=payment.payment_date or date.today())
+    # A pending payment is not allocated until it's confirmed; only confirmed payments
+    # touch the ledger.
+    if payment.status == PaymentStatus.confirmed.value:
+        apply_allocations(payment, tenant, allocations, landlord_id)
 
     # Ledger convention (matches landlord_dashboard_routes/report_routes/export_service):
     # negative balance = arrears (owed), positive = advance (credit). The FULL payment
     # reduces what's owed regardless of how it's allocated across invoices — allocation
     # only determines which invoices show as paid; the tenant's running balance is
-    # simply lifetime charges minus lifetime payments.
-    tenant.balance = (tenant.balance or Decimal("0")) + amount
+    # simply lifetime charges minus lifetime payments. A pending (unconfirmed) payment
+    # does NOT touch the ledger until it's confirmed.
+    if payment.status == PaymentStatus.confirmed.value:
+        tenant.balance = (tenant.balance or Decimal("0")) + amount
 
     db.session.commit()
 

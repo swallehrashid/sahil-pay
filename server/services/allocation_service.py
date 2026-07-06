@@ -29,19 +29,22 @@ from decimal import Decimal
 from extensions import db
 from models import Invoice, InvoiceStatus, InvoiceType, PaymentAllocation
 
-# Ordered canonical category list == the default priority.
+# Ordered canonical category list == the default priority. Deposits clear first,
+# then arrears (carried-forward balances), then this month's charges. (#6)
 ALLOCATION_CATEGORIES = [
+    "deposits",
     "utilities_cf",
-    "utilities_current",
     "rent_cf",
+    "utilities_current",
     "rent_current",
     "other",
 ]
 
 CATEGORY_LABELS = {
-    "utilities_cf":      "Utilities — balance carried forward",
+    "deposits":          "Deposits (rent/utility/security deposits)",
+    "utilities_cf":      "Utility balances — carried forward",
+    "rent_cf":           "Rent balance — carried forward",
     "utilities_current": "Utilities — current month",
-    "rent_cf":           "Rent — balance carried forward",
     "rent_current":      "Rent — current month",
     "other":             "Other charges (penalties, custom)",
 }
@@ -71,6 +74,8 @@ def categorize_invoice(inv, ref_date: date) -> str:
     is_current = (issue.year == ref_date.year and issue.month == ref_date.month)
     itype = inv.invoice_type
 
+    if itype == InvoiceType.deposit.value:
+        return "deposits"
     if itype == InvoiceType.utility.value:
         return "utilities_current" if is_current else "utilities_cf"
     if itype == InvoiceType.rent.value:

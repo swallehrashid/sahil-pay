@@ -20,6 +20,37 @@ from utils import to_json_safe, active_impersonation
 logger = logging.getLogger(__name__)
 
 
+def _resolve_actor_full_name(user, landlord_id: int | None) -> str | None:
+    """
+    Best-effort display name for an audit actor from their User profile. When a
+    landlord_id is in scope, prefer a profile that belongs to that landlord
+    (tenant/team member) so a person who exists under several landlords is never
+    mislabeled. Falls back to whatever single profile the user has.
+    """
+    def _name(profile) -> str | None:
+        if not profile:
+            return None
+        first = getattr(profile, "first_name", "") or ""
+        last = getattr(profile, "last_name", "") or ""
+        full = f"{first} {last}".strip()
+        return full or None
+
+    # Prefer a landlord-scoped profile match when we know the landlord.
+    if landlord_id is not None:
+        for attr in ("tenant_profile", "team_member_profile", "landlord_profile"):
+            profile = getattr(user, attr, None)
+            if profile is not None and getattr(profile, "landlord_id", None) == landlord_id:
+                name = _name(profile)
+                if name:
+                    return name
+
+    for attr in ("landlord_profile", "team_member_profile", "admin_profile", "tenant_profile"):
+        name = _name(getattr(user, attr, None))
+        if name:
+            return name
+    return None
+
+
 def record_audit(
     actor_user_id: int | None,
     landlord_id: int | None,
@@ -31,6 +62,8 @@ def record_audit(
     after_data: dict | None = None,
     affected_properties: list | None = None,
     file_url: str | None = None,
+    actor_full_name: str | None = None,
+    actor_username: str | None = None,
 ):
     """
     Write one immutable audit_logs row. Does NOT commit — the caller commits
@@ -58,21 +91,20 @@ def record_audit(
         prefix = f"[Impersonating landlord #{imp.landlord_id}]"
         description = f"{prefix} {description}" if description else prefix
 
-    actor_username = None
-    actor_full_name = None
-    if actor_user_id:
+    # Callers that already hold the acting entity (e.g. the tenant-portal routes
+    # know exactly which Tenant submitted) may pass actor_full_name/actor_username
+    # explicitly. This avoids the profile-walk below, which is ambiguous when one
+    # login User owns MULTIPLE profiles of the same kind — a person who is a tenant
+    # under several landlords has several tenant_profile rows, and picking the first
+    # would mislabel the actor (issue #18: a payment showed the wrong tenant's name).
+    if actor_user_id and (actor_username is None or actor_full_name is None):
         try:
             user = db.session.get(User, actor_user_id)
             if user is not None:
-                actor_username = user.email or user.phone
-                for profile_attr in ("landlord_profile", "team_member_profile", "admin_profile", "tenant_profile"):
-                    profile = getattr(user, profile_attr, None)
-                    if profile:
-                        first = getattr(profile, "first_name", "") or ""
-                        last = getattr(profile, "last_name", "") or ""
-                        if first or last:
-                            actor_full_name = f"{first} {last}".strip()
-                            break
+                if actor_username is None:
+                    actor_username = user.email or user.phone
+                if actor_full_name is None:
+                    actor_full_name = _resolve_actor_full_name(user, landlord_id)
         except Exception:
             logger.warning("record_audit: could not resolve actor #%s", actor_user_id, exc_info=True)
 

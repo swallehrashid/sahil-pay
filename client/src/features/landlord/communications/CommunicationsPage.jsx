@@ -15,6 +15,8 @@ import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
 import MessageTemplates from "./MessageTemplates";
+import { useGetSmsProviderQuery } from "../settings/smsProviderApiSlice";
+import { formatCurrency } from "@/utils/currencyFormatter";
 import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommunicationMutation } from "./communicationApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { MESSAGE_CHANNELS, COMMUNICATION_STATUSES } from "@/utils/constants";
@@ -26,12 +28,19 @@ import Pagination from "@/components/ui/Pagination";
 export default function CommunicationsPage() {
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
+  const composeFromQuery = searchParams.get("compose"); // #2 — pill deep-links "?compose=sms"
+
+  const { data: smsProvider } = useGetSmsProviderQuery();
 
   const [tab, setTab] = useState("log");
   const [filters, setFilters] = useState({ status: "", message_type: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
-  const [isComposeOpen, setIsComposeOpen] = useState(() => Boolean(tenantIdFromQuery));
-  const [compose, setCompose] = useState({ tenant_id: tenantIdFromQuery ?? "", message_type: "sms", content: "" });
+  const [isComposeOpen, setIsComposeOpen] = useState(() => Boolean(tenantIdFromQuery || composeFromQuery));
+  const [compose, setCompose] = useState({
+    tenant_id: tenantIdFromQuery ?? "",
+    message_type: composeFromQuery === "sms" ? "sms" : "sms",
+    content: "",
+  });
 
   const pg = usePagination();
   const { data, isLoading } = useGetCommunicationsQuery({ ...appliedFilters, ...pg.params });
@@ -92,6 +101,23 @@ export default function CommunicationsPage() {
           )
         }
       />
+
+      {/* #2 — live SMS balance + the FIXED admin-set price per SMS (never landlord-editable) */}
+      {smsProvider && (
+        <div className="glass mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl px-4 py-3 text-sm">
+          <span className="text-white/80">
+            SMS balance: <strong className="text-white">{smsProvider.sms_balance ?? 0}</strong> credits
+          </span>
+          <span className="text-white/60">
+            Sender: <span className="text-white/90">{smsProvider.sender_id}</span>{" "}
+            <span className="text-white/40">({smsProvider.sender_mode === "custom" ? "your own sender ID" : "SahilPay shared"})</span>
+          </span>
+          <span className="text-white/60">
+            Price per SMS: <span className="text-white/90">{formatCurrency(smsProvider.price_per_sms, smsProvider.currency)}</span>{" "}
+            <span className="text-white/40">(fixed)</span>
+          </span>
+        </div>
+      )}
 
       <Tabs
         tabs={[

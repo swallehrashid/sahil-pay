@@ -1,23 +1,79 @@
 import { Link } from "react-router-dom";
-import { PUBLIC_ROUTES } from "@/config/routePaths";
+import { Mail, Phone, MapPin } from "lucide-react";
+import { PUBLIC_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
+
+const COLUMNS = [
+  {
+    heading: "Product",
+    links: [
+      { to: PUBLIC_ROUTES.features, label: "Features" },
+      { to: PUBLIC_ROUTES.pricing, label: "Pricing" },
+      { to: PUBLIC_ROUTES.faq, label: "FAQ" },
+      { to: AUTH_ROUTES.register, label: "Start free trial" },
+    ],
+  },
+  {
+    heading: "Company",
+    links: [
+      { to: PUBLIC_ROUTES.about, label: "About" },
+      { to: PUBLIC_ROUTES.contact, label: "Contact" },
+      { to: AUTH_ROUTES.login, label: "Log in" },
+    ],
+  },
+  {
+    heading: "Legal",
+    links: [
+      { to: PUBLIC_ROUTES.privacy, label: "Privacy Policy" },
+      { to: PUBLIC_ROUTES.terms, label: "Terms of Service" },
+    ],
+  },
+];
 
 export default function Footer() {
   return (
-    <footer className="border-t border-white/10 px-6 py-10 text-sm text-white/40">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 md:flex-row">
-        <span className="text-base font-light tracking-wide text-white/70">
-          Sahil<span className="text-secondary">Pay</span>
-        </span>
-        <nav className="flex flex-wrap items-center justify-center gap-5">
-          <Link to={PUBLIC_ROUTES.about} className="transition-colors hover:text-white/70">About</Link>
-          <Link to={PUBLIC_ROUTES.features} className="transition-colors hover:text-white/70">Features</Link>
-          <Link to={PUBLIC_ROUTES.pricing} className="transition-colors hover:text-white/70">Pricing</Link>
-          <Link to={PUBLIC_ROUTES.contact} className="transition-colors hover:text-white/70">Contact</Link>
-          <Link to={PUBLIC_ROUTES.faq} className="transition-colors hover:text-white/70">FAQ</Link>
-          <Link to={PUBLIC_ROUTES.privacy} className="transition-colors hover:text-white/70">Privacy</Link>
-          <Link to={PUBLIC_ROUTES.terms} className="transition-colors hover:text-white/70">Terms</Link>
-        </nav>
-        <span>© {new Date().getFullYear()} SahilPay. All rights reserved.</span>
+    <footer className="mt-10 border-t border-white/10 px-6 pb-10 pt-14 text-sm text-white/50">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)]">
+          {/* Brand + contact */}
+          <div>
+            <span className="text-lg font-light tracking-wide text-white/80">
+              Sahil<span className="text-secondary">Pay</span>
+            </span>
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/45">
+              The all-in-one rental management platform built for Kenya — M-Pesa rent collection, invoicing,
+              a tenant portal and reporting in one place.
+            </p>
+            <div className="mt-4 space-y-2 text-xs text-white/45">
+              <span className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-secondary" /> hello@sahilpay.com</span>
+              <span className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-secondary" /> +254 700 000 000</span>
+              <span className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-secondary" /> Nairobi, Kenya</span>
+            </div>
+          </div>
+
+          {/* Link columns */}
+          {COLUMNS.map((col) => (
+            <div key={col.heading}>
+              <p className="text-xs font-medium uppercase tracking-wider text-white/40">{col.heading}</p>
+              <ul className="mt-4 space-y-2.5">
+                {col.links.map((link) => (
+                  <li key={link.label}>
+                    <Link
+                      to={link.to}
+                      className="inline-block text-white/55 transition-all duration-200 hover:translate-x-0.5 hover:text-white"
+                    >
+                      {link.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-white/40 md:flex-row">
+          <span>© {new Date().getFullYear()} SahilPay. All rights reserved.</span>
+          <span>Made for landlords &amp; property managers across Kenya 🇰🇪</span>
+        </div>
       </div>
     </footer>
   );

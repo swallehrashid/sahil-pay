@@ -30,6 +30,9 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
     ...initialValues,
   });
   const [allocations, setAllocations] = useState({});
+  // #5 — 'auto' follows the landlord's Settings priority; 'manual' lets them split the
+  // payment across invoice items by hand.
+  const [allocationMode, setAllocationMode] = useState("auto");
   const [sendReceipt, setSendReceipt] = useState(false);
   const [receiptChannels, setReceiptChannels] = useState(["email"]);
   const [errors, setErrors] = useState({});
@@ -46,23 +49,43 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
 
   const allocatedTotal = Object.values(allocations).reduce((sum, v) => sum + Number(v || 0), 0);
 
+  // #5 — "pay full" dumps the rest of the still-unallocated payment onto this invoice
+  // (capped at the invoice's own balance), so a 5,000 payment against an 11,000 invoice
+  // allocates the whole 5,000 there.
+  const payFull = (inv) => {
+    setAllocations((prev) => {
+      const others = Object.entries(prev)
+        .filter(([id]) => String(id) !== String(inv.id))
+        .reduce((sum, [, v]) => sum + Number(v || 0), 0);
+      const remaining = Math.max(Number(form.amount || 0) - others, 0);
+      const take = Math.min(remaining, Number(inv.balance || 0));
+      return { ...prev, [inv.id]: take || "" };
+    });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const nextErrors = {};
     if (!isRequired(form.tenant_id)) nextErrors.tenant_id = "Select a tenant";
     const amountError = validateMoneyField(form.amount, { allowZero: false });
     if (amountError) nextErrors.amount = amountError;
-    if (allocatedTotal > Number(form.amount || 0)) nextErrors.allocations = "Allocated amount cannot exceed the payment amount";
+    if (allocationMode === "manual" && allocatedTotal > Number(form.amount || 0)) {
+      nextErrors.allocations = "Allocated amount cannot exceed the payment amount";
+    }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    // Backend (POST /payments) reads `allocations: [{ invoice_id, amount_allocated }]`.
-    const allocationsPayload = Object.entries(allocations)
-      .filter(([, amount]) => Number(amount) > 0)
-      .map(([invoice_id, amount_allocated]) => ({ invoice_id: Number(invoice_id), amount_allocated: Number(amount_allocated) }));
+    // Backend (POST /payments) reads `allocation_mode` + `allocations: [{ invoice_id, amount_allocated }]`.
+    const allocationsPayload =
+      allocationMode === "manual"
+        ? Object.entries(allocations)
+            .filter(([, amount]) => Number(amount) > 0)
+            .map(([invoice_id, amount_allocated]) => ({ invoice_id: Number(invoice_id), amount_allocated: Number(amount_allocated) }))
+        : [];
 
     onSubmit({
       ...form,
+      allocation_mode: allocationMode,
       allocations: allocationsPayload,
       send_receipt: sendReceipt,
       receipt_channels: sendReceipt ? receiptChannels : [],
@@ -91,44 +114,74 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
 
       {form.tenant_id && (
         <div className="border-t border-white/10 pt-4">
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Allocate to invoices</p>
-          {errors.allocations && <p className="mb-2 text-xs text-secondary-300">{errors.allocations}</p>}
-          {tenantInvoices.length === 0 ? (
-            <p className="text-sm text-white/40">No open invoices for this tenant — the full amount becomes an advance.</p>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Allocation</p>
+
+          {/* #5 — auto vs manual allocation */}
+          <div className="mb-3 inline-flex rounded-xl bg-white/5 p-1">
+            {[
+              { value: "auto", label: "Automatic" },
+              { value: "manual", label: "Manual" },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setAllocationMode(opt.value)}
+                className={
+                  "rounded-lg px-4 py-1.5 text-sm transition-colors " +
+                  (allocationMode === opt.value ? "bg-secondary text-white" : "text-white/60 hover:text-white")
+                }
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {allocationMode === "auto" ? (
+            <p className="text-sm text-white/40">
+              The payment will clear this tenant's charges automatically, following your
+              Settings → Payments allocation priority. Any remainder becomes an advance.
+            </p>
           ) : (
-            <div className="space-y-2">
-              {tenantInvoices.map((inv) => (
-                <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
-                  <div className="min-w-0 text-sm">
-                    <div className="truncate text-white/80">
-                      {inv.invoice_number}
-                      {monthLabel(inv.issue_date) ? ` · ${monthLabel(inv.issue_date)}` : ""}
+            <>
+              {errors.allocations && <p className="mb-2 text-xs text-secondary-300">{errors.allocations}</p>}
+              {tenantInvoices.length === 0 ? (
+                <p className="text-sm text-white/40">No open invoices for this tenant — the full amount becomes an advance.</p>
+              ) : (
+                <div className="space-y-2">
+                  {tenantInvoices.map((inv) => (
+                    <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
+                      <div className="min-w-0 text-sm">
+                        <div className="truncate text-white/80">
+                          {inv.invoice_number}
+                          {monthLabel(inv.issue_date) ? ` · ${monthLabel(inv.issue_date)}` : ""}
+                        </div>
+                        <div className="text-xs text-white/40">
+                          Invoiced {formatCurrency(inv.total_amount)} · <span className="text-secondary-300">{formatCurrency(inv.balance)} due</span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => payFull(inv)}
+                        className="shrink-0 text-[11px] text-white/40 underline-offset-2 hover:text-secondary hover:underline"
+                      >
+                        pay full
+                      </button>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="0.00"
+                        value={allocations[inv.id] ?? ""}
+                        onChange={(e) => setAllocations((prev) => ({ ...prev, [inv.id]: e.target.value }))}
+                        className="glass-input w-28 text-right"
+                      />
                     </div>
-                    <div className="text-xs text-white/40">
-                      Invoiced {formatCurrency(inv.total_amount)} · <span className="text-secondary-300">{formatCurrency(inv.balance)} due</span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setAllocations((prev) => ({ ...prev, [inv.id]: inv.balance }))}
-                    className="shrink-0 text-[11px] text-white/40 underline-offset-2 hover:text-secondary hover:underline"
-                  >
-                    pay full
-                  </button>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={allocations[inv.id] ?? ""}
-                    onChange={(e) => setAllocations((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                    className="glass-input w-28 text-right"
-                  />
+                  ))}
+                  <p className="text-right text-xs text-white/40">
+                    Allocated: {formatCurrency(allocatedTotal)} of {formatCurrency(form.amount || 0)}
+                  </p>
                 </div>
-              ))}
-              <p className="text-right text-xs text-white/40">
-                Allocated: {formatCurrency(allocatedTotal)} of {formatCurrency(form.amount || 0)}
-              </p>
-            </div>
+              )}
+            </>
           )}
         </div>
       )}

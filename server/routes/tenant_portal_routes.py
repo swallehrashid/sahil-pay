@@ -354,7 +354,13 @@ def submit_payment():
 
     from services.audit_service import record_audit
     record_audit(
-        actor_user_id=int(get_jwt_identity()),
+        # #18 — the tenant JWT identity is str(tenant.user_id or tenant.id); for
+        # OTP-only tenants with no linked User it falls back to tenant.id, which the
+        # audit resolver would misread as a User id and log the wrong person. Pass
+        # the acting tenant's real identity explicitly so the log is always correct.
+        actor_user_id=tenant.user_id,
+        actor_full_name=tenant_name,
+        actor_username=tenant.email or tenant.phone,
         landlord_id=landlord_id,
         action="submit_payment",
         entity_type="payment",
@@ -461,6 +467,7 @@ def portal_statement():
             continue
         entries.append({
             "id":          f"inv-{inv.id}",
+            "_sort":       (d, inv.created_at.isoformat() if inv.created_at else "", inv.id),
             "date":        d,
             "type":        "invoice",
             "description": inv.title or inv.invoice_type,
@@ -486,6 +493,7 @@ def portal_statement():
         method_label = pay.payment_method or (pay.source.value if hasattr(pay.source, "value") else pay.source)
         entries.append({
             "id":              f"pay-{pay.id}",
+            "_sort":           (d, pay.created_at.isoformat() if pay.created_at else "", pay.id),
             "date":            d,
             "type":            "payment",
             "description":     f"Payment — {method_label}",
@@ -497,9 +505,11 @@ def portal_statement():
             "status":          pay.status,
         })
 
-    entries.sort(key=lambda x: x["date"])
+    # #13 — strict chronological order: same-day events keep the order they were
+    # recorded (by created_at, then id), not batched by type.
+    entries.sort(key=lambda x: x["_sort"])
 
-    # Running balance
+    # Running balance in the #10 convention: owed positive, advance/credit negative.
     running = 0.0
     for e in entries:
         if e["type"] == "invoice":
@@ -507,6 +517,7 @@ def portal_statement():
         else:
             running -= e["amount"]
         e["running_balance"] = round(running, 2)
+        e.pop("_sort", None)
 
     return jsonify({
         "tenant_id":      tenant.id,
@@ -611,7 +622,9 @@ def update_profile():
 
     from services.audit_service import record_audit
     record_audit(
-        actor_user_id=int(get_jwt_identity()),
+        actor_user_id=tenant.user_id,
+        actor_full_name=f"{tenant.first_name} {tenant.last_name}".strip(),
+        actor_username=tenant.email or tenant.phone,
         landlord_id=landlord_id,
         action="tenant_portal_update_profile",
         entity_type="tenant",
@@ -760,7 +773,9 @@ def create_maintenance():
 
     from services.audit_service import record_audit
     record_audit(
-        actor_user_id=int(get_jwt_identity()),
+        actor_user_id=tenant.user_id,
+        actor_full_name=f"{tenant.first_name} {tenant.last_name}".strip(),
+        actor_username=tenant.email or tenant.phone,
         landlord_id=landlord_id,
         action="create_maintenance_request",
         entity_type="maintenance",

@@ -30,10 +30,12 @@ from .teammember_routes       import teammember_bp
 from .tenant_portal_routes    import tenant_portal_bp
 from .admin_routes            import admin_bp
 from .admin_pricing_routes    import admin_pricing_bp
+from .admin_sms_routes        import admin_sms_bp
 from .admin_trial_routes      import admin_trial_bp
 from .admin_impersonation_routes import admin_impersonation_bp
 from .notification_routes     import notification_bp
 from .tenant_message_routes   import tenant_message_bp
+from .public_routes           import public_bp
 
 
 def register_blueprints(app):
@@ -72,9 +74,13 @@ def register_blueprints(app):
     # ── System Admin portal ────────────────────────────────────────────────────
     app.register_blueprint(admin_bp)              # /api/admin
     app.register_blueprint(admin_pricing_bp)      # /api/admin/pricing
+    app.register_blueprint(admin_sms_bp)          # /api/admin/sms
     app.register_blueprint(admin_trial_bp)        # /api/admin/trials
     app.register_blueprint(admin_impersonation_bp) # /api/admin/impersonation
 
     # ── Notifications (every role) ─────────────────────────────────────────────
     app.register_blueprint(notification_bp)       # /api/notifications
     app.register_blueprint(tenant_message_bp)     # /api/tenant-messages
+
+    # ── Public marketing site (unauthenticated) ────────────────────────────────
+    app.register_blueprint(public_bp)             # /api/public

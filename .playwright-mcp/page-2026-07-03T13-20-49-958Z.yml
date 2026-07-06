@@ -1,0 +1,52 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e558]:
+    - complementary [ref=f1e559]:
+      - generic [ref=f1e561]: SahilPay
+      - navigation [ref=f1e562]:
+        - link "Dashboard" [ref=f1e563] [cursor=pointer]:
+          - /url: /team/dashboard
+          - img [ref=f1e565]
+          - generic [ref=f1e570]: Dashboard
+        - link "Tenants" [ref=f1e571] [cursor=pointer]:
+          - /url: /team/tenants
+          - img [ref=f1e573]
+          - generic [ref=f1e578]: Tenants
+        - link "Maintenance" [ref=f1e579] [cursor=pointer]:
+          - /url: /team/maintenance
+          - img [ref=f1e581]
+          - generic [ref=f1e583]: Maintenance
+        - link "Reports" [ref=f1e584] [cursor=pointer]:
+          - /url: /team/reports/statements
+          - img [ref=f1e586]
+          - generic [ref=f1e588]: Reports
+        - link "Notifications" [ref=f1e589] [cursor=pointer]:
+          - /url: /team/notifications
+          - img [ref=f1e591]
+          - generic [ref=f1e594]: Notifications
+      - generic [ref=f1e596]:
+        - paragraph [ref=f1e597]: browser.qa@sahilpay.test
+        - button "Log out" [ref=f1e598]:
+          - img [ref=f1e599]
+          - text: Log out
+    - generic [ref=f1e602]:
+      - generic [ref=f1e603]:
+        - button "1" [ref=f1e605]:
+          - img [ref=f1e606]
+          - generic [ref=f1e609]: "1"
+        - generic [ref=f1e610]:
+          - generic [ref=f1e611]: T
+          - generic [ref=f1e612]: browser.qa@sahilpay.test
+      - main [ref=f1e613]:
+        - generic [ref=f1e614]:
+          - generic [ref=f1e616]:
+            - heading "Welcome," [level=1] [ref=f1e617]
+            - paragraph [ref=f1e618]: Here's what you have access to
+          - link "Tenants Open tenants" [ref=f1e620] [cursor=pointer]:
+            - /url: /team/tenants
+            - text: Tenants
+            - paragraph [ref=f1e621]: Open tenants
+  - generic [ref=f1e622]:
+    - img [ref=f1e623]
+    - paragraph [ref=f1e626]: Password updated. Welcome to SahilPay!
+    - button [ref=f1e627]:
+      - img [ref=f1e628]

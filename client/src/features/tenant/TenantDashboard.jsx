@@ -6,7 +6,7 @@ import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { useGetPortalDashboardQuery } from "./tenantPortalApiSlice";
-import { formatCurrency } from "@/utils/currencyFormatter";
+import { formatCurrency, formatBalance } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { TENANT_ROUTES } from "@/config/routePaths";
 
@@ -30,7 +30,7 @@ export default function TenantDashboard() {
           <h1 className="text-2xl font-light tracking-wide text-white">Welcome back{data?.tenant_name ? `, ${data.tenant_name}` : ""}</h1>
           <p className="mt-1 text-sm text-white/50">Here's your current balance breakdown.</p>
         </div>
-        <Link to={TENANT_ROUTES.pay}>
+        <Link to={`${TENANT_ROUTES.pay}?start=1`}>
           <Button leftIcon={<Wallet className="h-4 w-4" />}>Pay now</Button>
         </Link>
       </div>
@@ -41,7 +41,7 @@ export default function TenantDashboard() {
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
           <SummaryCard label="Rent due" value={formatCurrency(data?.rent_due)} icon={<Receipt className="h-5 w-5" />} />
           <SummaryCard label="Utilities due" value={formatCurrency(data?.utility_due)} icon={<Receipt className="h-5 w-5" />} accent="third" />
-          <SummaryCard label="Previous balance" value={formatCurrency(data?.previous_balance)} icon={<History className="h-5 w-5" />} accent="third" />
+          <SummaryCard label="Previous balance" value={formatBalance(data?.previous_balance)} icon={<History className="h-5 w-5" />} accent="third" />
         </div>
       )}
 

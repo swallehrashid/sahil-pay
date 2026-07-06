@@ -23,6 +23,18 @@ export const paymentApiSlice = apiSlice.injectEndpoints({
       query: (id) => ({ url: `/payments/${id}`, method: "DELETE" }),
       invalidatesTags: ["Payment", "Invoice"],
     }),
+    getAllocationPreview: builder.query({
+      query: (id) => `/payments/${id}/allocation-preview`,
+      providesTags: (result, error, id) => [{ type: "Payment", id }],
+    }),
+    confirmPayment: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/payments/${id}/confirm`, method: "POST", body }),
+      invalidatesTags: ["Payment", "Invoice", "Tenant"],
+    }),
+    declinePayment: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/payments/${id}/decline`, method: "POST", body }),
+      invalidatesTags: ["Payment"],
+    }),
     sendPaymentReceipt: builder.mutation({
       // Accepts either a bare id (legacy row action → defaults to email) or
       // { id, channels: [...] } from the record-payment form.
@@ -56,6 +68,10 @@ export const {
   useCreatePaymentMutation,
   useUpdatePaymentMutation,
   useDeletePaymentMutation,
+  useLazyGetAllocationPreviewQuery,
+  useGetAllocationPreviewQuery,
+  useConfirmPaymentMutation,
+  useDeclinePaymentMutation,
   useSendPaymentReceiptMutation,
   useReassignPaymentTenantMutation,
   useUploadBankStatementMutation,

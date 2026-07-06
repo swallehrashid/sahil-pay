@@ -128,8 +128,36 @@ def mark_all_read():
 @notification_bp.route("/templates", methods=["GET"])
 @jwt_required()
 def list_templates():
-    """List available notification template keys (for the send UI's template picker)."""
-    return jsonify({"templates": list(TEMPLATES.keys())}), 200
+    """
+    List notification template keys for the send UI's template picker.
+
+    #11 — a landlord/team member only sees templates they can actually send to
+    tenants/team members; platform templates (trial_expiring, low_sms_balance,
+    impersonation_*, etc.) are admin/system-originated and are hidden from them.
+    Admins still see the full registry. An optional ?audience=tenant|team narrows
+    the landlord list further.
+    """
+    from flask_jwt_extended import get_jwt_identity
+    from models import User, UserRole
+    from services.notification_service import (
+        LANDLORD_SENDABLE_TEMPLATES, LANDLORD_TENANT_TEMPLATES, LANDLORD_TEAM_TEMPLATES,
+    )
+
+    user = db.session.get(User, int(get_jwt_identity())) if get_jwt_identity() else None
+    role = user.role if user else None
+
+    if role == UserRole.system_admin.value:
+        keys = list(TEMPLATES.keys())
+    else:
+        audience = request.args.get("audience")
+        if audience == "tenant":
+            keys = list(LANDLORD_TENANT_TEMPLATES)
+        elif audience == "team":
+            keys = list(LANDLORD_TEAM_TEMPLATES)
+        else:
+            keys = list(LANDLORD_SENDABLE_TEMPLATES)
+
+    return jsonify({"templates": keys}), 200
 
 
 # ---------------------------------------------------------------------------

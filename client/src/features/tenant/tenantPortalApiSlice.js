@@ -7,8 +7,17 @@ export const tenantPortalApiSlice = apiSlice.injectEndpoints({
       query: () => "/portal/dashboard",
       providesTags: ["TenantPortal"],
     }),
-    makePortalPayment: builder.mutation({
-      query: (body) => ({ url: "/portal/pay", method: "POST", body }),
+    getPaymentDetails: builder.query({
+      query: () => "/portal/payment-details",
+      providesTags: ["TenantPortal"],
+    }),
+    getPortalPayments: builder.query({
+      query: () => "/portal/payments",
+      providesTags: ["TenantPortal"],
+    }),
+    submitPortalPayment: builder.mutation({
+      // Accepts FormData (with a proof file) — the base query passes it through untouched.
+      query: (body) => ({ url: "/portal/payments/submit", method: "POST", body }),
       invalidatesTags: ["TenantPortal"],
     }),
     getPortalStatement: builder.query({
@@ -31,15 +40,32 @@ export const tenantPortalApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/portal/maintenance", method: "POST", body }),
       invalidatesTags: ["TenantPortal"],
     }),
+    getPortalReceipt: builder.query({
+      query: (paymentId) => `/portal/payments/${paymentId}/receipt?format=json`,
+    }),
+    getPortalMessages: builder.query({
+      query: () => "/portal/messages",
+      providesTags: ["TenantMessages"],
+    }),
+    sendPortalMessage: builder.mutation({
+      query: (body) => ({ url: "/portal/messages", method: "POST", body }),
+      invalidatesTags: ["TenantMessages"],
+    }),
   }),
 });
 
 export const {
   useGetPortalDashboardQuery,
-  useMakePortalPaymentMutation,
+  useGetPaymentDetailsQuery,
+  useGetPortalPaymentsQuery,
+  useSubmitPortalPaymentMutation,
   useGetPortalStatementQuery,
   useGetPortalProfileQuery,
   useUpdatePortalProfileMutation,
   useGetPortalMaintenanceRequestsQuery,
   useCreatePortalMaintenanceRequestMutation,
+  useGetPortalReceiptQuery,
+  useLazyGetPortalReceiptQuery,
+  useGetPortalMessagesQuery,
+  useSendPortalMessageMutation,
 } = tenantPortalApiSlice;

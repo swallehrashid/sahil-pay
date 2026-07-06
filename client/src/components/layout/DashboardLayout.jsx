@@ -15,7 +15,7 @@ export default function DashboardLayout({ navItems, sidebarHeader, sidebarFooter
         isMobileOpen={isMobileNavOpen}
         onCloseMobile={() => setIsMobileNavOpen(false)}
       />
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-64">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
         <header className="glass sticky top-4 z-20 mx-4 flex items-center gap-3 rounded-2xl px-4 py-3 lg:hidden">
           <button onClick={() => setIsMobileNavOpen(true)} className="rounded-lg p-2 text-white/70 hover:bg-white/10">
             <Menu className="h-5 w-5" />
@@ -23,7 +23,7 @@ export default function DashboardLayout({ navItems, sidebarHeader, sidebarFooter
           <span className="font-light tracking-wide text-white">SahilPay</span>
         </header>
         {navbar}
-        <main className="flex-1 p-4 md:p-8">{children}</main>
+        <main className="min-w-0 flex-1 p-4 md:p-8">{children}</main>
       </div>
     </div>
   );

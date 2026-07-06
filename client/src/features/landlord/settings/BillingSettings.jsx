@@ -85,18 +85,18 @@ export default function BillingSettings() {
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
     {
       key: "invoice",
-      header: "Tax invoice",
+      header: "Receipt",
       render: (row) =>
         row.status === "paid" && (
           <button
             onClick={() =>
               generateTaxInvoice({ transaction_id: row.id }).then((res) =>
-                downloadFile(res?.data?.tax_invoice_url ?? row.tax_invoice_url, { filename: `tax-invoice-${row.id}.pdf` })
+                downloadFile(res?.data?.tax_invoice_url ?? row.tax_invoice_url, { filename: `sahilpay-receipt-${row.id}.pdf` })
               )
             }
             className="flex items-center gap-1 text-xs text-secondary hover:underline"
           >
-            <FileText className="h-3.5 w-3.5" /> Download
+            <FileText className="h-3.5 w-3.5" /> Download receipt
           </button>
         ),
     },
@@ -123,9 +123,20 @@ export default function BillingSettings() {
         <SkeletonStatCards count={4} />
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-          <SummaryCard label="Plan" value={data?.subscription?.plan ?? "—"} icon={<CreditCard className="h-5 w-5" />} />
+          {/* #15 — show the actual plan/package name, plus the billing cadence / trial state. */}
+          <SummaryCard
+            label="Plan"
+            value={data?.package?.name ?? "—"}
+            trend={{ label: data?.is_on_trial ? "On trial" : (data?.subscription?.billing_cycle ?? data?.subscription?.plan ?? "Active"), positive: true }}
+            icon={<CreditCard className="h-5 w-5" />}
+          />
           <SummaryCard label="Amount due" value={formatCurrency(data?.subscription?.amount_due)} icon={<CreditCard className="h-5 w-5" />} accent="third" />
-          <SummaryCard label="Next billing date" value={data?.subscription?.next_billing_date ? formatDate(data.subscription.next_billing_date) : "—"} icon={<CreditCard className="h-5 w-5" />} />
+          <SummaryCard
+            label="Next billing date"
+            value={data?.subscription?.next_billing_date ? formatDate(data.subscription.next_billing_date) : "—"}
+            trend={data?.is_on_trial && data?.trial_ends_at ? { label: `Trial ends ${formatDate(data.trial_ends_at)}`, positive: true } : undefined}
+            icon={<CreditCard className="h-5 w-5" />}
+          />
           <SummaryCard label="SMS balance" value={data?.sms_balance ?? 0} icon={<MessageSquarePlus className="h-5 w-5" />} accent="third" />
         </div>
       )}
@@ -165,6 +176,15 @@ export default function BillingSettings() {
       <Modal isOpen={isSmsOpen} onClose={() => setIsSmsOpen(false)} title="Buy SMS">
         <form onSubmit={handleBuySms} className="space-y-4">
           <Input label="Number of SMS" type="number" min="100" value={smsCount} onChange={(e) => setSmsCount(e.target.value)} hint="Minimum 100" required />
+          {data?.sms_unit_price != null && (
+            <div className="flex items-center justify-between rounded-xl bg-white/5 px-4 py-3 text-sm">
+              <span className="text-white/50">
+                {formatCurrency(data.sms_unit_price)} / SMS
+                {data.sms_uses_own_sender ? " · your sender ID" : " · SahilPay sender ID"}
+              </span>
+              <span className="font-medium text-white">{formatCurrency((Number(smsCount) || 0) * data.sms_unit_price)}</span>
+            </div>
+          )}
           <Input
             label="Payment reference"
             value={smsPaymentReference}

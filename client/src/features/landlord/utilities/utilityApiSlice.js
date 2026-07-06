@@ -31,6 +31,24 @@ export const utilityApiSlice = apiSlice.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/utilities/${id}/add-to-invoice`, method: "POST", body }),
       invalidatesTags: ["Utility", "Invoice"],
     }),
+
+    // #6 — landlord utility catalogue (deposit / balance / current_utility types).
+    getUtilityTypes: builder.query({
+      query: (params) => ({ url: "/utilities/types", params }),
+      providesTags: ["UtilityType"],
+    }),
+    createUtilityType: builder.mutation({
+      query: (body) => ({ url: "/utilities/types", method: "POST", body }),
+      invalidatesTags: ["UtilityType"],
+    }),
+    updateUtilityType: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/utilities/types/${id}`, method: "PUT", body }),
+      invalidatesTags: ["UtilityType"],
+    }),
+    deleteUtilityType: builder.mutation({
+      query: (id) => ({ url: `/utilities/types/${id}`, method: "DELETE" }),
+      invalidatesTags: ["UtilityType"],
+    }),
   }),
 });
 
@@ -42,4 +60,8 @@ export const {
   useBulkUploadUtilitiesMutation,
   useGenerateUtilityInvoicesMutation,
   useAddReadingToInvoiceMutation,
+  useGetUtilityTypesQuery,
+  useCreateUtilityTypeMutation,
+  useUpdateUtilityTypeMutation,
+  useDeleteUtilityTypeMutation,
 } = utilityApiSlice;

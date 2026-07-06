@@ -11,11 +11,12 @@ export default function LandlordNavbar() {
   return (
     <div className="hidden items-center justify-end gap-4 px-4 pt-4 lg:flex">
       <Link
-        to={LANDLORD_ROUTES.settings.billing}
+        to={`/landlord/${LANDLORD_ROUTES.communications}?compose=sms`}
         className="glass flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/70 transition-colors hover:text-white"
       >
+        {/* #2 — sms_balance lives on the landlord profile, not the flat user record. */}
         <MessageCircle className="h-4 w-4 text-secondary" />
-        {user?.sms_balance ?? 0} SMS left
+        {user?.profile?.sms_balance ?? 0} SMS left
       </Link>
       <NotificationBell notificationsPath={LANDLORD_ROUTES.notifications} />
       <div className="glass flex items-center gap-2 rounded-xl px-3 py-2">

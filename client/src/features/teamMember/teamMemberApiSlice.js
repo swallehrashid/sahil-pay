@@ -21,7 +21,14 @@ export const teamMemberApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/team-member/me/profile", method: "PUT", body }),
       invalidatesTags: ["TeamMember", "Me"],
     }),
+    // Records a "meaningful view" (page open / record detail) on the landlord's
+    // audit trail. Fire-and-forget: a failure must never break navigation, so
+    // callers ignore the result. The backend no-ops for non-team-members and
+    // dedupes near-duplicate entries.
+    logView: builder.mutation({
+      query: (body) => ({ url: "/audit/view", method: "POST", body }),
+    }),
   }),
 });
 
-export const { useGetMyPermissionsQuery, useGetMyPropertyAccessQuery, useGetMyProfileQuery, useUpdateMyProfileMutation } = teamMemberApiSlice;
+export const { useGetMyPermissionsQuery, useGetMyPropertyAccessQuery, useGetMyProfileQuery, useUpdateMyProfileMutation, useLogViewMutation } = teamMemberApiSlice;

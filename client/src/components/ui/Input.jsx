@@ -19,6 +19,8 @@ const Input = forwardRef(function Input(
         <input
           ref={ref}
           id={inputId}
+          // #9 — number fields must never change on mouse-wheel scroll: blur on wheel.
+          onWheel={props.type === "number" ? (e) => e.currentTarget.blur() : props.onWheel}
           className={clsx(
             "glass-input w-full",
             leftIcon && "pl-10",

@@ -9,6 +9,7 @@ import LandlordNavbar from "@/features/landlord/components/LandlordNavbar";
 import LandlordSidebar from "@/features/landlord/components/LandlordSidebar";
 import TeamMemberNavbar from "@/features/teamMember/components/TeamMemberNavbar";
 import TeamMemberSidebar from "@/features/teamMember/components/TeamMemberSidebar";
+import TeamMemberViewLogger from "@/features/teamMember/TeamMemberViewLogger";
 import AdminNavbar from "@/features/admin/components/AdminNavbar";
 import AdminSidebar from "@/features/admin/components/AdminSidebar";
 import AdminImpersonationBanner from "@/features/admin/components/AdminImpersonationBanner";
@@ -53,6 +54,7 @@ const PropertyGroupsPage = lazy(() => import("@/features/landlord/groups/Propert
 const StatementsPage = lazy(() => import("@/features/landlord/reports/StatementsPage"));
 const InsightsPage = lazy(() => import("@/features/landlord/reports/InsightsPage"));
 const CommunicationsPage = lazy(() => import("@/features/landlord/communications/CommunicationsPage"));
+const TenantMessagesInbox = lazy(() => import("@/features/landlord/messages/TenantMessagesInbox"));
 
 // ---- Notifications (shared across all four portals) ----
 const NotificationsPage = lazy(() => import("@/features/notifications/NotificationsPage"));
@@ -68,6 +70,7 @@ const AccountSettings = lazy(() => import("@/features/landlord/settings/AccountS
 const DocumentTemplates = lazy(() => import("@/features/landlord/settings/DocumentTemplates"));
 const TeamManagement = lazy(() => import("@/features/landlord/settings/TeamManagement"));
 const BillingSettings = lazy(() => import("@/features/landlord/settings/BillingSettings"));
+const SmsProviderSettings = lazy(() => import("@/features/landlord/settings/SmsProviderSettings"));
 const MpesaStatus = lazy(() => import("@/features/landlord/settings/MpesaStatus"));
 const AuditTrail = lazy(() => import("@/features/landlord/settings/AuditTrail"));
 const ImpersonationRequests = lazy(() => import("@/features/landlord/settings/ImpersonationRequests"));
@@ -81,13 +84,24 @@ const TenantDashboard = lazy(() => import("@/features/tenant/TenantDashboard"));
 const TenantPayments = lazy(() => import("@/features/tenant/TenantPayments"));
 const TenantStatement = lazy(() => import("@/features/tenant/TenantStatement"));
 const TenantMaintenance = lazy(() => import("@/features/tenant/TenantMaintenance"));
+const TenantMessages = lazy(() => import("@/features/tenant/TenantMessages"));
 const TenantProfile = lazy(() => import("@/features/tenant/TenantProfile"));
 
 // ---- Admin ----
 const AdminDashboard = lazy(() => import("@/features/admin/AdminDashboard"));
 const LandlordsManagement = lazy(() => import("@/features/admin/LandlordsManagement"));
 const LandlordDetail = lazy(() => import("@/features/admin/LandlordDetail"));
+const AdminUnits = lazy(() => import("@/features/admin/AdminUnits"));
+const UnitDetail = lazy(() => import("@/features/admin/UnitDetail"));
+const AdminTenants = lazy(() => import("@/features/admin/AdminTenants"));
+const TenantDetail = lazy(() => import("@/features/admin/TenantDetail"));
+const AdminTeamMembers = lazy(() => import("@/features/admin/AdminTeamMembers"));
+const TeamMemberDetail = lazy(() => import("@/features/admin/TeamMemberDetail"));
+const AdminProperties = lazy(() => import("@/features/admin/AdminProperties"));
+const PropertyDetail = lazy(() => import("@/features/admin/PropertyDetail"));
 const PricingPackages = lazy(() => import("@/features/admin/PricingPackages"));
+const PackageDetail = lazy(() => import("@/features/admin/PackageDetail"));
+const SmsManagement = lazy(() => import("@/features/admin/SmsManagement"));
 const TrialConfig = lazy(() => import("@/features/admin/TrialConfig"));
 const Impersonation = lazy(() => import("@/features/admin/Impersonation"));
 const MasterAuditLogs = lazy(() => import("@/features/admin/MasterAuditLogs"));
@@ -120,10 +134,10 @@ function LandlordLayout() {
   return (
     <div className="app-bg flex min-h-screen">
       <LandlordSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-64">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
         <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
         <LandlordNavbar />
-        <main className="flex-1 p-4 md:p-8">
+        <main className="min-w-0 flex-1 p-4 md:p-8">
           <AdminImpersonationBanner />
           <Outlet />
         </main>
@@ -136,11 +150,12 @@ function TeamMemberLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   return (
     <div className="app-bg flex min-h-screen">
+      <TeamMemberViewLogger />
       <TeamMemberSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-64">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
         <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
         <TeamMemberNavbar />
-        <main className="flex-1 p-4 md:p-8">
+        <main className="min-w-0 flex-1 p-4 md:p-8">
           <Outlet />
         </main>
       </div>
@@ -153,10 +168,10 @@ function AdminLayout() {
   return (
     <div className="app-bg flex min-h-screen">
       <AdminSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
-      <div className="flex min-h-screen flex-1 flex-col lg:pl-64">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
         <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
         <AdminNavbar />
-        <main className="flex-1 p-4 md:p-8">
+        <main className="min-w-0 flex-1 p-4 md:p-8">
           <Outlet />
         </main>
       </div>
@@ -226,6 +241,7 @@ export default function AppRoutes() {
             <Route path="reports/statements" element={withSuspense(StatementsPage)} />
             <Route path="reports/insights" element={withSuspense(InsightsPage)} />
             <Route path="communications" element={withSuspense(CommunicationsPage)} />
+            <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
             <Route path="notifications/send" element={withSuspense(SendNotificationLandlord)} />
 
@@ -238,6 +254,7 @@ export default function AppRoutes() {
               <Route path="documents" element={withSuspense(DocumentTemplates)} />
               <Route path="team" element={withSuspense(TeamManagement)} />
               <Route path="billing" element={withSuspense(BillingSettings)} />
+              <Route path="sms-provider" element={withSuspense(SmsProviderSettings)} />
               <Route path="mpesa" element={withSuspense(MpesaStatus)} />
               <Route path="audit" element={withSuspense(AuditTrail)} />
               <Route path="impersonation-requests" element={withSuspense(ImpersonationRequests)} />
@@ -270,16 +287,25 @@ export default function AppRoutes() {
               <Route path="payments" element={withSuspense(PaymentsPage)} />
               <Route path="payments/bank-statement/:id" element={withSuspense(BankStatementReview)} />
             </Route>
-            <Route path="expenses" element={withSuspense(ExpensesPage)} />
+            <Route element={<ProtectedRoutes requiredPermission={{ module: "expenses", level: "view" }} />}>
+              <Route path="expenses" element={withSuspense(ExpensesPage)} />
+            </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "utilities", level: "view" }} />}>
               <Route path="utilities" element={withSuspense(UtilitiesPage)} />
             </Route>
-            <Route path="maintenance" element={withSuspense(MaintenancePage)} />
-            <Route path="groups" element={withSuspense(PropertyGroupsPage)} />
-            <Route path="reports/statements" element={withSuspense(StatementsPage)} />
-            <Route path="reports/insights" element={withSuspense(InsightsPage)} />
+            <Route element={<ProtectedRoutes requiredPermission={{ module: "maintenance", level: "view" }} />}>
+              <Route path="maintenance" element={withSuspense(MaintenancePage)} />
+            </Route>
+            <Route element={<ProtectedRoutes requiredPermission={{ module: "groups", level: "view" }} />}>
+              <Route path="groups" element={withSuspense(PropertyGroupsPage)} />
+            </Route>
+            <Route element={<ProtectedRoutes requiredPermission={{ module: "reports", level: "view" }} />}>
+              <Route path="reports/statements" element={withSuspense(StatementsPage)} />
+              <Route path="reports/insights" element={withSuspense(InsightsPage)} />
+            </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "messages", level: "view" }} />}>
               <Route path="communications" element={withSuspense(CommunicationsPage)} />
+              <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
             </Route>
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
           </Route>
@@ -293,6 +319,7 @@ export default function AppRoutes() {
             <Route path="pay" element={withSuspense(TenantPayments)} />
             <Route path="statement" element={withSuspense(TenantStatement)} />
             <Route path="maintenance" element={withSuspense(TenantMaintenance)} />
+            <Route path="messages" element={withSuspense(TenantMessages)} />
             <Route path="profile" element={withSuspense(TenantProfile)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
           </Route>
@@ -305,7 +332,17 @@ export default function AppRoutes() {
             <Route path="dashboard" element={withSuspense(AdminDashboard)} />
             <Route path="landlords" element={withSuspense(LandlordsManagement)} />
             <Route path="landlords/:id" element={withSuspense(LandlordDetail)} />
+            <Route path="units" element={withSuspense(AdminUnits)} />
+            <Route path="units/:id" element={withSuspense(UnitDetail)} />
+            <Route path="tenants" element={withSuspense(AdminTenants)} />
+            <Route path="tenants/:id" element={withSuspense(TenantDetail)} />
+            <Route path="team-members" element={withSuspense(AdminTeamMembers)} />
+            <Route path="team-members/:id" element={withSuspense(TeamMemberDetail)} />
+            <Route path="properties" element={withSuspense(AdminProperties)} />
+            <Route path="properties/:id" element={withSuspense(PropertyDetail)} />
             <Route path="pricing" element={withSuspense(PricingPackages)} />
+            <Route path="pricing/:id" element={withSuspense(PackageDetail)} />
+            <Route path="sms" element={withSuspense(SmsManagement)} />
             <Route path="trials" element={withSuspense(TrialConfig)} />
             <Route path="impersonation" element={withSuspense(Impersonation)} />
             <Route path="audit" element={withSuspense(MasterAuditLogs)} />

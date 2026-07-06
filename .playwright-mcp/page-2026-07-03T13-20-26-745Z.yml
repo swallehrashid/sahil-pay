@@ -1,0 +1,28 @@
+- generic [ref=f1e522]:
+  - link "SahilPay" [ref=f1e523] [cursor=pointer]:
+    - /url: /
+  - heading "Finish setting up your account" [level=1] [ref=f1e524]
+  - paragraph [ref=f1e525]: For your security, replace the temporary password you logged in with before continuing.
+  - generic [ref=f1e526]:
+    - generic [ref=f1e527]:
+      - paragraph [ref=f1e528]: Step 1 · Choose your password
+      - paragraph [ref=f1e529]: You signed in with a one-time password sent to your email. Set a private password now — you'll use it for every future login. This is the only step before your dashboard opens.
+    - generic [ref=f1e530]:
+      - generic [ref=f1e531]:
+        - generic [ref=f1e532]: Current (temporary) password *
+        - generic [ref=f1e533]:
+          - img [ref=f1e535]
+          - textbox [ref=f1e538]
+      - generic [ref=f1e539]:
+        - generic [ref=f1e540]: New password *
+        - generic [ref=f1e541]:
+          - img [ref=f1e543]
+          - textbox [ref=f1e546]
+        - paragraph [ref=f1e547]: At least 8 characters
+      - generic [ref=f1e548]:
+        - generic [ref=f1e549]: Confirm new password *
+        - generic [ref=f1e550]:
+          - img [ref=f1e552]
+          - textbox [ref=f1e555]
+      - button "Save new password" [ref=f1e556]:
+        - generic [ref=f1e557]: Save new password

@@ -11,6 +11,7 @@ const SECTIONS = [
   { to: LANDLORD_ROUTES.settings.documents, label: "Documents" },
   { to: LANDLORD_ROUTES.settings.team, label: "Team" },
   { to: LANDLORD_ROUTES.settings.billing, label: "Billing" },
+  { to: LANDLORD_ROUTES.settings.smsProvider, label: "SMS Provider" },
   { to: LANDLORD_ROUTES.settings.mpesa, label: "M-Pesa" },
   { to: LANDLORD_ROUTES.settings.audit, label: "Audit Trail" },
   { to: LANDLORD_ROUTES.settings.impersonationRequests, label: "Impersonation" },

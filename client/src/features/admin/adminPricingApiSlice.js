@@ -7,6 +7,10 @@ export const adminPricingApiSlice = apiSlice.injectEndpoints({
       query: () => "/admin/pricing/packages",
       providesTags: ["Package"],
     }),
+    getPackageAnalytics: builder.query({
+      query: ({ id, ...params }) => ({ url: `/admin/pricing/packages/${id}/analytics`, params }),
+      providesTags: (result, error, arg) => [{ type: "Package", id: arg?.id }],
+    }),
     createPackage: builder.mutation({
       query: (body) => ({ url: "/admin/pricing/packages", method: "POST", body }),
       invalidatesTags: ["Package"],
@@ -23,13 +27,31 @@ export const adminPricingApiSlice = apiSlice.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/admin/pricing/landlords/${id}/per-unit-price`, method: "PUT", body }),
       invalidatesTags: ["AdminLandlord"],
     }),
+    // #16 — landlord billing detail + admin overrides
+    getLandlordBilling: builder.query({
+      query: (id) => `/admin/pricing/landlords/${id}/billing`,
+      providesTags: (r, e, id) => [{ type: "AdminLandlord", id }],
+    }),
+    updateLandlordBilling: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/admin/pricing/landlords/${id}/billing`, method: "PUT", body }),
+      invalidatesTags: (r, e, arg) => [{ type: "AdminLandlord", id: arg?.id }, "AdminLandlord", "Package"],
+    }),
+    // #17 — add a landlord to the Custom package at a negotiated per-unit price
+    addLandlordToCustom: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/admin/pricing/landlords/${id}/custom`, method: "POST", body }),
+      invalidatesTags: (r, e, arg) => [{ type: "AdminLandlord", id: arg?.id }, "AdminLandlord", "Package"],
+    }),
   }),
 });
 
 export const {
   useGetPackagesQuery,
+  useGetPackageAnalyticsQuery,
   useCreatePackageMutation,
   useUpdatePackageMutation,
   useDeletePackageMutation,
   useUpdateLandlordPerUnitPriceMutation,
+  useGetLandlordBillingQuery,
+  useUpdateLandlordBillingMutation,
+  useAddLandlordToCustomMutation,
 } = adminPricingApiSlice;

@@ -14,7 +14,10 @@ from flask import Blueprint, request, jsonify, abort, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
-from models import UtilityReading, Unit, Property, Tenant, UtilityItem
+from models import (
+    UtilityReading, Unit, Property, Tenant, UtilityItem,
+    LandlordUtilityType, UtilityCategory,
+)
 from decorators import (
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
@@ -22,6 +25,136 @@ from decorators import (
 from services.audit_service import record_audit
 
 utility_bp = Blueprint("utilities", __name__, url_prefix="/api/utilities")
+
+
+# ===========================================================================
+# #6 — Landlord utility catalogue (the utilities a landlord defines/manages).
+# ===========================================================================
+
+# Seeded for any landlord that has none yet, so the catalogue is never empty.
+_DEFAULT_UTILITY_TYPES = [
+    ("Water",         UtilityCategory.current_utility.value, True),
+    ("Electricity",   UtilityCategory.current_utility.value, True),
+    ("Garbage",       UtilityCategory.current_utility.value, False),
+    ("Security",      UtilityCategory.current_utility.value, False),
+    ("Rent deposit",   UtilityCategory.deposit.value, False),
+    ("Rental balance", UtilityCategory.balance.value, False),
+]
+
+
+def _ensure_utility_types(landlord_id: int):
+    """Lazily seed the default catalogue for a landlord that has none."""
+    exists = LandlordUtilityType.query.filter_by(landlord_id=landlord_id).first()
+    if exists:
+        return
+    for name, category, metered in _DEFAULT_UTILITY_TYPES:
+        db.session.add(LandlordUtilityType(
+            landlord_id=landlord_id, name=name, category=category, is_metered=metered,
+        ))
+    db.session.commit()
+
+
+@utility_bp.route("/types", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "view")
+def list_utility_types():
+    """List the landlord's utility catalogue. ?category=&include_inactive="""
+    landlord_id = get_current_landlord_id()
+    _ensure_utility_types(landlord_id)
+    query = LandlordUtilityType.query.filter_by(landlord_id=landlord_id)
+    if not request.args.get("include_inactive"):
+        query = query.filter_by(is_active=True)
+    if cat := request.args.get("category"):
+        query = query.filter_by(category=cat)
+    types = query.order_by(LandlordUtilityType.category, LandlordUtilityType.name).all()
+    return jsonify({"utility_types": [t.to_dict() for t in types]}), 200
+
+
+@utility_bp.route("/types", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def create_utility_type():
+    """Create a utility type. Body: { name, category, is_metered?, default_rate? }"""
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    category = data.get("category")
+    if not name or not category:
+        return jsonify({"error": "name and category are required."}), 400
+    if category not in [c.value for c in UtilityCategory]:
+        return jsonify({"error": f"category must be one of: {[c.value for c in UtilityCategory]}."}), 400
+    if LandlordUtilityType.query.filter_by(landlord_id=landlord_id, name=name).first():
+        return jsonify({"error": f"A utility named '{name}' already exists."}), 400
+
+    ut = LandlordUtilityType(
+        landlord_id=landlord_id, name=name, category=category,
+        is_metered=bool(data.get("is_metered")),
+        default_rate=data.get("default_rate") or None,
+    )
+    db.session.add(ut)
+    db.session.commit()
+    record_audit(
+        actor_user_id=int(get_jwt_identity()), landlord_id=landlord_id,
+        action="create_utility_type", entity_type="utility", entity_id=ut.id,
+        description=f"Utility type '{name}' ({category}) created.", after_data=ut.to_dict(),
+    )
+    db.session.commit()
+    return jsonify(ut.to_dict()), 201
+
+
+@utility_bp.route("/types/<int:type_id>", methods=["PUT"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def update_utility_type(type_id):
+    """Update a utility type. Body: any of { name, category, is_metered, default_rate, is_active }"""
+    landlord_id = get_current_landlord_id()
+    ut = LandlordUtilityType.query.filter_by(id=type_id, landlord_id=landlord_id).first()
+    if not ut:
+        abort(404, description="Utility type not found.")
+    data = request.get_json(silent=True) or {}
+    before = ut.to_dict()
+    if "name" in data and data["name"]:
+        ut.name = data["name"].strip()
+    if "category" in data and data["category"] in [c.value for c in UtilityCategory]:
+        ut.category = data["category"]
+    if "is_metered" in data:
+        ut.is_metered = bool(data["is_metered"])
+    if "default_rate" in data:
+        ut.default_rate = data["default_rate"] or None
+    if "is_active" in data:
+        ut.is_active = bool(data["is_active"])
+    db.session.commit()
+    record_audit(
+        actor_user_id=int(get_jwt_identity()), landlord_id=landlord_id,
+        action="update_utility_type", entity_type="utility", entity_id=ut.id,
+        description=f"Utility type '{ut.name}' updated.", before_data=before, after_data=ut.to_dict(),
+    )
+    db.session.commit()
+    return jsonify(ut.to_dict()), 200
+
+
+@utility_bp.route("/types/<int:type_id>", methods=["DELETE"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def delete_utility_type(type_id):
+    """Deactivate a utility type (soft — keeps historical readings/invoices intact)."""
+    landlord_id = get_current_landlord_id()
+    ut = LandlordUtilityType.query.filter_by(id=type_id, landlord_id=landlord_id).first()
+    if not ut:
+        abort(404, description="Utility type not found.")
+    ut.is_active = False
+    db.session.commit()
+    record_audit(
+        actor_user_id=int(get_jwt_identity()), landlord_id=landlord_id,
+        action="delete_utility_type", entity_type="utility", entity_id=ut.id,
+        description=f"Utility type '{ut.name}' deactivated.",
+    )
+    db.session.commit()
+    return jsonify({"message": "Utility type deactivated."}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -113,17 +246,31 @@ def create_reading():
     property_id      = data.get("property_id")
     unit_id          = data.get("unit_id")
     utility_item     = data.get("utility_item")
+    utility_type_id  = data.get("utility_type_id")
     current_reading  = data.get("current_reading")
     reading_month    = data.get("reading_month")
     previous_reading = data.get("previous_reading")
+    amount           = data.get("amount")
 
-    if not all([property_id, unit_id, utility_item, current_reading, reading_month]):
-        return jsonify({"error": "property_id, unit_id, utility_item, current_reading, and reading_month are required."}), 400
+    # #6 — resolve the catalogue type (preferred). utility_item name is derived from it.
+    utype = None
+    if utility_type_id:
+        utype = LandlordUtilityType.query.filter_by(id=utility_type_id, landlord_id=landlord_id).first()
+        if not utype:
+            return jsonify({"error": "utility_type_id not found for this landlord."}), 400
+        utility_item = utype.name
 
-    if utility_item not in [i.value for i in UtilityItem]:
-        return jsonify({"error": f"utility_item must be one of: {[i.value for i in UtilityItem]}."}), 400
+    if not all([property_id, unit_id, utility_item, reading_month]):
+        return jsonify({"error": "property_id, unit_id, utility (type), and reading_month are required."}), 400
 
-    if previous_reading is not None:
+    # #8 — readings are OPTIONAL. A metered utility supplies current/previous readings;
+    # a flat (non-metered) utility supplies a straight `amount` and no readings.
+    has_reading = current_reading not in (None, "")
+    has_amount  = amount not in (None, "")
+    if not has_reading and not has_amount:
+        return jsonify({"error": "Provide either a current_reading (metered) or an amount (flat charge)."}), 400
+
+    if has_reading and previous_reading is not None:
         if Decimal(str(current_reading)) < Decimal(str(previous_reading)):
             return jsonify({"error": "current_reading must be >= previous_reading."}), 400
 
@@ -135,7 +282,7 @@ def create_reading():
         return jsonify({"error": f"A {utility_item} reading already exists for this unit in {reading_month}."}), 400
 
     consumption = None
-    if previous_reading is not None:
+    if has_reading and previous_reading is not None:
         consumption = Decimal(str(current_reading)) - Decimal(str(previous_reading))
 
     reading = UtilityReading(
@@ -143,8 +290,10 @@ def create_reading():
         property_id      = property_id,
         unit_id          = unit_id,
         utility_item     = utility_item,
-        previous_reading = previous_reading,
-        current_reading  = current_reading,
+        utility_type_id  = utype.id if utype else None,
+        previous_reading = previous_reading if has_reading else None,
+        current_reading  = current_reading if has_reading else None,
+        amount           = Decimal(str(amount)) if has_amount else None,
         consumption      = consumption,
         reading_month    = reading_month,
     )
@@ -409,13 +558,19 @@ def add_reading_to_invoice(reading_id):
     # Resolve the amount to bill.
     if data.get("amount") not in (None, ""):
         amount = Decimal(str(data["amount"]))
+    elif reading.amount not in (None, ""):
+        # #8 — flat (non-metered) utility recorded with an explicit amount.
+        amount = Decimal(str(reading.amount))
     else:
-        if reading.utility_item == "water":
+        # Metered: consumption × rate. Prefer the catalogue default_rate, then the
+        # property's water/electricity rate.
+        rate = None
+        if reading.utility_type and reading.utility_type.default_rate is not None:
+            rate = reading.utility_type.default_rate
+        elif reading.utility_item == "water":
             rate = reading.property.water_rate if reading.property else None
         elif reading.utility_item == "electricity":
             rate = reading.property.electricity_rate if reading.property else None
-        else:
-            rate = None
         if rate is None:
             return jsonify({"error": f"No rate configured for {reading.utility_item}; pass an explicit amount."}), 400
         amount = Decimal(str(reading.consumption or 0)) * Decimal(str(rate))
@@ -459,8 +614,11 @@ def add_reading_to_invoice(reading_id):
             issue_dt = _date(year, month, 1)
         except (ValueError, AttributeError):
             pass
+        # #6 — a deposit-category utility bills as a deposit invoice so auto-allocation
+        # clears it in the deposits bucket; everything else stays a utility invoice.
+        inv_type = "deposit" if (reading.utility_type and reading.utility_type.category == "deposit") else "utility"
         invoice = _create_invoice(
-            landlord_id, tenant, reading.unit, reading.property, "utility", issue_dt, None,
+            landlord_id, tenant, reading.unit, reading.property, inv_type, issue_dt, None,
             [{
                 "item": reading.utility_item, "description": description,
                 "quantity": 1, "unit_price": amount, "utility_reading_id": reading.id,

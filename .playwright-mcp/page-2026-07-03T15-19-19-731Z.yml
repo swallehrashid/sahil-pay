@@ -1,0 +1,81 @@
+- generic [ref=f4e3]:
+  - banner [ref=f4e4]:
+    - generic [ref=f4e5]: SahilPay
+    - navigation [ref=f4e6]:
+      - link "Dashboard" [ref=f4e7] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f4e8]
+        - generic [ref=f4e13]: Dashboard
+      - link "Pay" [ref=f4e14] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f4e15]
+        - generic [ref=f4e18]: Pay
+      - link "Statement" [ref=f4e19] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f4e20]
+        - generic [ref=f4e23]: Statement
+      - link "Maintenance" [ref=f4e24] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f4e25]
+        - generic [ref=f4e27]: Maintenance
+      - link "Profile" [ref=f4e28] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f4e29]
+        - generic [ref=f4e32]: Profile
+    - generic [ref=f4e33]:
+      - button [ref=f4e35]:
+        - img [ref=f4e36]
+      - button [ref=f4e39]:
+        - img [ref=f4e40]
+  - main [ref=f4e43]:
+    - generic [ref=f4e44]:
+      - generic [ref=f4e45]:
+        - heading "Statement" [level=1] [ref=f4e46]
+        - button "Download" [ref=f4e47]:
+          - img [ref=f4e48]
+          - generic [ref=f4e51]: Download
+      - table [ref=f4e53]:
+        - rowgroup [ref=f4e54]:
+          - row "Date Item Due Paid Balance" [ref=f4e55]:
+            - columnheader "Date" [ref=f4e56]
+            - columnheader "Item" [ref=f4e57]
+            - columnheader "Due" [ref=f4e58]
+            - columnheader "Paid" [ref=f4e59]
+            - columnheader "Balance" [ref=f4e60]
+        - rowgroup [ref=f4e61]:
+          - row "01 May 2026 Rent & charges — May 2026 KES 30,100.00 KES 30,100.00 KES 30,100.00" [ref=f4e62]:
+            - cell "01 May 2026" [ref=f4e63]
+            - cell "Rent & charges — May 2026" [ref=f4e64]
+            - cell "KES 30,100.00" [ref=f4e65]
+            - cell "KES 30,100.00" [ref=f4e66]
+            - cell "KES 30,100.00" [ref=f4e67]
+          - row "01 May 2026 Payment via mpesa — KES 30,100.00 KES 0.00" [ref=f4e68]:
+            - cell "01 May 2026" [ref=f4e69]
+            - cell "Payment via mpesa" [ref=f4e70]
+            - cell "—" [ref=f4e71]
+            - cell "KES 30,100.00" [ref=f4e72]
+            - cell "KES 0.00" [ref=f4e73]
+          - row "01 Jun 2026 Rent & charges — June 2026 KES 29,950.00 KES 29,950.00 KES 29,950.00" [ref=f4e74]:
+            - cell "01 Jun 2026" [ref=f4e75]
+            - cell "Rent & charges — June 2026" [ref=f4e76]
+            - cell "KES 29,950.00" [ref=f4e77]
+            - cell "KES 29,950.00" [ref=f4e78]
+            - cell "KES 29,950.00" [ref=f4e79]
+          - row "01 Jun 2026 Payment via mpesa — KES 29,950.00 KES 0.00" [ref=f4e80]:
+            - cell "01 Jun 2026" [ref=f4e81]
+            - cell "Payment via mpesa" [ref=f4e82]
+            - cell "—" [ref=f4e83]
+            - cell "KES 29,950.00" [ref=f4e84]
+            - cell "KES 0.00" [ref=f4e85]
+          - row "01 Jul 2026 Rent & charges — July 2026 KES 29,800.00 KES 29,800.00 KES 29,800.00" [ref=f4e86]:
+            - cell "01 Jul 2026" [ref=f4e87]
+            - cell "Rent & charges — July 2026" [ref=f4e88]
+            - cell "KES 29,800.00" [ref=f4e89]
+            - cell "KES 29,800.00" [ref=f4e90]
+            - cell "KES 29,800.00" [ref=f4e91]
+          - row "01 Jul 2026 Payment via mpesa — KES 29,800.00 KES 0.00" [ref=f4e92]:
+            - cell "01 Jul 2026" [ref=f4e93]
+            - cell "Payment via mpesa" [ref=f4e94]
+            - cell "—" [ref=f4e95]
+            - cell "KES 29,800.00" [ref=f4e96]
+            - cell "KES 0.00" [ref=f4e97]

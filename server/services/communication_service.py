@@ -33,10 +33,10 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     from flask import current_app
 
     from extensions import db
-    from models import CommunicationLog, Landlord
+    from models import CommunicationLog, Landlord, SmsPricingConfig
     from services.email_service import _send_email
     from services.sms_service import send_sms
-    from services.sms_billing import resolve_sender, compute_sms_charge
+    from services.sms_billing import price_sms, load_rates
     from utils import decrement_sms_balance
 
     simulate = current_app.config.get("COMMS_SIMULATION_MODE", True)
@@ -45,26 +45,53 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
 
     status = "failed"
     sms_charge = Decimal("0.00")
+    platform_cost = Decimal("0.00")
+    sms_segments = None
+    uses_own = False
     sender_id = None
     at_username = None
     at_api_key = None
+    blocked = None   # reason string when a shared send can't proceed
 
     if channel == "sms":
-        # §9.3 reselling charge model: own connected sender ID → flat rate;
-        # SahilPay's shared sender ID → billed by message length.
+        # §9.3 reselling charge model: own connected sender ID (custom) → custom
+        # price; SahilPay's shared sender ID (default) → default price by length,
+        # delivered out of the shared pool.
         landlord = db.session.get(Landlord, landlord_id)
         settings = landlord.landlord_settings if landlord else None
-        sender_id, uses_own = resolve_sender(settings)
-        sms_charge = compute_sms_charge(content, uses_own)
+        rates = load_rates()
+        econ = price_sms(content, settings, rates)
+        sender_id    = econ["sender_id"]
+        uses_own     = econ["uses_own_sender_id"]
+        sms_segments = econ["segments"]
         if uses_own and settings is not None:
             at_username = settings.at_username
             at_api_key = settings.at_api_key
-        if landlord is not None:
-            # Decrement one balance credit per segment charged (charge is KES,
-            # balance is credit count; they map 1:1 at the current rate).
-            decrement_sms_balance(landlord, int(sms_charge))
 
-    if channel not in ("sms", "email", "whatsapp"):
+        cfg = None
+        if not uses_own:
+            # Shared (default) sends are gated by the master toggle and the
+            # shared pool balance; custom sends never touch the pool.
+            cfg = SmsPricingConfig.get_singleton()
+            if not rates["shared_enabled"]:
+                blocked = "Shared-sender sending is disabled by the administrator."
+            elif cfg.pool_balance < sms_segments:
+                blocked = "SahilPay shared SMS pool is exhausted."
+
+        if not blocked:
+            sms_charge    = econ["charge"]
+            platform_cost = econ["platform_cost"]
+            if landlord is not None:
+                # Decrement one balance credit per segment (balance is a credit
+                # count; the resale price only affects KES billed at purchase).
+                decrement_sms_balance(landlord, sms_segments)
+            if not uses_own and cfg is not None:
+                cfg.pool_balance = max(0, cfg.pool_balance - sms_segments)
+
+    if channel == "sms" and blocked:
+        logger.warning("dispatch_message: SMS to tenant %s blocked — %s", tenant.id, blocked)
+        status = "failed"
+    elif channel not in ("sms", "email", "whatsapp"):
         logger.warning("dispatch_message: unknown channel '%s'", channel)
         status = "failed"
     elif simulate:
@@ -95,6 +122,9 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         unit_id=tenant.unit_id,
         content=content,
         sms_charge=sms_charge,
+        sms_segments=sms_segments,
+        uses_own_sender=uses_own,
+        platform_cost=platform_cost,
         status=status,
         sent_at=datetime.utcnow(),
     )

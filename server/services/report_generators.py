@@ -14,7 +14,7 @@ Money/ledger convention (matches the rest of the platform):
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from services.report_builder import (
@@ -110,33 +110,55 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
 
     start, end = parse_date(start_date), parse_date(end_date)
 
-    # One entry per invoice line item (charge) and one per payment, chronological.
-    entries: list[tuple] = []  # (date, item, description, due, paid)
-    invoices = Invoice.query.filter_by(tenant_id=tenant_id).all()
+    # #13 — a single chronological ledger: every invoice (charge) and every confirmed
+    # payment (credit) as one dated event, ordered by (effective date, created_at, id)
+    # so same-day events keep the true order they were recorded in. The running balance
+    # is recomputed after each event, in the #10 sign convention (owed = positive,
+    # advance/credit = negative).
+    invoices = Invoice.query.filter_by(tenant_id=tenant_id).filter_by(is_deleted=False).all()
+    payments = [p for p in Payment.query.filter_by(tenant_id=tenant_id).all()
+                if not p.is_deleted and (p.status or "") == "confirmed"]
+
+    # sort key uses created_at (falls back to a huge sentinel so undated sorts last)
+    def _key(d, created, oid):
+        return (d or date.max, created or datetime.max, oid or 0)
+
+    # (sortkey, date, item, description, due, paid)
+    events: list[tuple] = []
     for inv in invoices:
-        if not _in_range(inv.issue_date, start, end):
-            continue
         line_items = inv.line_items or []
         if line_items:
             for li in line_items:
-                entries.append((inv.issue_date, li.item, li.description or f"Invoice {inv.invoice_number}", li.amount or ZERO, ZERO))
+                events.append((_key(inv.issue_date, inv.created_at, inv.id), inv.issue_date, li.item,
+                               li.description or f"Invoice {inv.invoice_number}", li.amount or ZERO, ZERO))
         else:
-            entries.append((inv.issue_date, inv.title or f"Invoice {inv.invoice_number}", inv.invoice_type or "", inv.total_amount or ZERO, ZERO))
-
-    for pay in Payment.query.filter_by(tenant_id=tenant_id).all():
-        if not _in_range(pay.payment_date, start, end):
-            continue
+            events.append((_key(inv.issue_date, inv.created_at, inv.id), inv.issue_date,
+                           inv.title or f"Invoice {inv.invoice_number}", inv.invoice_type or "",
+                           inv.total_amount or ZERO, ZERO))
+    for pay in payments:
         desc = pay.payment_method or pay.source or "Payment"
-        entries.append((pay.payment_date, f"Payment {pay.payment_ref}", desc, ZERO, pay.amount or ZERO))
+        events.append((_key(pay.payment_date, pay.created_at, pay.id), pay.payment_date,
+                       f"Payment {pay.payment_ref}", desc, ZERO, pay.amount or ZERO))
 
-    entries.sort(key=lambda e: e[0] or date.min)
+    events.sort(key=lambda e: e[0])
+
+    # Opening balance (owed-positive) = charges − payments strictly BEFORE the window.
+    opening = ZERO
+    for _k, d, _i, _desc, due, paid in events:
+        if start is not None and (d is None or d < start):
+            opening += (due or ZERO) - (paid or ZERO)
 
     rows = []
-    running = ZERO
+    running = opening
     total_due = ZERO
     total_paid = ZERO
-    for d, item, desc, due, paid in entries:
-        running += (paid or ZERO) - (due or ZERO)
+    if opening != ZERO and start is not None:
+        rows.append({"date": start, "item": "Opening balance", "description": "Brought forward",
+                     "due": ZERO, "paid": ZERO, "running_balance": running})
+    for _k, d, item, desc, due, paid in events:
+        if not _in_range(d, start, end):
+            continue
+        running += (due or ZERO) - (paid or ZERO)  # owed increases with charges, drops with payments
         total_due += due or ZERO
         total_paid += paid or ZERO
         rows.append(
@@ -174,7 +196,9 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
         subject=f"{tenant.first_name} {tenant.last_name} — Unit {unit_name}  ·  {tenant.phone}",
         property_name=prop_name,
         period=_period_label(start_date, end_date),
-        extra={"closing_balance": float(tenant.balance or 0)},
+        # #10 — closing balance shown owed-positive (advance negative), matching the
+        # running-balance column. Internal tenant.balance is the opposite sign.
+        extra={"closing_balance": float(-(tenant.balance or 0))},
     )
     return ReportDocument("tenant_statement", "Tenant Statement", meta, [section])
 
@@ -238,8 +262,14 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         # charges by category (in period)
         cats = {k: ZERO for k in ("rent", "water", "garbage", "service_charge", "security",
                                   "penalties", "deposit", "electricity", "other")}
-        amount_due = ZERO
-        for inv in t.invoices:
+        # #14 — accuracy: only non-deleted invoices and only CONFIRMED payments count
+        # towards the ledger figures (pending/declined submissions must not inflate them).
+        live_invoices = [inv for inv in t.invoices if not inv.is_deleted]
+        confirmed_payments = [p for p in t.payments
+                              if not p.is_deleted and (p.status or "") == "confirmed"]
+
+        amount_due = ZERO          # total invoiced in period
+        for inv in live_invoices:
             if not _in_range(inv.issue_date, start, end):
                 continue
             for li in (inv.line_items or []):
@@ -248,9 +278,9 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
                 cats["rent"] += inv.total_amount or ZERO
             amount_due += inv.total_amount or ZERO
 
-        # payments (in period)
+        # payments (in period, confirmed only)
         amount_paid = ZERO
-        for pay in t.payments:
+        for pay in confirmed_payments:
             if _in_range(pay.payment_date, start, end):
                 amount_paid += pay.amount or ZERO
         total_collected += amount_paid
@@ -258,10 +288,10 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         # balance carried forward = net ledger movement BEFORE the period start
         balance_cf = ZERO
         if start:
-            for inv in t.invoices:
+            for inv in live_invoices:
                 if inv.issue_date and inv.issue_date < start:
                     balance_cf -= inv.total_amount or ZERO
-            for pay in t.payments:
+            for pay in confirmed_payments:
                 if pay.payment_date and pay.payment_date < start:
                     balance_cf += pay.amount or ZERO
 
@@ -269,15 +299,17 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         rent_charged = cats["rent"]
         tax_deducted = (rent_charged * tax_rate / Decimal(100)).quantize(Decimal("0.01"))
         other_bills = cats["other"] + cats["electricity"]
-        balance = t.balance or ZERO
-        status = "In arrears" if balance < 0 else ("Advance/Credit" if balance > 0 else "Settled")
+        # #10 — internal ledger: negative = owed. Display balance owed-positive.
+        internal_balance = t.balance or ZERO
+        balance = -internal_balance  # owed shows positive, advance shows negative
+        status = "In arrears" if internal_balance < 0 else ("Advance/Credit" if internal_balance > 0 else "Settled")
 
         row = {
             "house_no": unit.name if unit else "—",
             "name": f"{t.first_name} {t.last_name}",
             "phone": t.phone,
             "balance_cf": balance_cf,
-            "advance": balance if balance > 0 else ZERO,
+            "advance": internal_balance if internal_balance > 0 else ZERO,
             "rent": cats["rent"],
             "water": cats["water"],
             "penalties": cats["penalties"],

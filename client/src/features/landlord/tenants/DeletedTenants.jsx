@@ -4,7 +4,7 @@ import PageHeader from "@/components/layout/PageHeader";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Button from "@/components/ui/Button";
 import { useGetDeletedTenantsQuery } from "./tenantApiSlice";
-import { formatCurrency } from "@/utils/currencyFormatter";
+import { formatBalance } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
@@ -18,7 +18,7 @@ export default function DeletedTenants() {
     { key: "name", header: "Tenant", render: (row) => `${row.first_name} ${row.last_name}` },
     { key: "property", header: "Property", render: (row) => row.property_name },
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
-    { key: "balance", header: "Balance at deletion", render: (row) => formatCurrency(row.balance) },
+    { key: "balance", header: "Balance at deletion", render: (row) => formatBalance(row.balance) },
     { key: "deleted_at", header: "Deleted on", render: (row) => formatDate(row.deleted_at) },
   ];
 

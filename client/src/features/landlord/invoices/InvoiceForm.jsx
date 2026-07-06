@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
 import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
-import { INVOICE_TYPES, INVOICE_LINE_ITEMS } from "@/utils/constants";
+import { INVOICE_TYPES, INVOICE_LINE_ITEMS, INVOICE_STATUSES } from "@/utils/constants";
 import { isRequired } from "@/utils/validators";
 import { formatCurrency } from "@/utils/currencyFormatter";
+import { useGetUtilityTypesQuery } from "../utilities/utilityApiSlice";
 
 // A line is now { item (dropdown), custom_item (only when item==="other"), amount, description }.
 // We no longer expose quantity/unit_price in the UI — each line is a single named charge
@@ -35,6 +36,16 @@ export default function InvoiceForm({ initialValues, tenants = [], onSubmit, onC
       : [{ ...EMPTY_LINE }]
   );
   const [errors, setErrors] = useState({});
+  const isEditing = Boolean(initialValues?.id);
+
+  // Backbone — the charge dropdown includes the landlord's own utility catalogue so
+  // invoices are raised per landlord-defined utility, not just the fixed defaults.
+  const { data: typesData } = useGetUtilityTypesQuery();
+  const lineItemOptions = useMemo(() => {
+    const names = new Set(INVOICE_LINE_ITEMS.filter((i) => i !== "other"));
+    (typesData?.utility_types ?? []).forEach((t) => names.add(t.name));
+    return [...names, "other"].map((i) => ({ value: i, label: i.charAt(0).toUpperCase() + i.slice(1) }));
+  }, [typesData]);
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
   const updateLine = (index, key, value) =>
@@ -85,6 +96,18 @@ export default function InvoiceForm({ initialValues, tenants = [], onSubmit, onC
       </div>
       <Input label="Title" value={form.title} onChange={update("title")} hint="Optional — shown on the invoice header" />
 
+      {/* #7 — a fully-paid invoice auto-confirms; the landlord can also override the
+          status here (e.g. mark it Confirmed/void) when editing. */}
+      {isEditing && (
+        <Select
+          label="Status"
+          value={form.status || "open"}
+          onChange={update("status")}
+          options={INVOICE_STATUSES.map((s) => ({ value: s, label: s === "paid" ? "Confirmed" : s.charAt(0).toUpperCase() + s.slice(1) }))}
+          hint="Auto-set to Confirmed when fully paid — override only if needed."
+        />
+      )}
+
       <div className="border-t border-white/10 pt-4">
         <div className="mb-2 flex items-center justify-between">
           <p className="text-xs font-medium uppercase tracking-wide text-white/40">Charges</p>
@@ -101,7 +124,7 @@ export default function InvoiceForm({ initialValues, tenants = [], onSubmit, onC
                   <Select
                     value={line.item}
                     onChange={(e) => updateLine(index, "item", e.target.value)}
-                    options={INVOICE_LINE_ITEMS.map((i) => ({ value: i, label: i.charAt(0).toUpperCase() + i.slice(1) }))}
+                    options={lineItemOptions}
                   />
                 </div>
                 <div className="col-span-5">

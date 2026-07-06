@@ -19,6 +19,16 @@ export const communicationApiSlice = apiSlice.injectEndpoints({
       query: () => "/communications/templates",
       providesTags: ["MessageTemplate"],
     }),
+    getMessageVariables: builder.query({
+      query: () => "/communications/variables",
+    }),
+    getDefaultTemplates: builder.query({
+      query: () => "/communications/default-templates",
+    }),
+    installDefaultTemplates: builder.mutation({
+      query: () => ({ url: "/communications/templates/install-defaults", method: "POST" }),
+      invalidatesTags: ["MessageTemplate"],
+    }),
     createMessageTemplate: builder.mutation({
       query: (body) => ({ url: "/communications/templates", method: "POST", body }),
       invalidatesTags: ["MessageTemplate"],
@@ -39,6 +49,9 @@ export const {
   useSendCommunicationMutation,
   useResendCommunicationMutation,
   useGetMessageTemplatesQuery,
+  useGetMessageVariablesQuery,
+  useGetDefaultTemplatesQuery,
+  useInstallDefaultTemplatesMutation,
   useCreateMessageTemplateMutation,
   useUpdateMessageTemplateMutation,
   useDeleteMessageTemplateMutation,

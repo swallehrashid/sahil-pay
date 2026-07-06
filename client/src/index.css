@@ -220,3 +220,41 @@
 .no-scrollbar {
   scrollbar-width: none;
 }
+
+/*
+  #9 — Kill native number-input spinners everywhere. Users type figures manually;
+  no up/down affordance and (paired with Input.jsx onWheel-blur) no wheel nudge.
+*/
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/*
+  #1 — Dense-table scroll container. Horizontal scrollbar is ALWAYS rendered
+  (overflow-x: scroll, not auto) so the bar is present even when the table fits;
+  it simply won't move if there's nothing to scroll. min-w-0 on ancestors lets
+  this box actually shrink so the page body never scrolls sideways.
+*/
+.table-scroll {
+  overflow-x: scroll;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+.table-scroll::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+.table-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 9999px;
+}
+.table-scroll::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+}

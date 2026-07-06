@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from "react-router-dom";
-import { LayoutDashboard, Wallet, FileText, Wrench, User, LogOut } from "lucide-react";
+import { LayoutDashboard, Wallet, FileText, Wrench, MessageSquare, User, LogOut } from "lucide-react";
 import clsx from "clsx";
 import { TENANT_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
@@ -10,6 +10,7 @@ const LINKS = [
   { to: TENANT_ROUTES.pay, label: "Pay", icon: Wallet },
   { to: TENANT_ROUTES.statement, label: "Statement", icon: FileText },
   { to: TENANT_ROUTES.maintenance, label: "Maintenance", icon: Wrench },
+  { to: TENANT_ROUTES.messages, label: "Messages", icon: MessageSquare },
   { to: TENANT_ROUTES.profile, label: "Profile", icon: User },
 ];
 

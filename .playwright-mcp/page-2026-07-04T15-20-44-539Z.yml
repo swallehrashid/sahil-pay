@@ -1,0 +1,129 @@
+- generic [ref=e41]:
+  - complementary [ref=e42]:
+    - generic [ref=e44]: SahilPay Admin
+    - navigation [ref=e45]:
+      - link "Dashboard" [ref=e46] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=e48]
+        - generic [ref=e53]: Dashboard
+      - link "Landlords" [ref=e54] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=e56]
+        - generic [ref=e60]: Landlords
+      - link "Properties" [ref=e61] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=e63]
+        - generic [ref=e66]: Properties
+      - link "Units" [ref=e67] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=e69]
+        - generic [ref=e73]: Units
+      - link "Tenants" [ref=e74] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=e76]
+        - generic [ref=e81]: Tenants
+      - link "Team members" [ref=e82] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=e84]
+        - generic [ref=e96]: Team members
+      - link "Pricing" [ref=e97] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=e99]
+        - generic [ref=e103]: Pricing
+      - link "SMS" [ref=e104] [cursor=pointer]:
+        - /url: /admin/sms
+        - img [ref=e106]
+        - generic [ref=e108]: SMS
+      - link "Trials" [ref=e109] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=e111]
+        - generic [ref=e114]: Trials
+      - link "Impersonation" [ref=e115] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=e117]
+        - generic [ref=e120]: Impersonation
+      - link "Master Audit" [ref=e121] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=e123]
+        - generic [ref=e128]: Master Audit
+      - link "Notifications" [ref=e129] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=e131]
+        - generic [ref=e134]: Notifications
+    - generic [ref=e136]:
+      - paragraph [ref=e137]: admin@sahilpay.test
+      - button "Log out" [ref=e138]:
+        - img [ref=e139]
+        - text: Log out
+  - generic [ref=e142]:
+    - generic [ref=e143]:
+      - button "2" [ref=e145]:
+        - img [ref=e146]
+        - generic [ref=e149]: "2"
+      - generic [ref=e150]:
+        - generic [ref=e151]: A
+        - generic [ref=e152]: admin@sahilpay.test
+    - main [ref=e153]:
+      - generic [ref=e154]:
+        - generic [ref=e156]:
+          - heading "Platform Overview" [level=1] [ref=e157]
+          - paragraph [ref=e158]: Every landlord and property manager on SahilPay — click any card to drill in
+        - generic [ref=e159]:
+          - button "Landlords / PMs 4" [ref=e160]:
+            - generic [ref=e161]:
+              - generic [ref=e162]:
+                - paragraph [ref=e163]: Landlords / PMs
+                - img [ref=e165]
+              - paragraph [ref=e169]: "4"
+          - button "Properties 8" [ref=e170]:
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - paragraph [ref=e173]: Properties
+                - img [ref=e175]
+              - paragraph [ref=e178]: "8"
+          - button "Total units 22" [ref=e179]:
+            - generic [ref=e180]:
+              - generic [ref=e181]:
+                - paragraph [ref=e182]: Total units
+                - img [ref=e184]
+              - paragraph [ref=e188]: "22"
+          - button "Active tenants 18" [ref=e189]:
+            - generic [ref=e190]:
+              - generic [ref=e191]:
+                - paragraph [ref=e192]: Active tenants
+                - img [ref=e194]
+              - paragraph [ref=e199]: "18"
+          - button "Team members 10" [ref=e200]:
+            - generic [ref=e201]:
+              - generic [ref=e202]:
+                - paragraph [ref=e203]: Team members
+                - img [ref=e205]
+              - paragraph [ref=e217]: "10"
+        - table [ref=e220]:
+          - rowgroup [ref=e221]:
+            - row "Company Units Active tenants Team members" [ref=e222]:
+              - columnheader "Company" [ref=e223]
+              - columnheader "Units" [ref=e224]
+              - columnheader "Active tenants" [ref=e225]
+              - columnheader "Team members" [ref=e226]
+          - rowgroup [ref=e227]:
+            - row "Coastal Rentals 5 4 2" [ref=e228] [cursor=pointer]:
+              - cell "Coastal Rentals" [ref=e229]
+              - cell "5" [ref=e230]
+              - cell "4" [ref=e231]
+              - cell "2" [ref=e232]
+            - row "Pioneer Housing Group 5 4 2" [ref=e233] [cursor=pointer]:
+              - cell "Pioneer Housing Group" [ref=e234]
+              - cell "5" [ref=e235]
+              - cell "4" [ref=e236]
+              - cell "2" [ref=e237]
+            - row "Sunrise Estates 5 4 2" [ref=e238] [cursor=pointer]:
+              - cell "Sunrise Estates" [ref=e239]
+              - cell "5" [ref=e240]
+              - cell "4" [ref=e241]
+              - cell "2" [ref=e242]
+            - row "Acme Properties Ltd 7 6 4" [ref=e243] [cursor=pointer]:
+              - cell "Acme Properties Ltd" [ref=e244]
+              - cell "7" [ref=e245]
+              - cell "6" [ref=e246]
+              - cell "4" [ref=e247]

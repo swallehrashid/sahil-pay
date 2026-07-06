@@ -196,6 +196,7 @@ class InvoiceType(str, enum.Enum):
     penalty   = "penalty"
     custom    = "custom"
     recurring = "recurring"
+    deposit   = "deposit"      # rent/utility/security deposits — allocated first bucket (#6)
 
 
 class PaymentStatus(str, enum.Enum):
@@ -246,6 +247,14 @@ class UtilityItem(str, enum.Enum):
     electricity = "electricity"
     garbage     = "garbage"
     security    = "security"
+
+
+# #6 — landlord-defined utility catalogue. Every chargeable line the landlord
+# tracks falls into one of these three buckets, which also drive auto-allocation.
+class UtilityCategory(str, enum.Enum):
+    deposit         = "deposit"          # e.g. rent deposit, water deposit, security deposit
+    balance         = "balance"          # arrears carried forward (rental balance, electricity balance…)
+    current_utility = "current_utility"  # this month's utilities (water, electricity, garbage, security, custom)
 
 
 class MaintenanceStatus(str, enum.Enum):
@@ -611,6 +620,7 @@ class Landlord(TimestampMixin, Base):
     expenses             = relationship("Expense",            back_populates="landlord")
     recurring_expenses   = relationship("RecurringExpense",   back_populates="landlord")
     utility_readings     = relationship("UtilityReading",     back_populates="landlord")
+    utility_types        = relationship("LandlordUtilityType", back_populates="landlord")
     maintenance_requests = relationship("MaintenanceRequest", back_populates="landlord")
     message_templates    = relationship("MessageTemplate",    back_populates="landlord")
     communication_logs   = relationship("CommunicationLog",   back_populates="landlord")
@@ -1588,9 +1598,14 @@ class UtilityReading(TimestampMixin, Base):
     landlord_id      = Column(Integer, ForeignKey("landlords.id"),  nullable=False, index=True)
     property_id      = Column(Integer, ForeignKey("properties.id"), nullable=False, index=True)
     unit_id          = Column(Integer, ForeignKey("units.id"),      nullable=False, index=True)
-    utility_item     = Column(String(20), nullable=False)     # enum UtilityItem
+    utility_item     = Column(String(80), nullable=False)     # enum UtilityItem or a landlord utility-type name
+    # #6 — optional link to the landlord's utility catalogue (nullable for legacy rows).
+    utility_type_id  = Column(Integer, ForeignKey("landlord_utility_types.id"), nullable=True, index=True)
     previous_reading = Column(Numeric(12, 2), nullable=True)
-    current_reading  = Column(Numeric(12, 2), nullable=False)
+    # #8 — nullable: non-metered utilities (garbage, security, custom flat charges) carry
+    # no meter readings and are billed as a flat `amount` instead.
+    current_reading  = Column(Numeric(12, 2), nullable=True)
+    amount           = Column(Numeric(12, 2), nullable=True)  # flat charge for non-metered utilities
     consumption      = Column(Numeric(12, 2), nullable=True)  # set on write; current - previous
     reading_month    = Column(String(7), nullable=False)       # YYYY-MM
     invoice_id       = Column(Integer, ForeignKey("invoices.id"), nullable=True, index=True)
@@ -1599,12 +1614,13 @@ class UtilityReading(TimestampMixin, Base):
         UniqueConstraint("unit_id", "utility_item", "reading_month",
                          name="uq_utility_readings_unit_item_month"),
         CheckConstraint(
-            "(previous_reading IS NULL) OR (current_reading >= previous_reading)",
+            "(previous_reading IS NULL) OR (current_reading IS NULL) OR (current_reading >= previous_reading)",
             name="ck_utility_readings_current_gte_previous",
         ),
     )
 
     landlord = relationship("Landlord", back_populates="utility_readings")
+    utility_type = relationship("LandlordUtilityType")
     property = relationship("Property", back_populates="utility_readings")
     unit     = relationship("Unit",     back_populates="utility_readings")
     invoice  = relationship("Invoice",  back_populates="utility_readings")
@@ -1617,13 +1633,52 @@ class UtilityReading(TimestampMixin, Base):
             "property_id":      self.property_id,
             "unit_id":          self.unit_id,
             "utility_item":     self.utility_item,
+            "utility_type_id":  self.utility_type_id,
             "previous_reading": _serialise(self.previous_reading),
             "current_reading":  _serialise(self.current_reading),
+            "amount":           _serialise(self.amount),
             "consumption":      _serialise(self.consumption),
             "reading_month":    self.reading_month,
             "invoice_id":       self.invoice_id,
             "created_at":       _serialise(self.created_at),
             "updated_at":       _serialise(self.updated_at),
+        }
+
+
+class LandlordUtilityType(TimestampMixin, Base):
+    """
+    §8.x (#6) — the landlord's own catalogue of chargeable utilities/charges.
+    Each entry is tagged with one of the three UtilityCategory buckets so it can
+    be invoiced, auto-allocated and reported on individually. Landlords create
+    and manage these themselves (water/electricity/garbage/security are seeded).
+    """
+    __tablename__ = "landlord_utility_types"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id  = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    name         = Column(String(80),  nullable=False)
+    category     = Column(String(20),  nullable=False)   # enum UtilityCategory
+    is_metered   = Column(Boolean, default=False, nullable=False)
+    default_rate = Column(Numeric(12, 2), nullable=True)
+    is_active    = Column(Boolean, default=True, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("landlord_id", "name", name="uq_landlord_utility_types_landlord_name"),
+    )
+
+    landlord = relationship("Landlord", back_populates="utility_types")
+
+    def to_dict(self):
+        return {
+            "id":           self.id,
+            "landlord_id":  self.landlord_id,
+            "name":         self.name,
+            "category":     self.category,
+            "is_metered":   self.is_metered,
+            "default_rate": _serialise(self.default_rate),
+            "is_active":    self.is_active,
+            "created_at":   _serialise(self.created_at),
+            "updated_at":   _serialise(self.updated_at),
         }
 
 
@@ -1724,6 +1779,12 @@ class CommunicationLog(CreatedAtMixin, Base):
     unit_id             = Column(Integer, ForeignKey("units.id"),        nullable=True, index=True)
     content             = Column(Text, nullable=False)
     sms_charge          = Column(Numeric(8, 2), default=Decimal("0.00"), nullable=False)
+    # §9.3 SMS reselling analytics snapshot (set at send time so historical
+    # rows stay accurate even if the landlord later connects/disconnects a
+    # sender ID or the admin changes pricing):
+    sms_segments        = Column(Integer, nullable=True)   # credits consumed by this SMS
+    uses_own_sender     = Column(Boolean, default=False, nullable=False)  # custom (own AT) vs default (shared pool)
+    platform_cost       = Column(Numeric(8, 2), default=Decimal("0.00"), nullable=False)  # SahilPay's AT cost; 0 for custom
     status              = Column(String(15), nullable=True)     # enum CommunicationStatus
     provider_message_id = Column(String(80), nullable=True)     # Africa's Talking / SendGrid id
     sent_at             = Column(DateTime, nullable=True)
@@ -1746,6 +1807,9 @@ class CommunicationLog(CreatedAtMixin, Base):
             "unit_id":             self.unit_id,
             "content":             self.content,
             "sms_charge":          _serialise(self.sms_charge),
+            "sms_segments":        self.sms_segments,
+            "uses_own_sender":     self.uses_own_sender,
+            "platform_cost":       _serialise(self.platform_cost),
             "status":              self.status,
             "provider_message_id": self.provider_message_id,
             "sent_at":             _serialise(self.sent_at),
@@ -1850,6 +1914,22 @@ class Package(TimestampMixin, Base):
     flat_price     = Column(Numeric(12, 2), nullable=True)
     is_active      = Column(Boolean, default=True, nullable=False)
 
+    # §Phase-2 public storefront: the admin controls which packages surface on the
+    # public pricing page and how they're badged. is_featured gates visibility on
+    # the marketing site; is_recommended/is_popular drive the highlight badges;
+    # public_description + feature_list are the marketing copy; display_order sorts
+    # the cards left-to-right.
+    is_featured        = Column(Boolean, default=False, nullable=False)
+    is_recommended     = Column(Boolean, default=False, nullable=False)
+    is_popular         = Column(Boolean, default=False, nullable=False)
+    public_description = Column(String(255), nullable=True)
+    feature_list       = Column(JSON, nullable=True)      # list[str] of selling points
+    display_order      = Column(Integer, default=0, nullable=False)
+    # #17 — the special "Custom" package: admin adds landlords into it manually and sets
+    # a negotiated per-unit price on each landlord. Never shown on the public storefront
+    # and never featurable/recommendable.
+    is_custom          = Column(Boolean, default=False, nullable=False)
+
     __table_args__ = (
         CheckConstraint(
             "(max_units IS NULL) OR (max_units >= min_units)",
@@ -1872,8 +1952,31 @@ class Package(TimestampMixin, Base):
             "price_per_unit": _serialise(self.price_per_unit),
             "flat_price":     _serialise(self.flat_price),
             "is_active":      self.is_active,
+            "is_featured":        self.is_featured,
+            "is_recommended":     self.is_recommended,
+            "is_popular":         self.is_popular,
+            "public_description": self.public_description,
+            "feature_list":       self.feature_list or [],
+            "display_order":      self.display_order,
+            "is_custom":          self.is_custom,
             "created_at":     _serialise(self.created_at),
             "updated_at":     _serialise(self.updated_at),
+        }
+
+    def to_public_dict(self):
+        """The marketing-site view — no internal unit-band math, just the pitch."""
+        return {
+            "id":             self.id,
+            "name":           self.name,
+            "min_units":      self.min_units,
+            "max_units":      self.max_units,
+            "price_per_unit": _serialise(self.price_per_unit),
+            "flat_price":     _serialise(self.flat_price),
+            "is_recommended":     self.is_recommended,
+            "is_popular":         self.is_popular,
+            "public_description": self.public_description,
+            "feature_list":       self.feature_list or [],
+            "display_order":      self.display_order,
         }
 
 
@@ -2143,7 +2246,10 @@ class AuditLog(CreatedAtMixin, Base):
 
     id                  = Column(Integer, primary_key=True, autoincrement=True)
     landlord_id         = Column(Integer, ForeignKey("landlords.id"), nullable=True, index=True)
-    actor_user_id       = Column(Integer, ForeignKey("users.id"),     nullable=False, index=True)
+    # Nullable: an OTP-only tenant self-service action (e.g. submitting a payment)
+    # has no linked User row, yet must still be audited with the tenant's snapshot
+    # name/username. (#18)
+    actor_user_id       = Column(Integer, ForeignKey("users.id"),     nullable=True, index=True)
     actor_username      = Column(String(150), nullable=True)    # denormalized snapshot
     actor_full_name     = Column(String(200), nullable=True)    # denormalized snapshot
     action              = Column(String(60),  nullable=True)    # e.g. create_payment
@@ -2261,6 +2367,80 @@ class Notification(TimestampMixin, Base):
             "read_at":           _serialise(self.read_at),
             "created_at":        _serialise(self.created_at),
             "updated_at":        _serialise(self.updated_at),
+        }
+
+
+# ===========================================================================
+# §9.3  SMS RESELLING — admin pricing config & shared-pool ledger
+# ===========================================================================
+
+class SmsPricingConfig(TimestampMixin, Base):
+    """
+    Admin-editable global SMS reselling knobs (§9.3). Singleton — exactly one
+    row (id=1). Sets the resale price per SMS for *default* users (who send via
+    SahilPay's shared sender ID out of the platform pool) and *custom* users
+    (who connected their own Africa's Talking sender ID and pay a per-SMS
+    service fee), the fixed platform cost per SMS used for margin analytics,
+    the shared-pool credit balance, and the master toggle gating shared sending.
+    """
+    __tablename__ = "sms_pricing_config"
+
+    id                     = Column(Integer, primary_key=True, autoincrement=True)
+    default_price_per_sms  = Column(Numeric(8, 4), default=Decimal("1.00"), nullable=False)
+    custom_price_per_sms   = Column(Numeric(8, 4), default=Decimal("0.50"), nullable=False)
+    platform_cost_per_sms  = Column(Numeric(8, 4), default=Decimal("0.65"), nullable=False)
+    pool_balance           = Column(Integer, default=0, nullable=False)
+    shared_sending_enabled = Column(Boolean, default=True, nullable=False)
+
+    @classmethod
+    def get_singleton(cls):
+        """Fetch the single config row, creating it with defaults on first use."""
+        from extensions import db
+        cfg = db.session.get(cls, 1)
+        if cfg is None:
+            cfg = cls(id=1)
+            db.session.add(cfg)
+            db.session.flush()
+        return cfg
+
+    def to_dict(self):
+        return {
+            "id":                     self.id,
+            "default_price_per_sms":  _serialise(self.default_price_per_sms),
+            "custom_price_per_sms":   _serialise(self.custom_price_per_sms),
+            "platform_cost_per_sms":  _serialise(self.platform_cost_per_sms),
+            "pool_balance":           self.pool_balance,
+            "shared_sending_enabled": self.shared_sending_enabled,
+            "created_at":             _serialise(self.created_at),
+            "updated_at":             _serialise(self.updated_at),
+        }
+
+
+class SmsPoolTopUp(CreatedAtMixin, Base):
+    """
+    Append-only ledger of admin top-ups to the shared SMS pool (§9.3). Records
+    how many credits were added, the resulting pool balance, an optional note,
+    and which admin performed it — powering the pool history on the admin SMS
+    monitoring page.
+    """
+    __tablename__ = "sms_pool_topups"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    admin_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    credits_added = Column(Integer, nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    note          = Column(String(255), nullable=True)
+
+    admin_user = relationship("User", foreign_keys=[admin_user_id])
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "admin_user_id": self.admin_user_id,
+            "credits_added": self.credits_added,
+            "balance_after": self.balance_after,
+            "note":          self.note,
+            "created_at":    _serialise(self.created_at),
         }
 
 

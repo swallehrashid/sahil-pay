@@ -5,6 +5,7 @@ const COLOR_CLASSES = {
   secondary: "bg-secondary/20 text-secondary-100 border border-secondary/40",
   third: "bg-third/20 text-third-100 border border-third/40",
   emerald: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30",
+  amber: "bg-amber-500/15 text-amber-300 border border-amber-500/30",
 };
 
 export default function Badge({ children, color = "white", className }) {

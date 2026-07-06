@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Pencil, Trash2, BarChart3 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Dropdown from "@/components/ui/Dropdown";
@@ -9,6 +10,7 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
 import Select from "@/components/ui/Select";
+import Checkbox from "@/components/ui/Checkbox";
 import Badge from "@/components/ui/Badge";
 import { toast } from "@/components/ui/Toast";
 import {
@@ -22,11 +24,22 @@ import { useGetAdminLandlordsQuery } from "./adminApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import { isRequired } from "@/utils/validators";
+import { ADMIN_ROUTES } from "@/config/routePaths";
 
 function PackageForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
-  const [form, setForm] = useState({ name: "", min_units: "", max_units: "", price_per_unit: "", flat_price: "", ...initialValues });
+  const [form, setForm] = useState({
+    name: "", min_units: "", max_units: "", price_per_unit: "", flat_price: "",
+    is_featured: false, is_recommended: false, is_popular: false,
+    public_description: "", display_order: 0,
+    ...initialValues,
+    // feature_list arrives as an array from the API — edit it as one-per-line text.
+    feature_list: Array.isArray(initialValues?.feature_list)
+      ? initialValues.feature_list.join("\n")
+      : (initialValues?.feature_list ?? ""),
+  });
   const [error, setError] = useState("");
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const toggle = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.checked }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -35,7 +48,7 @@ function PackageForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
       return;
     }
     setError("");
-    onSubmit(form);
+    onSubmit(form); // feature_list stays a newline string; the API splits it.
   };
 
   return (
@@ -49,6 +62,19 @@ function PackageForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
         <Input label="Price per unit" type="number" step="0.01" value={form.price_per_unit} onChange={update("price_per_unit")} />
         <Input label="Flat price" type="number" step="0.01" value={form.flat_price} onChange={update("flat_price")} />
       </div>
+
+      <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+        <p className="text-xs font-medium uppercase tracking-wide text-white/40">Public storefront</p>
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <Checkbox label="Feature on pricing page" checked={Boolean(form.is_featured)} onChange={toggle("is_featured")} />
+          <Checkbox label="Recommended" checked={Boolean(form.is_recommended)} onChange={toggle("is_recommended")} />
+          <Checkbox label="Most popular" checked={Boolean(form.is_popular)} onChange={toggle("is_popular")} />
+        </div>
+        <Input label="Public description" value={form.public_description} onChange={update("public_description")} hint="One short line shown under the plan name" />
+        <Textarea label="Feature list" rows={4} value={form.feature_list} onChange={update("feature_list")} hint="One selling point per line" />
+        <Input label="Display order" type="number" value={form.display_order} onChange={update("display_order")} hint="Lower shows first" />
+      </div>
+
       <div className="flex justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
@@ -116,6 +142,7 @@ function OverridePriceModal({ landlords, onClose }) {
 
 // §7.2 — admin-defined tiered pricing by unit band, plus per-landlord per-unit overrides.
 export default function PricingPackages() {
+  const navigate = useNavigate();
   const { data, isLoading } = useGetPackagesQuery();
   const { data: landlordsData } = useGetAdminLandlordsQuery();
   const [createPackage, { isLoading: isCreating }] = useCreatePackageMutation();
@@ -165,6 +192,17 @@ export default function PricingPackages() {
       render: (row) => (row.flat_price ? formatCurrency(row.flat_price) : `${formatCurrency(row.price_per_unit)} / unit`),
     },
     { key: "is_active", header: "Status", render: (row) => <Badge color={row.is_active ? "emerald" : "white"}>{row.is_active ? "Active" : "Inactive"}</Badge> },
+    {
+      key: "public",
+      header: "Public",
+      render: (row) => (
+        <div className="flex flex-wrap gap-1">
+          {row.is_featured ? <Badge color="secondary">Featured</Badge> : <span className="text-white/30">—</span>}
+          {row.is_recommended && <Badge color="third">Recommended</Badge>}
+          {row.is_popular && <Badge color="amber">Popular</Badge>}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -194,9 +232,15 @@ export default function PricingPackages() {
         columns={columns}
         rows={packages}
         isLoading={isLoading}
+        onRowClick={(row) => navigate(ADMIN_ROUTES.packageDetailPath(row.id))}
         rowActions={(row) => (
           <Dropdown
             items={[
+              {
+                label: "View details",
+                icon: <BarChart3 className="h-4 w-4" />,
+                onClick: () => navigate(ADMIN_ROUTES.packageDetailPath(row.id)),
+              },
               {
                 label: "Edit",
                 icon: <Pencil className="h-4 w-4" />,

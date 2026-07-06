@@ -1,0 +1,142 @@
+- generic [ref=f19e41]:
+  - complementary [ref=f19e42]:
+    - generic [ref=f19e44]: SahilPay
+    - navigation [ref=f19e45]:
+      - link "Dashboard" [ref=f19e46] [cursor=pointer]:
+        - /url: /landlord/dashboard
+        - img [ref=f19e48]
+        - generic [ref=f19e53]: Dashboard
+      - link "Invoices" [ref=f19e54] [cursor=pointer]:
+        - /url: /landlord/invoices
+        - img [ref=f19e56]
+        - generic [ref=f19e59]: Invoices
+      - link "Payments" [ref=f19e60] [cursor=pointer]:
+        - /url: /landlord/payments
+        - img [ref=f19e62]
+        - generic [ref=f19e65]: Payments
+      - link "Expenses" [ref=f19e66] [cursor=pointer]:
+        - /url: /landlord/expenses
+        - img [ref=f19e68]
+        - generic [ref=f19e70]: Expenses
+      - link "Tenants" [ref=f19e71] [cursor=pointer]:
+        - /url: /landlord/tenants
+        - img [ref=f19e73]
+        - generic [ref=f19e78]: Tenants
+      - link "Properties" [ref=f19e79] [cursor=pointer]:
+        - /url: /landlord/properties
+        - img [ref=f19e81]
+        - generic [ref=f19e85]: Properties
+      - link "Units" [ref=f19e86] [cursor=pointer]:
+        - /url: /landlord/units
+        - img [ref=f19e88]
+        - generic [ref=f19e91]: Units
+      - link "Utilities" [ref=f19e92] [cursor=pointer]:
+        - /url: /landlord/utilities
+        - img [ref=f19e94]
+        - generic [ref=f19e97]: Utilities
+      - link "Maintenance" [ref=f19e98] [cursor=pointer]:
+        - /url: /landlord/maintenance
+        - img [ref=f19e100]
+        - generic [ref=f19e102]: Maintenance
+      - link "Property Groups" [ref=f19e103] [cursor=pointer]:
+        - /url: /landlord/groups
+        - img [ref=f19e105]
+        - generic [ref=f19e110]: Property Groups
+      - link "Reports" [ref=f19e111] [cursor=pointer]:
+        - /url: /landlord/reports/statements
+        - img [ref=f19e113]
+        - generic [ref=f19e115]: Reports
+      - link "Communications" [ref=f19e116] [cursor=pointer]:
+        - /url: /landlord/communications
+        - img [ref=f19e118]
+        - generic [ref=f19e120]: Communications
+      - link "Tenant Messages" [ref=f19e121] [cursor=pointer]:
+        - /url: /landlord/messages
+        - img [ref=f19e123]
+        - generic [ref=f19e126]: Tenant Messages
+      - link "Notifications" [ref=f19e127] [cursor=pointer]:
+        - /url: /landlord/notifications
+        - img [ref=f19e129]
+        - generic [ref=f19e132]: Notifications
+      - link "Settings" [ref=f19e133] [cursor=pointer]:
+        - /url: /landlord/settings
+        - img [ref=f19e135]
+        - generic [ref=f19e138]: Settings
+    - generic [ref=f19e140]:
+      - paragraph [ref=f19e141]: landlord@sahilpay.test
+      - button "Log out" [ref=f19e142]:
+        - img [ref=f19e143]
+        - text: Log out
+  - generic [ref=f19e146]:
+    - generic [ref=f19e147]:
+      - link "0 SMS left" [ref=f19e148] [cursor=pointer]:
+        - /url: /landlord/settings/billing
+        - img [ref=f19e149]
+        - text: 0 SMS left
+      - button "6" [ref=f19e152]:
+        - img [ref=f19e153]
+        - generic [ref=f19e156]: "6"
+      - generic [ref=f19e157]:
+        - generic [ref=f19e158]: L
+        - generic [ref=f19e159]: landlord@sahilpay.test
+    - main [ref=f19e160]:
+      - generic [ref=f19e161]:
+        - generic [ref=f19e163]:
+          - heading "Dashboard" [level=1] [ref=f19e164]
+          - paragraph [ref=f19e165]: An overview of how your portfolio is performing
+        - generic [ref=f19e187]:
+          - generic [ref=f19e189]:
+            - heading "Performance — Last 30 Days" [level=3] [ref=f19e190]
+            - generic [ref=f19e192]:
+              - list [ref=f19e194]:
+                - listitem [ref=f19e195]:
+                  - img "Expenses legend icon" [ref=f19e196]
+                  - text: Expenses
+                - listitem [ref=f19e198]:
+                  - img "Invoices legend icon" [ref=f19e199]
+                  - text: Invoices
+                - listitem [ref=f19e201]:
+                  - img "Payments legend icon" [ref=f19e202]
+                  - text: Payments
+              - application [ref=f19e204]
+          - generic [ref=f19e210]:
+            - generic [ref=f19e211]:
+              - heading "Quick actions" [level=3] [ref=f19e212]
+              - generic [ref=f19e213]:
+                - link "Add invoice" [ref=f19e214] [cursor=pointer]:
+                  - /url: /landlord/invoices
+                  - img [ref=f19e215]
+                  - text: Add invoice
+                - link "Add tenant" [ref=f19e218] [cursor=pointer]:
+                  - /url: /landlord/tenants
+                  - img [ref=f19e219]
+                  - text: Add tenant
+                - link "Shift tenant" [ref=f19e224] [cursor=pointer]:
+                  - /url: /landlord/tenants
+                  - img [ref=f19e225]
+                  - text: Shift tenant
+                - link "Add unit" [ref=f19e228] [cursor=pointer]:
+                  - /url: /landlord/units
+                  - img [ref=f19e229]
+                  - text: Add unit
+                - link "Add utility reading" [ref=f19e232] [cursor=pointer]:
+                  - /url: /landlord/utilities
+                  - img [ref=f19e233]
+                  - text: Add utility reading
+                - link "Add team member" [ref=f19e236] [cursor=pointer]:
+                  - /url: /landlord/settings/team
+                  - img [ref=f19e237]
+                  - text: Add team member
+            - generic [ref=f19e240]:
+              - heading "Billing" [level=3] [ref=f19e241]
+              - link "Pay subscription" [ref=f19e242] [cursor=pointer]:
+                - /url: /landlord/settings/billing
+                - button "Pay subscription" [ref=f19e243]:
+                  - img [ref=f19e244]
+                  - generic [ref=f19e246]: Pay subscription
+              - link "Buy SMS" [ref=f19e247] [cursor=pointer]:
+                - /url: /landlord/settings/billing
+                - button "Buy SMS" [ref=f19e248]:
+                  - img [ref=f19e249]
+                  - generic [ref=f19e251]: Buy SMS
+        - heading "Tenants with arrears" [level=3] [ref=f19e253]

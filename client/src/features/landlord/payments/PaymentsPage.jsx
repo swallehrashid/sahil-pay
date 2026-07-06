@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Plus, Wallet, Upload, Pencil, Trash2, Send, Download, ArrowRightLeft, FileBarChart } from "lucide-react";
+import { Plus, Wallet, Upload, Pencil, Trash2, Send, Download, ArrowRightLeft, FileBarChart, CheckCircle2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -17,6 +17,8 @@ import { toast } from "@/components/ui/Toast";
 import RecordPaymentForm from "./RecordPaymentForm";
 import BankStatementUpload from "./BankStatementUpload";
 import ReassignTenantModal from "./ReassignTenantModal";
+import ConfirmPaymentModal from "./ConfirmPaymentModal";
+import SendReminderModal from "../communications/SendReminderModal";
 import { useGetPaymentsQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetInvoicesQuery } from "../invoices/invoiceApiSlice";
@@ -33,9 +35,10 @@ export default function PaymentsPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
+  const statusFromQuery = searchParams.get("status");   // deep-link from the "payment awaiting confirmation" notification
 
-  const [filters, setFilters] = useState({ status: "", source: "", date_from: "", date_to: "" });
-  const [appliedFilters, setAppliedFilters] = useState({});
+  const [filters, setFilters] = useState({ status: statusFromQuery || "", source: "", date_from: "", date_to: "" });
+  const [appliedFilters, setAppliedFilters] = useState(statusFromQuery ? { status: statusFromQuery } : {});
 
   const pg = usePagination();
   const { data, isLoading } = useGetPaymentsQuery({ ...appliedFilters, ...pg.params });
@@ -51,6 +54,8 @@ export default function PaymentsPage() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [reviewPayment, setReviewPayment] = useState(null);
+  const [reminderTenant, setReminderTenant] = useState(null); // #4
 
   const payments = toRows(data);
   const meta = toPaginationMeta(data);
@@ -112,7 +117,18 @@ export default function PaymentsPage() {
     { key: "payment_ref", header: "Payment ID" },
     { key: "tenant", header: "Tenant", render: (row) => row.tenant_name ?? "—" },
     { key: "unit", header: "Property / Unit", render: (row) => `${row.property_name ?? ""} ${row.unit_name ?? ""}`.trim() || "—" },
-    { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
+    {
+      key: "status",
+      header: "Status",
+      render: (row) =>
+        row.status === "pending" ? (
+          <button onClick={() => setReviewPayment(row)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/15 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/25">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Review
+          </button>
+        ) : (
+          <StatusBadge status={row.status} />
+        ),
+    },
     { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
   ];
 
@@ -177,6 +193,9 @@ export default function PaymentsPage() {
             rowActions={(row) => (
               <Dropdown
                 items={[
+                  ...(row.status === "pending"
+                    ? [{ label: "Review & confirm", icon: <CheckCircle2 className="h-4 w-4" />, onClick: () => setReviewPayment(row) }]
+                    : []),
                   { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
                   { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => sendReceipt(row.id).then(() => toast("Receipt sent.", { type: "success" })) },
                   {
@@ -185,6 +204,13 @@ export default function PaymentsPage() {
                     onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
                   },
                   { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
+                  ...(row.tenant_id
+                    ? [{
+                        label: "Remind tenant",
+                        icon: <Send className="h-4 w-4" />,
+                        onClick: () => setReminderTenant({ id: row.tenant_id, first_name: (row.tenant_name || "").split(" ")[0] || "Tenant", last_name: (row.tenant_name || "").split(" ").slice(1).join(" ") }),
+                      }]
+                    : []),
                   { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
                 ]}
               />
@@ -211,6 +237,8 @@ export default function PaymentsPage() {
         onUploaded={(id) => id && navigate(LANDLORD_ROUTES.bankStatementReviewPath(id))}
       />
       <ReassignTenantModal payment={reassignTarget} tenants={tenants} onClose={() => setReassignTarget(null)} />
+      {reviewPayment && <ConfirmPaymentModal payment={reviewPayment} onClose={() => setReviewPayment(null)} />}
+      <SendReminderModal tenant={reminderTenant} onClose={() => setReminderTenant(null)} />
 
       <ConfirmDialog
         isOpen={Boolean(pendingDelete)}

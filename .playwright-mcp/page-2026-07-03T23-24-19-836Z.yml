@@ -1,0 +1,170 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e69]:
+    - complementary [ref=f1e70]:
+      - generic [ref=f1e72]: SahilPay Admin
+      - navigation [ref=f1e73]:
+        - link "Dashboard" [ref=f1e74] [cursor=pointer]:
+          - /url: /admin/dashboard
+          - img [ref=f1e76]
+          - generic [ref=f1e81]: Dashboard
+        - link "Landlords" [ref=f1e82] [cursor=pointer]:
+          - /url: /admin/landlords
+          - img [ref=f1e84]
+          - generic [ref=f1e88]: Landlords
+        - link "Properties" [ref=f1e89] [cursor=pointer]:
+          - /url: /admin/properties
+          - img [ref=f1e91]
+          - generic [ref=f1e94]: Properties
+        - link "Units" [ref=f1e95] [cursor=pointer]:
+          - /url: /admin/units
+          - img [ref=f1e97]
+          - generic [ref=f1e101]: Units
+        - link "Tenants" [ref=f1e102] [cursor=pointer]:
+          - /url: /admin/tenants
+          - img [ref=f1e104]
+          - generic [ref=f1e109]: Tenants
+        - link "Team members" [ref=f1e110] [cursor=pointer]:
+          - /url: /admin/team-members
+          - img [ref=f1e112]
+          - generic [ref=f1e124]: Team members
+        - link "Pricing" [ref=f1e125] [cursor=pointer]:
+          - /url: /admin/pricing
+          - img [ref=f1e127]
+          - generic [ref=f1e131]: Pricing
+        - link "Trials" [ref=f1e132] [cursor=pointer]:
+          - /url: /admin/trials
+          - img [ref=f1e134]
+          - generic [ref=f1e137]: Trials
+        - link "Impersonation" [ref=f1e138] [cursor=pointer]:
+          - /url: /admin/impersonation
+          - img [ref=f1e140]
+          - generic [ref=f1e143]: Impersonation
+        - link "Master Audit" [ref=f1e144] [cursor=pointer]:
+          - /url: /admin/audit
+          - img [ref=f1e146]
+          - generic [ref=f1e151]: Master Audit
+        - link "Notifications" [ref=f1e152] [cursor=pointer]:
+          - /url: /admin/notifications
+          - img [ref=f1e154]
+          - generic [ref=f1e157]: Notifications
+      - generic [ref=f1e159]:
+        - paragraph [ref=f1e160]: admin@sahilpay.test
+        - button "Log out" [ref=f1e161]:
+          - img [ref=f1e162]
+          - text: Log out
+    - generic [ref=f1e165]:
+      - generic [ref=f1e166]:
+        - button "2" [ref=f1e168]:
+          - img [ref=f1e169]
+          - generic [ref=f1e172]: "2"
+        - generic [ref=f1e173]:
+          - generic [ref=f1e174]: A
+          - generic [ref=f1e175]: admin@sahilpay.test
+      - main [ref=f1e8]:
+        - generic [ref=f1e176]:
+          - generic [ref=f1e177]:
+            - generic [ref=f1e178]:
+              - navigation [ref=f1e179]:
+                - link "Pricing" [ref=f1e181] [cursor=pointer]:
+                  - /url: /admin/pricing
+                - generic [ref=f1e182]:
+                  - img [ref=f1e183]
+                  - generic [ref=f1e185]: Detail
+              - heading "Starter" [level=1] [ref=f1e186]
+              - paragraph [ref=f1e187]: KES 50.00 / unit · units 1–20
+            - generic [ref=f1e188]:
+              - link "Back" [ref=f1e189] [cursor=pointer]:
+                - /url: /admin/pricing
+                - button "Back" [ref=f1e190]:
+                  - img [ref=f1e191]
+                  - generic [ref=f1e193]: Back
+              - button "PDF" [ref=f1e194]:
+                - img [ref=f1e195]
+                - generic [ref=f1e198]: PDF
+              - button "Excel" [ref=f1e199]:
+                - img [ref=f1e200]
+                - generic [ref=f1e203]: Excel
+          - generic [ref=f1e204]:
+            - generic [ref=f1e205]:
+              - paragraph [ref=f1e207]: Subscribers
+              - paragraph [ref=f1e208]: "3"
+            - generic [ref=f1e209]:
+              - paragraph [ref=f1e211]: Active
+              - paragraph [ref=f1e212]: "3"
+            - generic [ref=f1e213]:
+              - paragraph [ref=f1e215]: Inactive
+              - paragraph [ref=f1e216]: "0"
+            - generic [ref=f1e217]:
+              - paragraph [ref=f1e219]: Total revenue
+              - paragraph [ref=f1e220]: KES 280.00
+            - generic [ref=f1e221]:
+              - paragraph [ref=f1e223]: Est. MRR
+              - paragraph [ref=f1e224]: KES 850.00
+          - generic [ref=f1e225]:
+            - generic [ref=f1e226]:
+              - generic [ref=f1e227]: From
+              - textbox [ref=f1e229]
+            - generic [ref=f1e230]:
+              - generic [ref=f1e231]: To
+              - textbox [ref=f1e233]
+            - generic [ref=f1e234]:
+              - paragraph [ref=f1e235]: Revenue in period
+              - paragraph [ref=f1e236]: KES 280.00
+          - generic [ref=f1e237]:
+            - heading "Monthly revenue — Starter" [level=3] [ref=f1e238]
+            - application [ref=f1e241]:
+              - generic [ref=f1e259]:
+                - generic [ref=f1e260]:
+                  - generic [ref=f1e262]: 2026-02
+                  - generic [ref=f1e264]: 2026-03
+                  - generic [ref=f1e266]: 2026-04
+                  - generic [ref=f1e268]: 2026-05
+                  - generic [ref=f1e270]: 2026-06
+                  - generic [ref=f1e272]: 2026-07
+                - generic [ref=f1e273]:
+                  - generic [ref=f1e275]: KES 0
+                  - generic [ref=f1e277]: KES 70
+                  - generic [ref=f1e279]: KES140
+                  - generic [ref=f1e281]: KES210
+                  - generic [ref=f1e283]: KES280
+          - generic [ref=f1e284]:
+            - heading "Subscribers on this package" [level=3] [ref=f1e285]
+            - table [ref=f1e287]:
+              - rowgroup [ref=f1e288]:
+                - row "Landlord Email Units Pays Total paid Status" [ref=f1e289]:
+                  - columnheader "Landlord" [ref=f1e290]
+                  - columnheader "Email" [ref=f1e291]
+                  - columnheader "Units" [ref=f1e292]
+                  - columnheader "Pays" [ref=f1e293]
+                  - columnheader "Total paid" [ref=f1e294]
+                  - columnheader "Status" [ref=f1e295]
+              - rowgroup [ref=f1e296]:
+                - row "Acme Properties Ltd landlord@sahilpay.test 7 KES 350.00 KES 280.00 Active" [ref=f1e297] [cursor=pointer]:
+                  - cell "Acme Properties Ltd" [ref=f1e298]
+                  - cell "landlord@sahilpay.test" [ref=f1e299]
+                  - cell "7" [ref=f1e300]
+                  - cell "KES 350.00" [ref=f1e301]
+                  - cell "KES 280.00" [ref=f1e302]
+                  - cell "Active" [ref=f1e303]:
+                    - generic [ref=f1e305]: Active
+                - row "Sunrise Estates sunrise@sahilpay.test 5 KES 250.00 KES 0.00 Active Trial" [ref=f1e306] [cursor=pointer]:
+                  - cell "Sunrise Estates" [ref=f1e307]
+                  - cell "sunrise@sahilpay.test" [ref=f1e308]
+                  - cell "5" [ref=f1e309]
+                  - cell "KES 250.00" [ref=f1e310]
+                  - cell "KES 0.00" [ref=f1e311]
+                  - cell "Active Trial" [ref=f1e312]:
+                    - generic [ref=f1e313]:
+                      - generic [ref=f1e314]: Active
+                      - generic [ref=f1e315]: Trial
+                - row "Coastal Rentals coastal@sahilpay.test 5 KES 250.00 KES 0.00 Active Trial" [ref=f1e316] [cursor=pointer]:
+                  - cell "Coastal Rentals" [ref=f1e317]
+                  - cell "coastal@sahilpay.test" [ref=f1e318]
+                  - cell "5" [ref=f1e319]
+                  - cell "KES 250.00" [ref=f1e320]
+                  - cell "KES 0.00" [ref=f1e321]
+                  - cell "Active Trial" [ref=f1e322]:
+                    - generic [ref=f1e323]:
+                      - generic [ref=f1e324]: Active
+                      - generic [ref=f1e325]: Trial
+  - generic [ref=f1e326]: KES 0

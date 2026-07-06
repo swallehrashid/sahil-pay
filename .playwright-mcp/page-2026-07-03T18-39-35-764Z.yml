@@ -1,0 +1,100 @@
+- generic [active] [ref=f18e1]:
+  - generic [ref=f18e32]:
+    - banner [ref=f18e33]:
+      - generic [ref=f18e34]: SahilPay
+      - navigation [ref=f18e35]:
+        - link "Dashboard" [ref=f18e36] [cursor=pointer]:
+          - /url: /portal/dashboard
+          - img [ref=f18e37]
+          - generic [ref=f18e42]: Dashboard
+        - link "Pay" [ref=f18e43] [cursor=pointer]:
+          - /url: /portal/pay
+          - img [ref=f18e44]
+          - generic [ref=f18e47]: Pay
+        - link "Statement" [ref=f18e48] [cursor=pointer]:
+          - /url: /portal/statement
+          - img [ref=f18e49]
+          - generic [ref=f18e52]: Statement
+        - link "Maintenance" [ref=f18e53] [cursor=pointer]:
+          - /url: /portal/maintenance
+          - img [ref=f18e54]
+          - generic [ref=f18e56]: Maintenance
+        - link "Messages" [ref=f18e57] [cursor=pointer]:
+          - /url: /portal/messages
+          - img [ref=f18e58]
+          - generic [ref=f18e60]: Messages
+        - link "Profile" [ref=f18e61] [cursor=pointer]:
+          - /url: /portal/profile
+          - img [ref=f18e62]
+          - generic [ref=f18e65]: Profile
+      - generic [ref=f18e66]:
+        - button "2" [ref=f18e68]:
+          - img [ref=f18e69]
+          - generic [ref=f18e72]: "2"
+        - button [ref=f18e73]:
+          - img [ref=f18e74]
+    - main [ref=f18e77]:
+      - generic [ref=f18e135]:
+        - generic [ref=f18e136]:
+          - heading "Payments" [level=1] [ref=f18e214]
+          - button "Make a payment" [ref=f18e215]:
+            - img [ref=f18e216]
+            - generic [ref=f18e219]: Make a payment
+        - generic [ref=f18e220]:
+          - heading "Awaiting confirmation" [level=3] [ref=f18e221]:
+            - img [ref=f18e222]
+            - text: Awaiting confirmation
+          - generic [ref=f18e226]:
+            - generic [ref=f18e227]:
+              - paragraph [ref=f18e228]: KES 10,000.00
+              - paragraph [ref=f18e229]: Submitted 03 Jul 2026 · SGH9LIVE01
+            - generic [ref=f18e230]: Pending
+        - generic [ref=f18e232]:
+          - heading "Confirmed payments" [level=3] [ref=f18e233]:
+            - img [ref=f18e234]
+            - text: Confirmed payments
+          - table [ref=f18e237]:
+            - rowgroup [ref=f18e238]:
+              - row "Date Amount Reference Receipt" [ref=f18e239]:
+                - columnheader "Date" [ref=f18e240]
+                - columnheader "Amount" [ref=f18e241]
+                - columnheader "Reference" [ref=f18e242]
+                - columnheader "Receipt" [ref=f18e243]
+            - rowgroup [ref=f18e244]:
+              - row "01 May 2026 KES 30,100.00 QA-20260703-N9Z8CDC1 View receipt" [ref=f18e245]:
+                - cell "01 May 2026" [ref=f18e246]
+                - cell "KES 30,100.00" [ref=f18e247]
+                - cell "QA-20260703-N9Z8CDC1" [ref=f18e248]
+                - cell "View receipt" [ref=f18e249]:
+                  - button "View receipt" [ref=f18e250]:
+                    - img [ref=f18e251]
+                    - generic [ref=f18e253]: View receipt
+              - row "01 Jun 2026 KES 29,950.00 QA-20260703-942GSWJB View receipt" [ref=f18e254]:
+                - cell "01 Jun 2026" [ref=f18e255]
+                - cell "KES 29,950.00" [ref=f18e256]
+                - cell "QA-20260703-942GSWJB" [ref=f18e257]
+                - cell "View receipt" [ref=f18e258]:
+                  - button "View receipt" [ref=f18e259]:
+                    - img [ref=f18e260]
+                    - generic [ref=f18e262]: View receipt
+              - row "01 Jul 2026 KES 29,800.00 QA-20260703-57E2DXKV View receipt" [ref=f18e263]:
+                - cell "01 Jul 2026" [ref=f18e264]
+                - cell "KES 29,800.00" [ref=f18e265]
+                - cell "QA-20260703-57E2DXKV" [ref=f18e266]
+                - cell "View receipt" [ref=f18e267]:
+                  - button "View receipt" [ref=f18e268]:
+                    - img [ref=f18e269]
+                    - generic [ref=f18e271]: View receipt
+              - row "03 Jul 2026 KES 30,000.00 QGH7XY12ZZ View receipt" [ref=f18e272]:
+                - cell "03 Jul 2026" [ref=f18e273]
+                - cell "KES 30,000.00" [ref=f18e274]
+                - cell "QGH7XY12ZZ" [ref=f18e275]
+                - cell "View receipt" [ref=f18e276]:
+                  - button "View receipt" [ref=f18e277]:
+                    - img [ref=f18e278]
+                    - generic [ref=f18e280]: View receipt
+  - generic [ref=f18e282]:
+    - img [ref=f18e283]
+    - paragraph [ref=f18e286]: Payment submitted for confirmation.
+    - button [ref=f18e287]:
+      - img [ref=f18e288]

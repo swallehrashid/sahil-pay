@@ -15,7 +15,20 @@ export default function TenantStatement() {
 
   const columns = [
     { key: "date", header: "Date", render: (row) => formatDate(row.date) },
-    { key: "item", header: "Item", render: (row) => row.description ?? (row.type === "invoice" ? row.invoice_no : row.payment_ref) },
+    {
+      key: "item",
+      header: "Item",
+      render: (row) => (
+        <div>
+          <span>{row.description ?? (row.type === "invoice" ? row.invoice_no : row.payment_ref)}</span>
+          {row.type === "payment" && row.proof_ref && (
+            <span className="block text-xs text-white/45">
+              {row.mpesa_reference ? "M-Pesa code" : "Ref"}: {row.proof_ref}
+            </span>
+          )}
+        </div>
+      ),
+    },
     { key: "due", header: "Due", render: (row) => (row.type === "invoice" ? formatCurrency(row.amount_due) : "—") },
     { key: "paid", header: "Paid", render: (row) => formatCurrency(row.type === "invoice" ? row.amount_paid : row.amount) },
     { key: "balance", header: "Balance", render: (row) => formatCurrency(row.running_balance) },

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles } from "lucide-react";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Dropdown from "@/components/ui/Dropdown";
 import Modal from "@/components/ui/Modal";
@@ -12,6 +12,8 @@ import Badge from "@/components/ui/Badge";
 import { toast } from "@/components/ui/Toast";
 import {
   useGetMessageTemplatesQuery,
+  useGetMessageVariablesQuery,
+  useInstallDefaultTemplatesMutation,
   useCreateMessageTemplateMutation,
   useUpdateMessageTemplateMutation,
   useDeleteMessageTemplateMutation,
@@ -20,10 +22,11 @@ import { MESSAGE_CHANNELS, MESSAGE_TEMPLATE_TYPES } from "@/utils/constants";
 import { isRequired } from "@/utils/validators";
 import { toRows } from "@/utils/tableAdapters";
 
-function TemplateForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
+function TemplateForm({ initialValues, variables = [], onSubmit, onCancel, isSubmitting }) {
   const [form, setForm] = useState({ name: "", channel: "sms", template_type: "custom", body: "", ...initialValues });
   const [errors, setErrors] = useState({});
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const insertVariable = (key) => setForm((f) => ({ ...f, body: `${f.body}${key}` }));
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -54,9 +57,24 @@ function TemplateForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
         value={form.body}
         onChange={update("body")}
         error={errors.body}
-        hint="Supports {tenant_name}, {balance}, {invoice_items}…"
+        hint="Click a variable below to insert it — it's replaced per tenant at send time."
         required
       />
+      {variables.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {variables.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => insertVariable(v.key)}
+              title={v.label}
+              className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-xs text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {v.key}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
@@ -72,9 +90,22 @@ function TemplateForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
 // §4.19 — reusable SMS/WhatsApp/email templates with dynamic placeholders.
 export default function MessageTemplates() {
   const { data, isLoading } = useGetMessageTemplatesQuery();
+  const { data: variablesData } = useGetMessageVariablesQuery();
+  const [installDefaults, { isLoading: isInstalling }] = useInstallDefaultTemplatesMutation();
   const [createTemplate, { isLoading: isCreating }] = useCreateMessageTemplateMutation();
   const [updateTemplate, { isLoading: isUpdating }] = useUpdateMessageTemplateMutation();
   const [deleteTemplate] = useDeleteMessageTemplateMutation();
+
+  const variables = variablesData?.variables ?? [];
+
+  const handleInstallDefaults = async () => {
+    try {
+      const res = await installDefaults().unwrap();
+      toast(res.installed?.length ? `${res.installed.length} starter template(s) added.` : "Starter templates already installed.", { type: "success" });
+    } catch {
+      toast("Could not install starter templates.", { type: "error" });
+    }
+  };
 
   const [active, setActive] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -117,17 +148,22 @@ export default function MessageTemplates() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-white/50">Reusable templates with dynamic placeholders for balance and invoice reminders.</p>
-        <Button
-          size="sm"
-          leftIcon={<Plus className="h-4 w-4" />}
-          onClick={() => {
-            setActive(null);
-            setIsFormOpen(true);
-          }}
-        >
-          Add template
-        </Button>
+        <p className="text-sm text-white/50">Reusable templates with dynamic placeholders. Each starter template already includes your payment method.</p>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" leftIcon={<Sparkles className="h-4 w-4" />} isLoading={isInstalling} onClick={handleInstallDefaults}>
+            Use starter templates
+          </Button>
+          <Button
+            size="sm"
+            leftIcon={<Plus className="h-4 w-4" />}
+            onClick={() => {
+              setActive(null);
+              setIsFormOpen(true);
+            }}
+          >
+            Add template
+          </Button>
+        </div>
       </div>
 
       <ResponsiveTable
@@ -152,7 +188,7 @@ export default function MessageTemplates() {
       />
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={active ? "Edit template" : "Add template"}>
-        <TemplateForm initialValues={active} onSubmit={handleSubmit} onCancel={() => setIsFormOpen(false)} isSubmitting={isCreating || isUpdating} />
+        <TemplateForm initialValues={active} variables={variables} onSubmit={handleSubmit} onCancel={() => setIsFormOpen(false)} isSubmitting={isCreating || isUpdating} />
       </Modal>
 
       <ConfirmDialog

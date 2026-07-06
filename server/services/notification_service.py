@@ -56,18 +56,63 @@ TEMPLATES = {
         "title": "Impersonation access granted",
         "body": "{company_name} has granted you access to assist their account.",
     },
+    # ---- #11: landlord → tenant / team member templates ------------------
+    # These are the only templated messages a landlord (or their team) should be
+    # able to SEND. Platform templates above (trial_expiring, low_sms_balance,
+    # impersonation_*, etc.) are admin/system → landlord and must never appear in
+    # the landlord's "send notification" template picker.
+    "balance_reminder": {
+        "title": "Balance reminder",
+        "body": "This is a reminder about your outstanding balance. Kindly clear it to avoid penalties — log in to your tenant portal to view the details.",
+    },
+    "payment_update": {
+        "title": "Payment update",
+        "body": "This is an update regarding your recent payment. Thank you.",
+    },
+    "utilities_update_reminder": {
+        "title": "Utilities reminder",
+        "body": "Please submit your latest utility readings for this month.",
+    },
+    "lease_renewal_reminder": {
+        "title": "Lease renewal",
+        "body": "Your lease is due for renewal soon. Please get in touch to renew.",
+    },
+    "add_units_reminder": {
+        "title": "Add units reminder",
+        "body": "Reminder: please add the outstanding units/records for the properties you manage.",
+    },
+    "update_utilities_task": {
+        "title": "Update utilities",
+        "body": "Reminder: please record this month's utilities for your assigned properties.",
+    },
     "broadcast": {
         "title": None,   # custom sends always supply their own title/body
         "body": None,
     },
 }
 
+# #11 — the subset of TEMPLATES a landlord/team member may send, split by audience.
+LANDLORD_TENANT_TEMPLATES = ["balance_reminder", "payment_update", "utilities_update_reminder", "lease_renewal_reminder"]
+LANDLORD_TEAM_TEMPLATES = ["add_units_reminder", "update_utilities_task"]
+LANDLORD_SENDABLE_TEMPLATES = LANDLORD_TENANT_TEMPLATES + LANDLORD_TEAM_TEMPLATES
+
+
+class _SafeDict(dict):
+    """format_map helper: leaves unknown {placeholders} intact instead of raising."""
+    def __missing__(self, key):
+        return "{" + key + "}"
+
 
 def render_template(template_key: str, **kwargs) -> tuple[str, str]:
-    """Return (title, body) for a template key, formatted with kwargs."""
+    """
+    Return (title, body) for a template key, formatted with kwargs. Missing
+    placeholders are left intact rather than raising (so a landlord-sent template
+    with unfilled {tenant_name}/{balance} still renders instead of 500-ing).
+    """
     tmpl = TEMPLATES.get(template_key, TEMPLATES["broadcast"])
-    title = tmpl["title"].format(**kwargs) if tmpl["title"] else kwargs.get("title", "Notification")
-    body = tmpl["body"].format(**kwargs) if tmpl["body"] else kwargs.get("body", "")
+    safe = _SafeDict(kwargs)
+    title = tmpl["title"].format_map(safe) if tmpl["title"] else kwargs.get("title", "Notification")
+    body = tmpl["body"].format_map(safe) if tmpl["body"] else kwargs.get("body", "")
     return title, body
 
 

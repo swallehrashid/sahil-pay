@@ -51,8 +51,27 @@ export default function ChangePassword() {
     }
   };
 
+  // A team member (or anyone) landing here on a system-issued temporary password
+  // is being *required* to set their own before they can use the portal — make
+  // that unmistakably a first-login setup step rather than an optional change.
+  const forced = Boolean(user?.must_change_password);
+
   return (
-    <AuthLayout title="Set your password" subtitle="Choose a new password to finish setting up your account">
+    <AuthLayout
+      title={forced ? "Finish setting up your account" : "Set your password"}
+      subtitle={forced
+        ? "For your security, replace the temporary password you logged in with before continuing."
+        : "Choose a new password to finish setting up your account"}
+    >
+      {forced && (
+        <div className="mb-5 rounded-xl border border-third/40 bg-third/10 px-4 py-3 text-sm text-white/80">
+          <p className="font-medium text-white">Step 1 · Choose your password</p>
+          <p className="mt-1 text-white/60">
+            You signed in with a one-time password sent to your email. Set a private password now —
+            you'll use it for every future login. This is the only step before your dashboard opens.
+          </p>
+        </div>
+      )}
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Current (temporary) password"

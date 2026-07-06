@@ -44,6 +44,36 @@ def _admin_id() -> int:
     return int(get_jwt_identity())
 
 
+def _apply_storefront_fields(package, data):
+    """Copy the public-storefront fields (featured/badges/copy/order) from the
+    request body onto a Package, when present. Shared by create + update."""
+    # #17 — a custom package can never be featured/recommended/popular on the
+    # public storefront, regardless of what the request tries to set.
+    if package.is_custom:
+        package.is_featured = False
+        package.is_recommended = False
+        package.is_popular = False
+        return
+    if "is_featured" in data:
+        package.is_featured = bool(data["is_featured"])
+    if "is_recommended" in data:
+        package.is_recommended = bool(data["is_recommended"])
+    if "is_popular" in data:
+        package.is_popular = bool(data["is_popular"])
+    if "public_description" in data:
+        package.public_description = (data["public_description"] or "").strip() or None
+    if "feature_list" in data:
+        fl = data["feature_list"]
+        if isinstance(fl, str):
+            fl = [s.strip() for s in fl.splitlines() if s.strip()]
+        package.feature_list = [str(s).strip() for s in (fl or []) if str(s).strip()]
+    if "display_order" in data:
+        try:
+            package.display_order = int(data["display_order"])
+        except (TypeError, ValueError):
+            package.display_order = 0
+
+
 # ---------------------------------------------------------------------------
 # GET /api/admin/pricing/packages
 # ---------------------------------------------------------------------------
@@ -119,6 +149,7 @@ def create_package():
         flat_price     = Decimal(str(flat_price))     if flat_price     is not None else None,
         is_active      = True,
     )
+    _apply_storefront_fields(package, data)
     db.session.add(package)
     db.session.commit()
 
@@ -174,6 +205,8 @@ def update_package(package_id):
         package.flat_price = (
             Decimal(str(data["flat_price"])) if data["flat_price"] is not None else None
         )
+
+    _apply_storefront_fields(package, data)
 
     # Enforce: at least one price field must remain set
     if package.price_per_unit is None and package.flat_price is None:
@@ -301,6 +334,157 @@ def set_per_unit_price(landlord_id):
         "message":       "Per-unit price updated.",
         "landlord_id":   landlord.id,
         "per_unit_price": str(landlord.per_unit_price) if landlord.per_unit_price else None,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/pricing/landlords/<id>/billing  — full billing detail (#16)
+# ---------------------------------------------------------------------------
+@admin_pricing_bp.route("/landlords/<int:landlord_id>/billing", methods=["GET"])
+@jwt_required()
+def get_landlord_billing(landlord_id):
+    """
+    #16 — the billing detail an admin sees when opening a landlord under a package:
+    billing cycle, amount due, subscription status, next billing date, whether the
+    trial is active and when it ends, plus the negotiated per-unit price (custom).
+    """
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+    sub = landlord.subscription
+    pkg = landlord.package
+    return jsonify({
+        "landlord_id":       landlord.id,
+        "company_name":      landlord.company_name,
+        "package":           pkg.to_dict() if pkg else None,
+        "is_custom_package": bool(pkg and pkg.is_custom),
+        "per_unit_price":    str(landlord.per_unit_price) if landlord.per_unit_price is not None else None,
+        "is_on_trial":       landlord.is_on_trial,
+        "trial_ends_at":     landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
+        "subscription":      sub.to_dict() if sub else None,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/admin/pricing/landlords/<id>/billing  — admin edits billing (#16)
+# ---------------------------------------------------------------------------
+@admin_pricing_bp.route("/landlords/<int:landlord_id>/billing", methods=["PUT"])
+@jwt_required()
+def update_landlord_billing(landlord_id):
+    """
+    #16 — admin manually overrides a landlord's billing: amount due, next billing
+    date, subscription status, trial active flag and trial end date. Any provided
+    field is applied; the changes reflect straight back to the landlord's billing page.
+
+    Body (all optional): { amount_due, next_billing_date (YYYY-MM-DD), status,
+                           billing_cycle, is_on_trial, trial_ends_at (ISO/date) }
+    """
+    from datetime import datetime, date as _date
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    from services.billing_service import recompute_subscription
+    sub = landlord.subscription or recompute_subscription(landlord)
+    data = request.get_json(silent=True) or {}
+    before = {
+        "amount_due": str(sub.amount_due) if sub else None,
+        "next_billing_date": str(sub.next_billing_date) if sub and sub.next_billing_date else None,
+        "status": sub.status if sub else None,
+        "is_on_trial": landlord.is_on_trial,
+        "trial_ends_at": landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
+    }
+
+    def _parse_date(v):
+        if not v:
+            return None
+        try:
+            return datetime.fromisoformat(str(v).replace("Z", "")).date()
+        except ValueError:
+            return _date.fromisoformat(str(v)[:10])
+
+    if "amount_due" in data and data["amount_due"] is not None:
+        sub.amount_due = Decimal(str(data["amount_due"]))
+    if "next_billing_date" in data and data["next_billing_date"]:
+        sub.next_billing_date = _parse_date(data["next_billing_date"])
+    if "status" in data and data["status"]:
+        sub.status = data["status"]
+    if "billing_cycle" in data and data["billing_cycle"]:
+        sub.billing_cycle = data["billing_cycle"]
+    if "is_on_trial" in data:
+        landlord.is_on_trial = bool(data["is_on_trial"])
+    if "trial_ends_at" in data:
+        landlord.trial_ends_at = _parse_date(data["trial_ends_at"]) if data["trial_ends_at"] else None
+
+    db.session.commit()
+    record_audit(
+        actor_user_id=_admin_id(),
+        landlord_id=landlord.id,
+        action="admin_update_landlord_billing",
+        entity_type="subscription",
+        entity_id=sub.id if sub else None,
+        description=f"ADMIN: billing overrides applied to '{landlord.company_name}'.",
+        before_data=before,
+        after_data={
+            "amount_due": str(sub.amount_due) if sub else None,
+            "next_billing_date": str(sub.next_billing_date) if sub and sub.next_billing_date else None,
+            "status": sub.status if sub else None,
+            "is_on_trial": landlord.is_on_trial,
+            "trial_ends_at": landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
+        },
+    )
+    db.session.commit()
+    return jsonify({"message": "Billing updated.", "subscription": sub.to_dict() if sub else None}), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/pricing/landlords/<id>/custom  — add landlord to Custom (#17)
+# ---------------------------------------------------------------------------
+@admin_pricing_bp.route("/landlords/<int:landlord_id>/custom", methods=["POST"])
+@jwt_required()
+def add_landlord_to_custom(landlord_id):
+    """
+    #17 — move a landlord into the Custom package and set their negotiated per-unit
+    price. Body: { per_unit_price: number, reason?: str }. The Custom package is the
+    single is_custom=True package; per-unit price is stored on the landlord record.
+    """
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    custom_pkg = Package.query.filter_by(is_custom=True, is_active=True).first()
+    if not custom_pkg:
+        return jsonify({"error": "No Custom package exists."}), 404
+
+    data = request.get_json(silent=True) or {}
+    price = data.get("per_unit_price")
+    if price is None:
+        return jsonify({"error": "per_unit_price is required."}), 400
+
+    landlord.package_id = custom_pkg.id
+    landlord.per_unit_price = Decimal(str(price))
+
+    # Refresh the derived subscription figures for the new custom price.
+    from services.billing_service import recompute_subscription
+    recompute_subscription(landlord)
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=_admin_id(),
+        landlord_id=landlord.id,
+        action="admin_add_landlord_to_custom",
+        entity_type="landlord",
+        entity_id=landlord.id,
+        description=f"ADMIN: '{landlord.company_name}' added to Custom package at KES {price}/unit. {data.get('reason', '')}".strip(),
+    )
+    db.session.commit()
+    return jsonify({
+        "message": "Landlord added to the Custom package.",
+        "landlord_id": landlord.id,
+        "per_unit_price": str(landlord.per_unit_price),
     }), 200
 
 

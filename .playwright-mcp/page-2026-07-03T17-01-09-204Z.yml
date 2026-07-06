@@ -1,0 +1,17 @@
+- generic [ref=f10e11]:
+  - link "SahilPay" [ref=f10e12] [cursor=pointer]:
+    - /url: /
+  - heading "Tenant login" [level=1] [ref=f10e13]
+  - paragraph [ref=f10e14]: No password needed — just a one-time code
+  - generic [ref=f10e16]:
+    - paragraph [ref=f10e26]: Enter the code sent to +254711000001
+    - generic [ref=f10e27]:
+      - textbox [ref=f10e28]
+      - textbox [ref=f10e29]
+      - textbox [ref=f10e30]
+      - textbox [ref=f10e31]
+      - textbox [ref=f10e32]
+      - textbox [ref=f10e33]
+    - button "Verify & log in" [ref=f10e34]:
+      - generic [ref=f10e35]: Verify & log in
+    - button "Resend code" [ref=f10e36]

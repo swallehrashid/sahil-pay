@@ -1,0 +1,265 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e151]:
+    - complementary [ref=f5e152]:
+      - generic [ref=f5e154]: SahilPay
+      - navigation [ref=f5e155]:
+        - link "Dashboard" [ref=f5e156] [cursor=pointer]:
+          - /url: /landlord/dashboard
+          - img [ref=f5e158]
+          - generic [ref=f5e163]: Dashboard
+        - link "Invoices" [ref=f5e164] [cursor=pointer]:
+          - /url: /landlord/invoices
+          - img [ref=f5e166]
+          - generic [ref=f5e169]: Invoices
+        - link "Payments" [ref=f5e170] [cursor=pointer]:
+          - /url: /landlord/payments
+          - img [ref=f5e172]
+          - generic [ref=f5e175]: Payments
+        - link "Expenses" [ref=f5e176] [cursor=pointer]:
+          - /url: /landlord/expenses
+          - img [ref=f5e178]
+          - generic [ref=f5e180]: Expenses
+        - link "Tenants" [ref=f5e181] [cursor=pointer]:
+          - /url: /landlord/tenants
+          - img [ref=f5e183]
+          - generic [ref=f5e188]: Tenants
+        - link "Properties" [ref=f5e189] [cursor=pointer]:
+          - /url: /landlord/properties
+          - img [ref=f5e191]
+          - generic [ref=f5e195]: Properties
+        - link "Units" [ref=f5e196] [cursor=pointer]:
+          - /url: /landlord/units
+          - img [ref=f5e198]
+          - generic [ref=f5e201]: Units
+        - link "Utilities" [ref=f5e202] [cursor=pointer]:
+          - /url: /landlord/utilities
+          - img [ref=f5e204]
+          - generic [ref=f5e207]: Utilities
+        - link "Maintenance" [ref=f5e208] [cursor=pointer]:
+          - /url: /landlord/maintenance
+          - img [ref=f5e210]
+          - generic [ref=f5e212]: Maintenance
+        - link "Property Groups" [ref=f5e213] [cursor=pointer]:
+          - /url: /landlord/groups
+          - img [ref=f5e215]
+          - generic [ref=f5e220]: Property Groups
+        - link "Reports" [ref=f5e221] [cursor=pointer]:
+          - /url: /landlord/reports/statements
+          - img [ref=f5e223]
+          - generic [ref=f5e225]: Reports
+        - link "Communications" [ref=f5e226] [cursor=pointer]:
+          - /url: /landlord/communications
+          - img [ref=f5e228]
+          - generic [ref=f5e230]: Communications
+        - link "Notifications" [ref=f5e231] [cursor=pointer]:
+          - /url: /landlord/notifications
+          - img [ref=f5e233]
+          - generic [ref=f5e236]: Notifications
+        - link "Settings" [ref=f5e237] [cursor=pointer]:
+          - /url: /landlord/settings
+          - img [ref=f5e239]
+          - generic [ref=f5e242]: Settings
+      - generic [ref=f5e244]:
+        - paragraph [ref=f5e245]: landlord@sahilpay.test
+        - button "Log out" [ref=f5e246]:
+          - img [ref=f5e247]
+          - text: Log out
+    - generic [ref=f5e250]:
+      - generic [ref=f5e251]:
+        - link "0 SMS left" [ref=f5e252] [cursor=pointer]:
+          - /url: /landlord/settings/billing
+          - img [ref=f5e253]
+          - text: 0 SMS left
+        - button "1" [ref=f5e256]:
+          - img [ref=f5e257]
+          - generic [ref=f5e260]: "1"
+        - generic [ref=f5e261]:
+          - generic [ref=f5e262]: L
+          - generic [ref=f5e263]: landlord@sahilpay.test
+      - main [ref=f5e8]:
+        - generic [ref=f5e9]:
+          - generic [ref=f5e11]:
+            - heading "Settings" [level=1] [ref=f5e12]
+            - paragraph [ref=f5e13]: Configure your SahilPay account
+          - generic [ref=f5e14]:
+            - link "General" [ref=f5e15] [cursor=pointer]:
+              - /url: /landlord/settings/general
+            - link "Account" [ref=f5e16] [cursor=pointer]:
+              - /url: /landlord/settings/account
+            - link "Alerts" [ref=f5e17] [cursor=pointer]:
+              - /url: /landlord/settings/alerts
+            - link "Backup" [ref=f5e18] [cursor=pointer]:
+              - /url: /landlord/settings/backup
+            - link "Documents" [ref=f5e19] [cursor=pointer]:
+              - /url: /landlord/settings/documents
+            - link "Team" [ref=f5e20] [cursor=pointer]:
+              - /url: /landlord/settings/team
+            - link "Billing" [ref=f5e21] [cursor=pointer]:
+              - /url: /landlord/settings/billing
+            - link "M-Pesa" [ref=f5e22] [cursor=pointer]:
+              - /url: /landlord/settings/mpesa
+            - link "Audit Trail" [ref=f5e23] [cursor=pointer]:
+              - /url: /landlord/settings/audit
+            - link "Impersonation" [ref=f5e24] [cursor=pointer]:
+              - /url: /landlord/settings/impersonation-requests
+          - generic [ref=f5e25]:
+            - generic [ref=f5e27]:
+              - heading "Audit Trail" [level=1] [ref=f5e28]
+              - paragraph [ref=f5e29]: Every create, update and delete action on your account
+            - generic [ref=f5e30]:
+              - complementary [ref=f5e31]:
+                - heading "Filters" [level=3] [ref=f5e32]:
+                  - img [ref=f5e33]
+                  - text: Filters
+                - generic [ref=f5e34]:
+                  - generic [ref=f5e35]:
+                    - generic [ref=f5e36]: From
+                    - generic [ref=f5e37]:
+                      - textbox [ref=f5e38]
+                      - img
+                  - generic [ref=f5e39]:
+                    - generic [ref=f5e40]: To
+                    - generic [ref=f5e41]:
+                      - textbox [ref=f5e42]
+                      - img
+                  - generic [ref=f5e43]:
+                    - generic [ref=f5e44]: User
+                    - generic [ref=f5e45]:
+                      - combobox [ref=f5e46]:
+                        - option "browser_qa"
+                        - option "caretaker1"
+                        - option "qa_tester_1783083502"
+                        - option "viewer1"
+                      - img
+                  - generic [ref=f5e47]:
+                    - generic [ref=f5e48]: Entity
+                    - generic [ref=f5e49]:
+                      - combobox [ref=f5e50]:
+                        - option "payment"
+                        - option "invoice"
+                        - option "expense"
+                        - option "property"
+                        - option "unit"
+                        - option "team_member"
+                        - option "tenant"
+                        - option "account"
+                        - option "utility"
+                        - option "maintenance"
+                        - option "landlord"
+                        - option "recurring_expense"
+                        - option "page"
+                      - img
+                  - generic [ref=f5e51]:
+                    - button "Apply" [ref=f5e52]:
+                      - generic [ref=f5e53]: Apply
+                    - button "Reset" [ref=f5e54]:
+                      - generic [ref=f5e55]: Reset
+              - generic [ref=f5e56]:
+                - table [ref=f5e58]:
+                  - rowgroup [ref=f5e59]:
+                    - row "Date & time User Action Entity Description" [ref=f5e60]:
+                      - columnheader "Date & time" [ref=f5e61]
+                      - columnheader "User" [ref=f5e62]
+                      - columnheader "Action" [ref=f5e63]
+                      - columnheader "Entity" [ref=f5e64]
+                      - columnheader "Description" [ref=f5e65]
+                  - rowgroup [ref=f5e66]:
+                    - row "03 Jul 2026, 13:22 browser.qa@sahilpay.test view page Viewed Reports — Statements" [ref=f5e67] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:22" [ref=f5e68]
+                      - cell "browser.qa@sahilpay.test" [ref=f5e69]
+                      - cell "view" [ref=f5e70]
+                      - cell "page" [ref=f5e71]
+                      - cell "Viewed Reports — Statements" [ref=f5e72]
+                    - row "03 Jul 2026, 13:22 browser.qa@sahilpay.test view page Viewed Maintenance" [ref=f5e73] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:22" [ref=f5e74]
+                      - cell "browser.qa@sahilpay.test" [ref=f5e75]
+                      - cell "view" [ref=f5e76]
+                      - cell "page" [ref=f5e77]
+                      - cell "Viewed Maintenance" [ref=f5e78]
+                    - row "03 Jul 2026, 13:21 browser.qa@sahilpay.test view page Viewed Tenants" [ref=f5e79] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:21" [ref=f5e80]
+                      - cell "browser.qa@sahilpay.test" [ref=f5e81]
+                      - cell "view" [ref=f5e82]
+                      - cell "page" [ref=f5e83]
+                      - cell "Viewed Tenants" [ref=f5e84]
+                    - row "03 Jul 2026, 13:20 browser.qa@sahilpay.test update_account account Account profile updated." [ref=f5e85] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:20" [ref=f5e86]
+                      - cell "browser.qa@sahilpay.test" [ref=f5e87]
+                      - cell "update_account" [ref=f5e88]
+                      - cell "account" [ref=f5e89]
+                      - cell "Account profile updated." [ref=f5e90]
+                    - 'row "03 Jul 2026, 13:13 landlord@sahilpay.test update_team_member_property_access team_member Property access updated for ''browser_qa'': all properties." [ref=f5e91] [cursor=pointer]':
+                      - cell "03 Jul 2026, 13:13" [ref=f5e92]
+                      - cell "landlord@sahilpay.test" [ref=f5e93]
+                      - cell "update_team_member_property_access" [ref=f5e94]
+                      - cell "team_member" [ref=f5e95]
+                      - 'cell "Property access updated for ''browser_qa'': all properties." [ref=f5e96]'
+                    - row "03 Jul 2026, 13:13 landlord@sahilpay.test update_team_member_permissions team_member Permission matrix updated for 'browser_qa'." [ref=f5e97] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:13" [ref=f5e98]
+                      - cell "landlord@sahilpay.test" [ref=f5e99]
+                      - cell "update_team_member_permissions" [ref=f5e100]
+                      - cell "team_member" [ref=f5e101]
+                      - cell "Permission matrix updated for 'browser_qa'." [ref=f5e102]
+                    - row "03 Jul 2026, 13:13 landlord@sahilpay.test create_team_member team_member Team member 'browser_qa' (browser.qa@sahilpay.test) created. Credentials email sent." [ref=f5e103] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:13" [ref=f5e104]
+                      - cell "landlord@sahilpay.test" [ref=f5e105]
+                      - cell "create_team_member" [ref=f5e106]
+                      - cell "team_member" [ref=f5e107]
+                      - cell "Team member 'browser_qa' (browser.qa@sahilpay.test) created. Credentials email sent." [ref=f5e108]
+                    - row "03 Jul 2026, 13:06 qa.tester.1783083502@sahilpay.test create_expense expense Expense of KES 1234 (maintenance) recorded." [ref=f5e109] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:06" [ref=f5e110]
+                      - cell "qa.tester.1783083502@sahilpay.test" [ref=f5e111]
+                      - cell "create_expense" [ref=f5e112]
+                      - cell "expense" [ref=f5e113]
+                      - cell "Expense of KES 1234 (maintenance) recorded." [ref=f5e114]
+                    - 'row "03 Jul 2026, 13:00 qa.tester.1783083502@sahilpay.test view tenant Viewed tenant #1 transactions" [ref=f5e115] [cursor=pointer]':
+                      - cell "03 Jul 2026, 13:00" [ref=f5e116]
+                      - cell "qa.tester.1783083502@sahilpay.test" [ref=f5e117]
+                      - cell "view" [ref=f5e118]
+                      - cell "tenant" [ref=f5e119]
+                      - 'cell "Viewed tenant #1 transactions" [ref=f5e120]'
+                    - row "03 Jul 2026, 13:00 qa.tester.1783083502@sahilpay.test view page Viewed Tenants" [ref=f5e121] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:00" [ref=f5e122]
+                      - cell "qa.tester.1783083502@sahilpay.test" [ref=f5e123]
+                      - cell "view" [ref=f5e124]
+                      - cell "page" [ref=f5e125]
+                      - cell "Viewed Tenants" [ref=f5e126]
+                    - row "03 Jul 2026, 13:00 qa.tester.1783083502@sahilpay.test update_account account Account profile updated." [ref=f5e127] [cursor=pointer]:
+                      - cell "03 Jul 2026, 13:00" [ref=f5e128]
+                      - cell "qa.tester.1783083502@sahilpay.test" [ref=f5e129]
+                      - cell "update_account" [ref=f5e130]
+                      - cell "account" [ref=f5e131]
+                      - cell "Account profile updated." [ref=f5e132]
+                    - row "03 Jul 2026, 12:58 landlord@sahilpay.test update_team_member_permissions team_member Permission matrix updated for 'qa_tester_1783083502'." [ref=f5e133] [cursor=pointer]:
+                      - cell "03 Jul 2026, 12:58" [ref=f5e134]
+                      - cell "landlord@sahilpay.test" [ref=f5e135]
+                      - cell "update_team_member_permissions" [ref=f5e136]
+                      - cell "team_member" [ref=f5e137]
+                      - cell "Permission matrix updated for 'qa_tester_1783083502'." [ref=f5e138]
+                    - row "03 Jul 2026, 12:58 landlord@sahilpay.test create_team_member team_member Team member 'qa_tester_1783083502' (qa.tester.1783083502@sahilpay.test) created. Credentials email sent." [ref=f5e139] [cursor=pointer]:
+                      - cell "03 Jul 2026, 12:58" [ref=f5e140]
+                      - cell "landlord@sahilpay.test" [ref=f5e141]
+                      - cell "create_team_member" [ref=f5e142]
+                      - cell "team_member" [ref=f5e143]
+                      - cell "Team member 'qa_tester_1783083502' (qa.tester.1783083502@sahilpay.test) created. Credentials email sent." [ref=f5e144]
+                - generic [ref=f5e146]:
+                  - generic [ref=f5e147]: Showing 1–13 of 13
+                  - generic [ref=f5e148]:
+                    - generic [ref=f5e149]: "Rows:"
+                    - combobox "Rows:" [ref=f5e150]:
+                      - option "25" [selected]
+                      - option "50"
+                      - option "100"
+                      - option "200"
+                      - option "500"
+                      - option "1000"
+  - dialog [ref=f5e266]:
+    - generic [ref=f5e267]:
+      - heading "Audit entry detail" [level=2] [ref=f5e268]
+      - button [ref=f5e269]:
+        - img [ref=f5e270]
+    - generic [ref=f5e274]:
+      - paragraph [ref=f5e275]: "Actor: Bianca Browser (browser.qa@sahilpay.test)"
+      - paragraph [ref=f5e276]: "Action: view"
+      - paragraph [ref=f5e277]: "Description: Viewed Tenants"
+      - paragraph [ref=f5e278]: "IP address: 127.0.0.1"

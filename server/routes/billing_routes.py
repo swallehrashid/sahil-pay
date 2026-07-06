@@ -87,10 +87,20 @@ def get_billing_summary():
     db.session.commit()
     package = landlord.package
 
+    # §9.3 the live per-SMS resale price this landlord pays when buying credits:
+    # custom rate if they've connected their own sender ID, else the default.
+    from services.sms_billing import load_rates
+    settings   = landlord.landlord_settings
+    uses_own   = bool(settings and settings.at_connected and settings.at_sender_id)
+    rates      = load_rates()
+    sms_price  = float(rates["custom_price"] if uses_own else rates["default_price"])
+
     return jsonify({
         "subscription":  subscription.to_dict() if subscription else None,
         "package":       package.to_dict()      if package      else None,
         "sms_balance":   landlord.sms_balance,
+        "sms_unit_price": sms_price,
+        "sms_uses_own_sender": uses_own,
         "is_on_trial":   landlord.is_on_trial,
         "trial_ends_at": str(landlord.trial_ends_at) if landlord.trial_ends_at else None,
     }), 200
@@ -236,7 +246,14 @@ def buy_sms():
     if not payment_reference:
         return jsonify({"error": "payment_reference is required."}), 400
 
-    amount = (_SMS_PRICE_PER_CREDIT * sms_count).quantize(Decimal("0.01"))
+    # §9.3 reselling price: the admin-set custom rate for landlords who have
+    # connected their own Africa's Talking sender ID, else the default rate.
+    from services.sms_billing import load_rates
+    settings   = landlord.landlord_settings
+    uses_own   = bool(settings and settings.at_connected and settings.at_sender_id)
+    rates      = load_rates()
+    unit_price = rates["custom_price"] if uses_own else rates["default_price"]
+    amount     = (unit_price * sms_count).quantize(Decimal("0.01"))
 
     landlord.sms_balance += sms_count
 

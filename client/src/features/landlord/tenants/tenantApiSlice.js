@@ -36,7 +36,8 @@ export const tenantApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["Tenant", "Unit"],
     }),
     sendTenantReminder: builder.mutation({
-      query: (id) => ({ url: `/tenants/${id}/reminder`, method: "POST" }),
+      // #4 — body carries { channels: [...], message? } chosen at send time.
+      query: ({ id, ...body }) => ({ url: `/tenants/${id}/reminder`, method: "POST", body }),
     }),
     sendBulkReminder: builder.mutation({
       query: (body) => ({ url: "/tenants/bulk-reminder", method: "POST", body }),

@@ -1,0 +1,83 @@
+- generic [ref=f12e41]:
+  - complementary [ref=f12e42]:
+    - generic [ref=f12e44]: SahilPay
+    - navigation [ref=f12e45]:
+      - link "Dashboard" [ref=f12e46] [cursor=pointer]:
+        - /url: /landlord/dashboard
+        - img [ref=f12e48]
+        - generic [ref=f12e53]: Dashboard
+      - link "Invoices" [ref=f12e54] [cursor=pointer]:
+        - /url: /landlord/invoices
+        - img [ref=f12e56]
+        - generic [ref=f12e59]: Invoices
+      - link "Payments" [ref=f12e60] [cursor=pointer]:
+        - /url: /landlord/payments
+        - img [ref=f12e62]
+        - generic [ref=f12e65]: Payments
+      - link "Expenses" [ref=f12e66] [cursor=pointer]:
+        - /url: /landlord/expenses
+        - img [ref=f12e68]
+        - generic [ref=f12e70]: Expenses
+      - link "Tenants" [ref=f12e71] [cursor=pointer]:
+        - /url: /landlord/tenants
+        - img [ref=f12e73]
+        - generic [ref=f12e78]: Tenants
+      - link "Properties" [ref=f12e79] [cursor=pointer]:
+        - /url: /landlord/properties
+        - img [ref=f12e81]
+        - generic [ref=f12e85]: Properties
+      - link "Units" [ref=f12e86] [cursor=pointer]:
+        - /url: /landlord/units
+        - img [ref=f12e88]
+        - generic [ref=f12e91]: Units
+      - link "Utilities" [ref=f12e92] [cursor=pointer]:
+        - /url: /landlord/utilities
+        - img [ref=f12e94]
+        - generic [ref=f12e97]: Utilities
+      - link "Maintenance" [ref=f12e98] [cursor=pointer]:
+        - /url: /landlord/maintenance
+        - img [ref=f12e100]
+        - generic [ref=f12e102]: Maintenance
+      - link "Property Groups" [ref=f12e103] [cursor=pointer]:
+        - /url: /landlord/groups
+        - img [ref=f12e105]
+        - generic [ref=f12e110]: Property Groups
+      - link "Reports" [ref=f12e111] [cursor=pointer]:
+        - /url: /landlord/reports/statements
+        - img [ref=f12e113]
+        - generic [ref=f12e115]: Reports
+      - link "Communications" [ref=f12e116] [cursor=pointer]:
+        - /url: /landlord/communications
+        - img [ref=f12e118]
+        - generic [ref=f12e120]: Communications
+      - link "Tenant Messages" [ref=f12e121] [cursor=pointer]:
+        - /url: /landlord/messages
+        - img [ref=f12e123]
+        - generic [ref=f12e126]: Tenant Messages
+      - link "Notifications" [ref=f12e127] [cursor=pointer]:
+        - /url: /landlord/notifications
+        - img [ref=f12e129]
+        - generic [ref=f12e132]: Notifications
+      - link "Settings" [ref=f12e133] [cursor=pointer]:
+        - /url: /landlord/settings
+        - img [ref=f12e135]
+        - generic [ref=f12e138]: Settings
+    - generic [ref=f12e140]:
+      - paragraph [ref=f12e141]: landlord@sahilpay.test
+      - button "Log out" [ref=f12e142]:
+        - img [ref=f12e143]
+        - text: Log out
+  - generic [ref=f12e146]:
+    - generic [ref=f12e147]:
+      - link "0 SMS left" [ref=f12e148] [cursor=pointer]:
+        - /url: /landlord/settings/billing
+        - img [ref=f12e149]
+        - text: 0 SMS left
+      - button "4" [ref=f12e152]:
+        - img [ref=f12e153]
+        - generic [ref=f12e156]: "4"
+      - generic [ref=f12e157]:
+        - generic [ref=f12e158]: L
+        - generic [ref=f12e159]: landlord@sahilpay.test
+    - main [ref=f12e160]:
+      - generic [ref=f12e165]: SP

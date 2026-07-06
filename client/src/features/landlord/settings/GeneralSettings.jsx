@@ -14,6 +14,8 @@ import {
   useRunAutomationsMutation,
 } from "./settingsApiSlice";
 import { MPESA_TYPES, ACCOUNT_TYPES } from "@/utils/constants";
+import Textarea from "@/components/ui/Textarea";
+import AllocationPriorityEditor from "./AllocationPriorityEditor";
 
 // §4.14 — company branding, M-Pesa config, automation toggles and communication channels.
 export default function GeneralSettings() {
@@ -104,6 +106,24 @@ export default function GeneralSettings() {
           <Input label="Paybill/till number" value={form.mpesa_number ?? ""} onChange={update("mpesa_number")} />
         </div>
         <Input label="Default account number" value={form.default_account_number ?? ""} onChange={update("default_account_number")} />
+      </div>
+
+      <div className="glass space-y-4 p-6">
+        <div>
+          <h3 className="text-base font-medium text-white">Payments</h3>
+          <p className="text-xs text-white/40">What tenants see on the pay page, and how confirmed payments are auto-allocated.</p>
+        </div>
+        <Textarea
+          label="Payment instructions for tenants"
+          value={form.payment_instructions ?? ""}
+          onChange={update("payment_instructions")}
+          hint="Shown to tenants when they go to pay — e.g. how to use the paybill, what account number to enter, to send proof, etc."
+          rows={3}
+        />
+        <AllocationPriorityEditor
+          value={form.allocation_priority}
+          onChange={(csv) => setForm((f) => ({ ...f, allocation_priority: csv }))}
+        />
       </div>
 
       <div className="glass space-y-3 p-6">

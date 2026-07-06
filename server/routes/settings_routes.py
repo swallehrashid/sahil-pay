@@ -166,7 +166,24 @@ def sms_provider_settings():
 
     if request.method == "GET":
         db.session.commit()
-        return jsonify(ls.to_dict()), 200
+        # #2 — surface the landlord's live SMS balance, sender mode and the FIXED
+        # admin-set per-SMS price so the UI can show exactly what a send costs. The
+        # price is never landlord-editable: custom rate if they've connected their own
+        # sender ID, otherwise the shared-sender default rate.
+        from models import Landlord
+        from services.sms_billing import load_rates, DEFAULT_PLATFORM_SENDER
+        landlord = db.session.get(Landlord, landlord_id)
+        rates = load_rates()
+        has_own_sender = bool(getattr(ls, "at_sender_id", None) and getattr(ls, "at_api_key", None))
+        payload = ls.to_dict()
+        payload.update({
+            "sms_balance":   landlord.sms_balance if landlord else 0,
+            "sender_mode":   "custom" if has_own_sender else "default",
+            "sender_id":     getattr(ls, "at_sender_id", None) or DEFAULT_PLATFORM_SENDER,
+            "price_per_sms": float(rates["custom_price"] if has_own_sender else rates["default_price"]),
+            "currency":      landlord.currency if landlord else "KES",
+        })
+        return jsonify(payload), 200
 
     from decorators import _check_permission
     _check_permission("settings", "edit")

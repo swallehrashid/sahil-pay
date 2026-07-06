@@ -6,7 +6,7 @@ import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
-import { useGetGlobalTrialConfigQuery, useUpdateGlobalTrialConfigMutation, useUpdateLandlordTrialMutation } from "./adminTrialApiSlice";
+import { useGetGlobalTrialConfigQuery, useUpdateGlobalTrialConfigMutation, useUpdateLandlordTrialMutation, useRunTrialExpiryMutation } from "./adminTrialApiSlice";
 import { useGetAdminLandlordsQuery } from "./adminApiSlice";
 import { toRows } from "@/utils/tableAdapters";
 
@@ -23,6 +23,16 @@ export default function TrialConfig() {
   const { data: landlordsData } = useGetAdminLandlordsQuery();
   const [updateGlobal, { isLoading: isSaving }] = useUpdateGlobalTrialConfigMutation();
   const [updateLandlordTrial, { isLoading: isUpdatingLandlord }] = useUpdateLandlordTrialMutation();
+  const [runTrialExpiry, { isLoading: isRunningExpiry }] = useRunTrialExpiryMutation();
+
+  const handleRunExpiry = async () => {
+    try {
+      const res = await runTrialExpiry().unwrap();
+      toast(res.count > 0 ? `${res.count} trial(s) expired.` : "No trials were due to expire.", { type: "success" });
+    } catch {
+      toast("Could not run the trial expiry check.", { type: "error" });
+    }
+  };
 
   const [prevData, setPrevData] = useState();
   const [form, setForm] = useState(null);
@@ -87,6 +97,19 @@ export default function TrialConfig() {
           </Button>
         </div>
       </form>
+
+      <div className="glass flex flex-wrap items-center justify-between gap-4 p-6">
+        <div>
+          <h3 className="text-base font-medium text-white">Trial expiry sweep</h3>
+          <p className="text-sm text-white/50">
+            Ends every trial whose date has passed — moves the account to active billing, notifies the landlord, and logs it.
+            Runs automatically every day; use this to force the check now.
+          </p>
+        </div>
+        <Button variant="ghost" onClick={handleRunExpiry} isLoading={isRunningExpiry}>
+          Run expiry check
+        </Button>
+      </div>
 
       <form onSubmit={handleOverrideSubmit} className="glass space-y-4 p-6">
         <h3 className="text-base font-medium text-white">Per-landlord override</h3>

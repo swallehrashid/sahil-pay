@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Upload, Pencil, Trash2, ReceiptText } from "lucide-react";
+import { Plus, Upload, Pencil, Trash2, ReceiptText, Settings2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Dropdown from "@/components/ui/Dropdown";
@@ -9,6 +9,7 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { toast } from "@/components/ui/Toast";
 import RecordUtilityForm from "./RecordUtilityForm";
+import UtilityTypesManager from "./UtilityTypesManager";
 import BulkUploadUtilities from "./BulkUploadUtilities";
 import { useGetUtilityReadingsQuery, useCreateUtilityReadingMutation, useUpdateUtilityReadingMutation, useDeleteUtilityReadingMutation, useAddReadingToInvoiceMutation } from "./utilityApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
@@ -30,6 +31,7 @@ export default function UtilitiesPage() {
 
   const [active, setActive] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isTypesOpen, setIsTypesOpen] = useState(false);
   const [isBulkOpen, setIsBulkOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [billReading, setBillReading] = useState(null); // reading being added to an invoice
@@ -84,7 +86,8 @@ export default function UtilitiesPage() {
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
     { key: "item", header: "Item", render: (row) => row.utility_item },
     { key: "previous", header: "Previous", render: (row) => row.previous_reading ?? "—" },
-    { key: "current", header: "Current", render: (row) => row.current_reading },
+    { key: "current", header: "Current", render: (row) => row.current_reading ?? "—" },
+    { key: "amount", header: "Flat amount", render: (row) => (row.amount != null ? row.amount : "—") },
     { key: "invoice", header: "Invoice #", render: (row) => row.invoice_number ?? "Not invoiced" },
   ];
 
@@ -95,6 +98,9 @@ export default function UtilitiesPage() {
         subtitle="Meter readings across water, electricity, garbage and security"
         actions={
           <>
+            <Button variant="ghost" leftIcon={<Settings2 className="h-4 w-4" />} onClick={() => setIsTypesOpen(true)}>
+              Utility types
+            </Button>
             <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setIsBulkOpen(true)}>
               Bulk upload
             </Button>
@@ -191,6 +197,8 @@ export default function UtilitiesPage() {
           isSubmitting={isCreating || isUpdating}
         />
       </Modal>
+
+      <UtilityTypesManager isOpen={isTypesOpen} onClose={() => setIsTypesOpen(false)} />
 
       <BulkUploadUtilities isOpen={isBulkOpen} onClose={() => setIsBulkOpen(false)} properties={properties} units={units} />
 

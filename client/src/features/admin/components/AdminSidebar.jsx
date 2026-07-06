@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Tags, Clock, ShieldCheck, FileSearch, Bell, LogOut } from "lucide-react";
+import { LayoutDashboard, Building2, Home, Layers, Users, UserCog, Tags, MessageSquare, Clock, ShieldCheck, FileSearch, Bell, LogOut } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { ADMIN_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
@@ -7,7 +7,12 @@ import { useAuth } from "@/hooks/useAuth";
 const NAV_ITEMS = [
   { to: ADMIN_ROUTES.dashboard, label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, end: true },
   { to: ADMIN_ROUTES.landlords, label: "Landlords", icon: <Building2 className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.properties, label: "Properties", icon: <Home className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.units, label: "Units", icon: <Layers className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.tenants, label: "Tenants", icon: <Users className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.teamMembers, label: "Team members", icon: <UserCog className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.pricing, label: "Pricing", icon: <Tags className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.sms, label: "SMS", icon: <MessageSquare className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.trials, label: "Trials", icon: <Clock className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.impersonation, label: "Impersonation", icon: <ShieldCheck className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.audit, label: "Master Audit", icon: <FileSearch className="h-4 w-4" /> },

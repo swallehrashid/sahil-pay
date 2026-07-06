@@ -1,0 +1,9 @@
+- generic [ref=f25e4]:
+  - img [ref=f25e5]
+  - paragraph [ref=f25e8]: "404"
+  - heading "Page not found" [level=1] [ref=f25e9]
+  - paragraph [ref=f25e10]: The page you're looking for doesn't exist or has moved.
+  - link "Back to home" [ref=f25e11] [cursor=pointer]:
+    - /url: /
+    - button "Back to home" [ref=f25e12]:
+      - generic [ref=f25e13]: Back to home

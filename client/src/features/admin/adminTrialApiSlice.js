@@ -15,7 +15,16 @@ export const adminTrialApiSlice = apiSlice.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/admin/trials/landlords/${id}`, method: "PUT", body }),
       invalidatesTags: ["Trial", "AdminLandlord"],
     }),
+    runTrialExpiry: builder.mutation({
+      query: () => ({ url: "/admin/trials/expire-due", method: "POST" }),
+      invalidatesTags: ["Trial", "AdminLandlord"],
+    }),
   }),
 });
 
-export const { useGetGlobalTrialConfigQuery, useUpdateGlobalTrialConfigMutation, useUpdateLandlordTrialMutation } = adminTrialApiSlice;
+export const {
+  useGetGlobalTrialConfigQuery,
+  useUpdateGlobalTrialConfigMutation,
+  useUpdateLandlordTrialMutation,
+  useRunTrialExpiryMutation,
+} = adminTrialApiSlice;

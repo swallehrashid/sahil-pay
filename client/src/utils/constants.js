@@ -23,12 +23,16 @@ export const PERMISSION_MODULES = [
   "units",
   "properties",
   "messages",
+  "expenses",
+  "maintenance",
+  "reports",
+  "groups",
 ];
 
 export const MANAGER_SCOPE_TYPES = ["unit", "property", "group"];
 
 export const INVOICE_STATUSES = ["draft", "void", "open", "partial", "paid"];
-export const INVOICE_TYPES = ["rent", "utility", "penalty", "custom", "recurring"];
+export const INVOICE_TYPES = ["rent", "utility", "penalty", "custom", "recurring", "deposit"];
 
 export const PAYMENT_STATUSES = ["confirmed", "pending", "declined"];
 export const PAYMENT_SOURCES = ["mpesa", "co_pilot", "bank_statement", "manual"];
@@ -120,6 +124,7 @@ export const AUDIT_ENTITY_TYPES = [
   "maintenance",
   "landlord",
   "recurring_expense",
+  "page",
 ];
 
 export const ALERT_TYPES = ["payment", "report", "lease_expiry", "low_sms", "arrears"];
@@ -141,7 +146,8 @@ export const STATUS_BADGE_MAP = {
   void: { label: "Void", color: "rose" },
   open: { label: "Open", color: "indigo" },
   partial: { label: "Partial", color: "amber" },
-  paid: { label: "Paid", color: "emerald" },
+  // #7 — a fully-cleared invoice reads as "Confirmed" (auto-flips to paid on full allocation).
+  paid: { label: "Confirmed", color: "emerald" },
   confirmed: { label: "Confirmed", color: "emerald" },
   pending: { label: "Pending", color: "amber" },
   declined: { label: "Declined", color: "rose" },
