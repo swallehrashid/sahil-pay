@@ -17,6 +17,7 @@ const COLUMNS = [
     links: [
       { to: PUBLIC_ROUTES.about, label: "About" },
       { to: PUBLIC_ROUTES.contact, label: "Contact" },
+      { to: PUBLIC_ROUTES.becomeAffiliate, label: "Become an affiliate" },
       { to: AUTH_ROUTES.login, label: "Log in" },
     ],
   },

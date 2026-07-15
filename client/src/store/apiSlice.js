@@ -2,6 +2,7 @@ import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
 import { env } from "@/config/env";
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "@/utils/tokenStorage";
 import { getImpersonationTarget } from "@/utils/impersonationStorage";
+import { getDemoMode } from "@/utils/demoStorage";
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: env.apiBaseUrl,
@@ -15,6 +16,12 @@ const rawBaseQuery = fetchBaseQuery({
     // with a matching granted, non-expired ImpersonationRequest.
     const target = getImpersonationTarget();
     if (target?.landlordId) headers.set("X-Impersonate-Landlord", String(target.landlordId));
+    // Demo mode (DEMO_MODE_SPEC.md §5.2) — once a landlord/PM has entered
+    // their demo shadow, every request carries this so the backend's
+    // current_landlord_id() resolves to the shadow instead of their real
+    // account. Harmless to send unconditionally: the server only honors it
+    // for a landlord/PM caller with an existing shadow.
+    if (getDemoMode()?.active) headers.set("X-Demo-Mode", "1");
     return headers;
   },
 });
@@ -93,7 +100,6 @@ export const apiSlice = createApi({
     "Expense",
     "RecurringExpense",
     "Utility",
-    "UtilityType",
     "Maintenance",
     "Communication",
     "MessageTemplate",
@@ -106,6 +112,9 @@ export const apiSlice = createApi({
     "Trial",
     "Impersonation",
     "Settings",
+    "Onboarding",
+    "ChargeCategory",
+    "AllocationPriority",
     "Audit",
     "Notification",
     "Backup",
@@ -119,6 +128,16 @@ export const apiSlice = createApi({
     "TenantPortal",
     "TenantMessages",
     "TenantMessageThread",
+    "Affiliate",
+    "AffiliateReferral",
+    "AffiliateCommission",
+    "AffiliateWithdrawal",
+    "AdminAffiliate",
+    "AdminAffiliateWithdrawal",
+    "AdminAffiliateConfig",
+    "CopilotSettings",
+    "AdminCopilot",
+    "Demo",
   ],
   endpoints: () => ({}),
 });

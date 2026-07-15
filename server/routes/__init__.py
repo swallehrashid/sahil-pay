@@ -14,6 +14,7 @@ from .unit_routes             import unit_bp
 from .property_group_routes   import group_bp
 from .tenant_routes           import tenant_bp
 from .invoice_routes          import invoice_bp
+from .charge_category_routes  import charge_category_bp
 from .payment_routes          import payment_bp
 from .expense_routes          import expense_bp
 from .utility_routes          import utility_bp
@@ -22,6 +23,7 @@ from .report_routes           import report_bp
 from .communication_routes    import comms_bp
 from .document_routes         import document_bp
 from .settings_routes         import settings_bp
+from .demo_routes             import demo_bp
 from .team_routes             import team_bp
 from .billing_routes          import billing_bp
 from .mpesa_routes            import mpesa_bp
@@ -36,6 +38,12 @@ from .admin_impersonation_routes import admin_impersonation_bp
 from .notification_routes     import notification_bp
 from .tenant_message_routes   import tenant_message_bp
 from .public_routes           import public_bp
+from .webhook_routes          import webhook_bp
+from .admin_billing_routes    import admin_billing_bp
+from .affiliate_routes        import affiliate_bp
+from .admin_affiliate_routes  import admin_affiliate_bp
+from .copilot_routes          import copilot_bp
+from .admin_copilot_routes    import admin_copilot_bp
 
 
 def register_blueprints(app):
@@ -52,6 +60,7 @@ def register_blueprints(app):
     app.register_blueprint(group_bp)              # /api/property-groups
     app.register_blueprint(tenant_bp)             # /api/tenants
     app.register_blueprint(invoice_bp)            # /api/invoices
+    app.register_blueprint(charge_category_bp)    # /api/charge-categories
     app.register_blueprint(payment_bp)            # /api/payments
     app.register_blueprint(expense_bp)            # /api/expenses
     app.register_blueprint(utility_bp)            # /api/utilities
@@ -60,6 +69,7 @@ def register_blueprints(app):
     app.register_blueprint(comms_bp)              # /api/communications
     app.register_blueprint(document_bp)           # /api/documents
     app.register_blueprint(settings_bp)           # /api/settings
+    app.register_blueprint(demo_bp)               # /api/demo
     app.register_blueprint(team_bp)               # /api/team
     app.register_blueprint(billing_bp)            # /api/billing
     app.register_blueprint(mpesa_bp)              # /api/mpesa
@@ -77,6 +87,12 @@ def register_blueprints(app):
     app.register_blueprint(admin_sms_bp)          # /api/admin/sms
     app.register_blueprint(admin_trial_bp)        # /api/admin/trials
     app.register_blueprint(admin_impersonation_bp) # /api/admin/impersonation
+    app.register_blueprint(admin_billing_bp)      # /api/admin/billing-transactions
+    app.register_blueprint(admin_affiliate_bp)    # /api/admin/affiliates
+    app.register_blueprint(admin_copilot_bp)      # /api/admin/copilot
+
+    # ── Affiliate portal (self-registration + authenticated portal) ────────────
+    app.register_blueprint(affiliate_bp)          # /api/affiliate
 
     # ── Notifications (every role) ─────────────────────────────────────────────
     app.register_blueprint(notification_bp)       # /api/notifications
@@ -84,3 +100,9 @@ def register_blueprints(app):
 
     # ── Public marketing site (unauthenticated) ────────────────────────────────
     app.register_blueprint(public_bp)             # /api/public
+
+    # ── Provider webhooks (unauthenticated — Daraja callbacks) ─────────────────
+    app.register_blueprint(webhook_bp)            # /api/webhooks
+
+    # ── Co-Pilot SMS forwarder (device-token authenticated, not JWT) ───────────
+    app.register_blueprint(copilot_bp)            # /api/copilot

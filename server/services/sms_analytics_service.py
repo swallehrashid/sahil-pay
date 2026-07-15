@@ -74,6 +74,9 @@ def _usage_by_landlord() -> dict:
     """
     {landlord_id: {"spent","spent_shared","spent_own","cost"}} from delivered SMS.
     Segments (credits) are the unit of "spend"; cost is SahilPay's platform cost.
+    Demo shadow landlords (DEMO_MODE_SPEC.md §3.4) are excluded — their sends
+    never touch the shared pool or platform cost, and must not appear in
+    platform-wide SMS usage/revenue analytics.
     """
     rows = (
         db.session.query(
@@ -82,9 +85,11 @@ def _usage_by_landlord() -> dict:
             func.coalesce(func.sum(CommunicationLog.sms_segments), 0).label("segments"),
             func.coalesce(func.sum(CommunicationLog.platform_cost), 0).label("cost"),
         )
+        .join(Landlord, Landlord.id == CommunicationLog.landlord_id)
         .filter(
             CommunicationLog.message_type == MessageChannel.sms.value,
             CommunicationLog.status == CommunicationStatus.delivered.value,
+            Landlord.is_demo.is_(False),
         )
         .group_by(CommunicationLog.landlord_id, CommunicationLog.uses_own_sender)
         .all()
@@ -127,9 +132,11 @@ def _monthly_series(months: int = 6) -> list[dict]:
             func.coalesce(func.sum(CommunicationLog.platform_cost), 0).label("cost"),
             func.coalesce(func.sum(CommunicationLog.sms_segments), 0).label("spent"),
         )
+        .join(Landlord, Landlord.id == CommunicationLog.landlord_id)
         .filter(
             CommunicationLog.message_type == MessageChannel.sms.value,
             CommunicationLog.status == CommunicationStatus.delivered.value,
+            Landlord.is_demo.is_(False),
         )
         .group_by("month")
         .all()

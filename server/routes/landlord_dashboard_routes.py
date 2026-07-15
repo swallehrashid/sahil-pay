@@ -22,12 +22,18 @@ from flask_jwt_extended import jwt_required, get_jwt
 
 from extensions import db
 from models import (
-    Tenant, Invoice, Payment, Expense, Unit, Property,
+    Tenant, Invoice, InvoiceLineItem, Payment, Expense, Unit, Property,
     InvoiceStatus, PaymentStatus,
 )
 from decorators import require_landlord_or_team, get_current_landlord_id
 
 dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api/dashboard")
+
+# Charge-category ledger rules (spec §4.5): exclude synthetic credit re-applications
+# from "collected", and carried-forward b/f lines from "invoiced" (both re-present
+# money/debt already counted). NULL-safe so legacy rows with no source still count.
+_NOT_CREDIT = db.func.coalesce(Payment.source, "") != "credit"
+_NOT_BF = db.func.coalesce(InvoiceLineItem.subcategory, "") != "balance"
 
 
 # ---------------------------------------------------------------------------
@@ -91,16 +97,19 @@ def get_summary():
             Payment.is_deleted.is_(False),
             Payment.status == PaymentStatus.confirmed.value,
             Payment.payment_date >= month_start,
+            _NOT_CREDIT,
         )
         .scalar()
     )
 
     invoices_this_month = (
-        db.session.query(db.func.coalesce(db.func.sum(Invoice.total_amount), 0))
+        db.session.query(db.func.coalesce(db.func.sum(InvoiceLineItem.amount), 0))
+        .join(Invoice, InvoiceLineItem.invoice_id == Invoice.id)
         .filter(
             Invoice.landlord_id == landlord_id,
             Invoice.is_deleted.is_(False),
             Invoice.issue_date >= month_start,
+            _NOT_BF,
         )
         .scalar()
     )
@@ -216,7 +225,7 @@ def get_performance_graph():
         year  -= 1
     start_date = date(year, month, 1)
 
-    # Daily sums — Payments
+    # Daily sums — Payments (exclude synthetic credit re-applications)
     payments_rows = (
         db.session.query(
             Payment.payment_date.label("day"),
@@ -227,21 +236,24 @@ def get_performance_graph():
             Payment.is_deleted.is_(False),
             Payment.status == PaymentStatus.confirmed.value,
             Payment.payment_date >= start_date,
+            _NOT_CREDIT,
         )
         .group_by(Payment.payment_date)
         .all()
     )
 
-    # Daily sums — Invoices
+    # Daily sums — Invoices (exclude carried-forward b/f lines)
     invoice_rows = (
         db.session.query(
             Invoice.issue_date.label("day"),
-            db.func.coalesce(db.func.sum(Invoice.total_amount), 0).label("total"),
+            db.func.coalesce(db.func.sum(InvoiceLineItem.amount), 0).label("total"),
         )
+        .join(Invoice, InvoiceLineItem.invoice_id == Invoice.id)
         .filter(
             Invoice.landlord_id == landlord_id,
             Invoice.is_deleted.is_(False),
             Invoice.issue_date >= start_date,
+            _NOT_BF,
         )
         .group_by(Invoice.issue_date)
         .all()

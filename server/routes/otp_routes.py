@@ -24,7 +24,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, create_refresh_token
 
 from extensions import db, limiter
-from models import User, Tenant, OtpToken, UserRole, OtpChannel
+from models import User, Tenant, Landlord, OtpToken, UserRole, OtpChannel
 from services.sms_service  import send_otp_sms
 from services.email_service import send_otp_email
 
@@ -45,17 +45,24 @@ def _hash_code(code: str) -> str:
 
 
 def _find_tenant_by_identifier(identifier: str):
-    """Look up Tenant by phone or email (case-insensitive for email)."""
+    """
+    Look up Tenant by phone or email (case-insensitive for email). Excludes
+    tenants that belong to a demo shadow landlord (DEMO_MODE_SPEC.md §3.4) —
+    this is a public, unauthenticated lookup, so a demo tenant (even with its
+    obviously-fake seeded phone/email) must never be reachable here.
+    """
     identifier = identifier.strip()
     tenant = (
         Tenant.query
-        .filter(Tenant.phone == identifier, Tenant.is_deleted.is_(False))
+        .join(Landlord, Landlord.id == Tenant.landlord_id)
+        .filter(Tenant.phone == identifier, Tenant.is_deleted.is_(False), Landlord.is_demo.is_(False))
         .first()
     )
     if not tenant:
         tenant = (
             Tenant.query
-            .filter(Tenant.email == identifier.lower(), Tenant.is_deleted.is_(False))
+            .join(Landlord, Landlord.id == Tenant.landlord_id)
+            .filter(Tenant.email == identifier.lower(), Tenant.is_deleted.is_(False), Landlord.is_demo.is_(False))
             .first()
         )
     return tenant

@@ -23,7 +23,7 @@ export default function BankStatementUpload({ isOpen, onClose, onUploaded }) {
       formData.append("file", file);
       const result = await uploadStatement(formData).unwrap();
       toast("Statement uploaded — parsing in the background.", { type: "success" });
-      onUploaded?.(result?.id);
+      onUploaded?.(result?.upload_id);
       setFile(null);
       onClose();
     } catch {

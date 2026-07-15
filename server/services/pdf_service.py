@@ -196,6 +196,83 @@ def generate_tax_invoice_pdf(transaction, landlord) -> bytes:
     return render_pdf(html)
 
 
+def generate_affiliate_receipt_pdf(withdrawal) -> bytes:
+    """
+    KRA-compliant affiliate commission payout receipt — gross / withholding
+    tax / Sahil platform fee / net breakdown. Every figure is read from the
+    withdrawal row's own snapshotted columns (never live config), so a
+    receipt regenerated years later is byte-identical regardless of later
+    rate changes (AFFILIATE_PROGRAM_SPEC.md D11/D7/E24).
+    """
+    affiliate = withdrawal.affiliate
+    issued = withdrawal.processed_at.strftime("%d %b %Y") if withdrawal.processed_at else "—"
+    fee_label = f"{withdrawal.fee_value}%" if withdrawal.fee_type == "percent" else _money(withdrawal.fee_value)
+
+    style = """
+    <style>
+      .brand { font-size: 24px; font-weight: 700; color: #200497; letter-spacing: -0.5px; }
+      .brand-tag { color: #6b6b80; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+      .rcpt-title { text-align: right; }
+      .rcpt-title h2 { color:#200497; margin:0 0 4px; font-size:18px; font-weight:600; }
+      .block { margin-top: 18px; }
+      .foot { margin-top: 28px; border-top: 1px solid #e2e2e8; padding-top: 12px; }
+      .net-row td { font-weight: 700; border-top: 2px solid #1a1a2e; font-size: 14px; }
+    </style>
+    """
+
+    body = f"""
+    {style}
+    <div class="header" style="align-items:flex-start;">
+      <div>
+        <div class="brand">SahilPay</div>
+        <div class="brand-tag">Affiliate Program</div>
+      </div>
+      <div class="rcpt-title">
+        <h2>Affiliate Commission Payout Receipt</h2>
+        <div class="muted">Receipt No: <strong>{escape(withdrawal.receipt_number or '—')}</strong></div>
+        <div class="muted">Date paid: {issued}</div>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="muted">Paid to</div>
+      <strong>{escape(affiliate.full_name)}</strong><br/>
+      <span class="muted">National ID: {escape(affiliate.national_id or '—')}</span><br/>
+      <span class="muted">KRA PIN: {escape(affiliate.kra_pin or '—')}</span><br/>
+      <span class="muted">M-Pesa number: {escape(affiliate.mpesa_number or '—')}</span>
+    </div>
+
+    <table class="block">
+      <thead><tr><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
+      <tbody>
+        <tr><td>Gross commission withdrawn</td><td style="text-align:right;">{_money(withdrawal.gross_amount)}</td></tr>
+        <tr><td>Withholding tax ({withdrawal.wht_rate}%)</td><td style="text-align:right;">-{_money(withdrawal.wht_amount)}</td></tr>
+        <tr><td>SahilPay platform fee ({fee_label})</td><td style="text-align:right;">-{_money(withdrawal.fee_amount)}</td></tr>
+      </tbody>
+      <tfoot>
+        <tr class="net-row"><td>Net paid to affiliate</td><td style="text-align:right;">{_money(withdrawal.net_amount)}</td></tr>
+      </tfoot>
+    </table>
+
+    <table class="block">
+      <tbody>
+        <tr><td>M-Pesa transaction reference</td><td>{escape(withdrawal.mpesa_reference or '—')}</td></tr>
+        <tr><td>Withdrawal ID</td><td>#{withdrawal.id}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="foot muted">
+      Withholding tax deducted at source and remitted to KRA by SahilPay. This is a
+      system-generated receipt and is valid without a signature. Amounts are shown in KES.
+    </div>
+    """
+    html = (
+        f"<!doctype html><html><head><meta charset='utf-8'>{_BASE_STYLE}</head>"
+        f"<body>{body}</body></html>"
+    )
+    return render_pdf(html)
+
+
 def generate_tenant_statement_pdf(tenant) -> bytes:
     """Render a tenant's full running statement (invoices + payments, chronological) to PDF."""
     entries = []

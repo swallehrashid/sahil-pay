@@ -456,10 +456,11 @@ def make_celery(app: Flask | None = None) -> Celery:
 
     beat_schedule: dict = {}
 
-    # 1st of every month at 00:05 Africa/Nairobi — generate rent /
-    #   recurring-bill invoices for all landlords whose automation is on.
+    # 1st of every month at 00:05 Africa/Nairobi — month-end billing + rollover
+    #   for every landlord: carry unpaid balances forward and raise the single
+    #   monthly invoice per tenant (charge-category restructure, spec §3).
     beat_schedule["generate-monthly-invoices"] = {
-        "task": "tasks.billing_tasks.generate_monthly_invoices",
+        "task": "tasks.invoice_tasks.run_monthly_billing_all",
         "schedule": crontab(day_of_month="1", hour="0", minute="5"),
         "options": {"queue": "periodic"},
     }

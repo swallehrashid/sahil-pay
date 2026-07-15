@@ -28,6 +28,8 @@ __all__ = [
     "get_current_landlord_id",
     "_check_permission",
     "scope_to_accessible_properties",
+    "require_affiliate",
+    "get_current_affiliate_id",
 ]
 
 
@@ -39,6 +41,27 @@ def require_landlord_or_team():
     impersonated landlord's id for them — see utils.active_impersonation).
     """
     return require_role("landlord", "property_manager", "team_member", "system_admin")
+
+
+def require_affiliate():
+    """Decorator: only the affiliate role may call this route."""
+    return require_role("affiliate")
+
+
+def get_current_affiliate_id() -> int:
+    """
+    Resolve the effective affiliate_id for the current request, raising
+    ApiError(403) if the caller has no affiliate profile. Mirrors
+    get_current_landlord_id()'s contract for the affiliate portal.
+    """
+    user = get_jwt_user()
+    if user.affiliate_profile is None:
+        raise ApiError(
+            "This action requires an affiliate account.",
+            status=403,
+            code="no_affiliate_scope",
+        )
+    return user.affiliate_profile.id
 
 
 def get_current_landlord_id() -> int:

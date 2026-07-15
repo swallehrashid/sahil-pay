@@ -210,14 +210,40 @@ class BaseConfig:
     ENFORCE_EMAIL_VERIFICATION: bool = _env("ENFORCE_EMAIL_VERIFICATION", "true").lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------
-    # M-Pesa / Daraja — payment callbacks  (§2 Third-Party Integrations)
+    # M-Pesa / Daraja — platform paybill (MPESA_INTEGRATION_SPEC.md)
     # ------------------------------------------------------------------
-    MPESA_ENV: str = _env("MPESA_ENV", "sandbox")          # "sandbox" | "production"
-    MPESA_CONSUMER_KEY: str | None = _env("MPESA_CONSUMER_KEY")
-    MPESA_CONSUMER_SECRET: str | None = _env("MPESA_CONSUMER_SECRET")
-    MPESA_SHORTCODE: str | None = _env("MPESA_SHORTCODE")
-    MPESA_PASSKEY: str | None = _env("MPESA_PASSKEY")
-    MPESA_CALLBACK_BASE_URL: str | None = _env("MPESA_CALLBACK_BASE_URL")
+    # Platform-billing STK/C2B/B2C — landlord → Sahil's OWN paybill (subscriptions,
+    # SMS credits) and Sahil → affiliate's phone (B2C payouts). Distinct from any
+    # landlord's own paybill/till used to collect rent — rent never touches this
+    # shortcode (MPESA_INTEGRATION_SPEC.md D1).
+    DARAJA_BASE_URL: str = _env("DARAJA_BASE_URL", "https://sandbox.safaricom.co.ke")
+    PLATFORM_DARAJA_SHORTCODE: str | None = _env("PLATFORM_DARAJA_SHORTCODE")
+    PLATFORM_DARAJA_PASSKEY: str | None = _env("PLATFORM_DARAJA_PASSKEY")
+    PLATFORM_DARAJA_CONSUMER_KEY: str | None = _env("PLATFORM_DARAJA_CONSUMER_KEY")
+    PLATFORM_DARAJA_CONSUMER_SECRET: str | None = _env("PLATFORM_DARAJA_CONSUMER_SECRET")
+    PLATFORM_DARAJA_STK_CALLBACK_URL: str | None = _env("PLATFORM_DARAJA_STK_CALLBACK_URL")
+
+    # B2C (affiliate payouts) — created in the M-Pesa Organization portal.
+    PLATFORM_DARAJA_INITIATOR_NAME: str | None = _env("PLATFORM_DARAJA_INITIATOR_NAME")
+    PLATFORM_DARAJA_SECURITY_CREDENTIAL: str | None = _env("PLATFORM_DARAJA_SECURITY_CREDENTIAL")
+    PLATFORM_DARAJA_B2C_RESULT_URL: str | None = _env("PLATFORM_DARAJA_B2C_RESULT_URL")
+    PLATFORM_DARAJA_B2C_TIMEOUT_URL: str | None = _env("PLATFORM_DARAJA_B2C_TIMEOUT_URL")
+
+    # Comma-separated CIDR ranges allowed to hit /api/webhooks/daraja/*. Empty =
+    # allow all (local dev / testing). Production sets Safaricom's published
+    # callback IP ranges. See MPESA_INTEGRATION_SPEC.md §10.
+    DARAJA_ALLOWED_IPS: str = _env("DARAJA_ALLOWED_IPS", "")
+    TRUST_PROXY: bool = _env("TRUST_PROXY", "false").lower() in ("1", "true", "yes", "on")
+
+    # When True (default until the paybill/initiator credentials above are fully
+    # wired), STK push, C2B, and B2C are all SIMULATED: no external Daraja call is
+    # made, the transaction is verified synchronously as if Safaricom had just
+    # called back with success, and — because commission accrual
+    # (services/affiliate_service.py) only ever fires off a VERIFIED
+    # BillingTransaction — the whole affiliate pipeline is exercisable in dev/test
+    # without a live paybill. Set MPESA_SIMULATION_MODE=false to switch to real
+    # calls; nothing else changes. Mirrors COMMS_SIMULATION_MODE's contract exactly.
+    MPESA_SIMULATION_MODE: bool = _env("MPESA_SIMULATION_MODE", "true").lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------
     # Swagger — flasgger UI  (§2 API Docs)

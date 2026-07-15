@@ -29,6 +29,7 @@ export default function Sidebar({ items = [], isMobileOpen, onCloseMobile, heade
               key={item.to}
               to={item.to}
               end={item.end}
+              data-tour={item.dataTour}
               onClick={onCloseMobile}
               style={{ animationDelay: `${index * 50}ms` }}
               className={({ isActive }) =>

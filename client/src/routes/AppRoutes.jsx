@@ -7,15 +7,21 @@ import NotFound from "@/components/feedback/NotFound";
 import PublicLayout from "@/components/layout/PublicLayout";
 import LandlordNavbar from "@/features/landlord/components/LandlordNavbar";
 import LandlordSidebar from "@/features/landlord/components/LandlordSidebar";
+import TourProvider from "@/features/landlord/tutorials/TourProvider";
 import TeamMemberNavbar from "@/features/teamMember/components/TeamMemberNavbar";
 import TeamMemberSidebar from "@/features/teamMember/components/TeamMemberSidebar";
 import TeamMemberViewLogger from "@/features/teamMember/TeamMemberViewLogger";
 import AdminNavbar from "@/features/admin/components/AdminNavbar";
 import AdminSidebar from "@/features/admin/components/AdminSidebar";
 import AdminImpersonationBanner from "@/features/admin/components/AdminImpersonationBanner";
+import DemoModeBanner from "@/features/landlord/components/DemoModeBanner";
+import DemoBlockedPage from "@/features/landlord/components/DemoBlockedPage";
+import { getDemoMode } from "@/utils/demoStorage";
 import TenantNavbar from "@/features/tenant/components/TenantNavbar";
+import AffiliateNavbar from "@/features/affiliate/components/AffiliateNavbar";
+import AffiliateSidebar from "@/features/affiliate/components/AffiliateSidebar";
 import { USER_ROLES } from "@/utils/constants";
-import { PUBLIC_ROUTES, AUTH_ROUTES, LANDLORD_ROUTES, TEAM_ROUTES, TENANT_ROUTES, ADMIN_ROUTES, NOT_FOUND_ROUTE } from "@/config/routePaths";
+import { PUBLIC_ROUTES, AUTH_ROUTES, LANDLORD_ROUTES, TEAM_ROUTES, TENANT_ROUTES, ADMIN_ROUTES, AFFILIATE_ROUTES, NOT_FOUND_ROUTE } from "@/config/routePaths";
 
 // ---- Public ----
 const Home = lazy(() => import("@/features/public/Home"));
@@ -26,6 +32,7 @@ const Contact = lazy(() => import("@/features/public/Contact"));
 const FAQ = lazy(() => import("@/features/public/FAQ"));
 const PrivacyPolicy = lazy(() => import("@/features/public/PrivacyPolicy"));
 const TermsOfService = lazy(() => import("@/features/public/TermsOfService"));
+const AffiliateSignup = lazy(() => import("@/features/public/AffiliateSignup"));
 
 // ---- Auth ----
 const Login = lazy(() => import("@/features/auth/Login"));
@@ -55,6 +62,7 @@ const StatementsPage = lazy(() => import("@/features/landlord/reports/Statements
 const InsightsPage = lazy(() => import("@/features/landlord/reports/InsightsPage"));
 const CommunicationsPage = lazy(() => import("@/features/landlord/communications/CommunicationsPage"));
 const TenantMessagesInbox = lazy(() => import("@/features/landlord/messages/TenantMessagesInbox"));
+const TutorialsPage = lazy(() => import("@/features/landlord/tutorials/TutorialsPage"));
 
 // ---- Notifications (shared across all four portals) ----
 const NotificationsPage = lazy(() => import("@/features/notifications/NotificationsPage"));
@@ -72,12 +80,20 @@ const TeamManagement = lazy(() => import("@/features/landlord/settings/TeamManag
 const BillingSettings = lazy(() => import("@/features/landlord/settings/BillingSettings"));
 const SmsProviderSettings = lazy(() => import("@/features/landlord/settings/SmsProviderSettings"));
 const MpesaStatus = lazy(() => import("@/features/landlord/settings/MpesaStatus"));
+const CopilotSettings = lazy(() => import("@/features/landlord/settings/CopilotSettings"));
 const AuditTrail = lazy(() => import("@/features/landlord/settings/AuditTrail"));
 const ImpersonationRequests = lazy(() => import("@/features/landlord/settings/ImpersonationRequests"));
 
 // ---- Team Member (own pages only — data pages reuse the landlord components above) ----
 const TeamMemberDashboard = lazy(() => import("@/features/teamMember/TeamMemberDashboard"));
 const TeamMemberProfile = lazy(() => import("@/features/teamMember/TeamMemberProfile"));
+
+// ---- Affiliate ----
+const AffiliateDashboard = lazy(() => import("@/features/affiliate/AffiliateDashboard"));
+const AffiliateReferrals = lazy(() => import("@/features/affiliate/AffiliateReferrals"));
+const AffiliateEarnings = lazy(() => import("@/features/affiliate/AffiliateEarnings"));
+const AffiliateWithdrawals = lazy(() => import("@/features/affiliate/AffiliateWithdrawals"));
+const AffiliateProfile = lazy(() => import("@/features/affiliate/AffiliateProfile"));
 
 // ---- Tenant ----
 const TenantDashboard = lazy(() => import("@/features/tenant/TenantDashboard"));
@@ -102,15 +118,37 @@ const PropertyDetail = lazy(() => import("@/features/admin/PropertyDetail"));
 const PricingPackages = lazy(() => import("@/features/admin/PricingPackages"));
 const PackageDetail = lazy(() => import("@/features/admin/PackageDetail"));
 const SmsManagement = lazy(() => import("@/features/admin/SmsManagement"));
+const CopilotManagement = lazy(() => import("@/features/admin/CopilotManagement"));
 const TrialConfig = lazy(() => import("@/features/admin/TrialConfig"));
 const Impersonation = lazy(() => import("@/features/admin/Impersonation"));
 const MasterAuditLogs = lazy(() => import("@/features/admin/MasterAuditLogs"));
+const AffiliatesManagement = lazy(() => import("@/features/admin/AffiliatesManagement"));
+const AdminAffiliateDetail = lazy(() => import("@/features/admin/AdminAffiliateDetail"));
+const AffiliateWithdrawalsQueue = lazy(() => import("@/features/admin/AffiliateWithdrawalsQueue"));
+const AffiliateReports = lazy(() => import("@/features/admin/AffiliateReports"));
+const AffiliateProgramSettings = lazy(() => import("@/features/admin/AffiliateProgramSettings"));
 
 // Wraps a lazy page in the branded glass loader as its Suspense fallback.
 function withSuspense(Component) {
   return (
     <Suspense fallback={<RouteLoader />}>
       <Component />
+    </Suspense>
+  );
+}
+
+// Account-level settings pages are hidden from the nav in demo mode
+// (SettingsLayout.jsx) — this is the belt-and-braces guard for direct
+// navigation (DEMO_MODE_SPEC.md §5.6). Checked at render time (not just once)
+// so entering/exiting demo mode without a full reload still takes effect.
+function withDemoBlock(Component) {
+  function Guarded() {
+    if (getDemoMode()?.active) return <DemoBlockedPage />;
+    return <Component />;
+  }
+  return (
+    <Suspense fallback={<RouteLoader />}>
+      <Guarded />
     </Suspense>
   );
 }
@@ -132,17 +170,20 @@ function MobileTopBar({ onOpen }) {
 function LandlordLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   return (
-    <div className="app-bg flex min-h-screen">
-      <LandlordSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
-      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
-        <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
-        <LandlordNavbar />
-        <main className="min-w-0 flex-1 p-4 md:p-8">
-          <AdminImpersonationBanner />
-          <Outlet />
-        </main>
+    <TourProvider>
+      <div className="app-bg flex min-h-screen">
+        <LandlordSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
+          <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
+          <LandlordNavbar />
+          <main className="min-w-0 flex-1 p-4 md:p-8">
+            <AdminImpersonationBanner />
+            <DemoModeBanner />
+            <Outlet />
+          </main>
+        </div>
       </div>
-    </div>
+    </TourProvider>
   );
 }
 
@@ -190,6 +231,22 @@ function TenantLayout() {
   );
 }
 
+function AffiliateLayout() {
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  return (
+    <div className="app-bg flex min-h-screen">
+      <AffiliateSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
+        <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
+        <AffiliateNavbar />
+        <main className="min-w-0 flex-1 p-4 md:p-8">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+
 export default function AppRoutes() {
   return (
     <ErrorBoundary>
@@ -204,6 +261,7 @@ export default function AppRoutes() {
           <Route path={PUBLIC_ROUTES.faq} element={withSuspense(FAQ)} />
           <Route path={PUBLIC_ROUTES.privacy} element={withSuspense(PrivacyPolicy)} />
           <Route path={PUBLIC_ROUTES.terms} element={withSuspense(TermsOfService)} />
+          <Route path={PUBLIC_ROUTES.becomeAffiliate} element={withSuspense(AffiliateSignup)} />
         </Route>
 
         {/* Auth — pages wrap themselves in <AuthLayout>, so no shared layout route here */}
@@ -244,20 +302,22 @@ export default function AppRoutes() {
             <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
             <Route path="notifications/send" element={withSuspense(SendNotificationLandlord)} />
+            <Route path="tutorials" element={withSuspense(TutorialsPage)} />
 
             <Route path="settings" element={withSuspense(SettingsLayout)}>
               <Route index element={<Navigate to="general" replace />} />
               <Route path="general" element={withSuspense(GeneralSettings)} />
-              <Route path="backup" element={withSuspense(BackupSettings)} />
+              <Route path="backup" element={withDemoBlock(BackupSettings)} />
               <Route path="alerts" element={withSuspense(AlertSettings)} />
-              <Route path="account" element={withSuspense(AccountSettings)} />
+              <Route path="account" element={withDemoBlock(AccountSettings)} />
               <Route path="documents" element={withSuspense(DocumentTemplates)} />
-              <Route path="team" element={withSuspense(TeamManagement)} />
-              <Route path="billing" element={withSuspense(BillingSettings)} />
-              <Route path="sms-provider" element={withSuspense(SmsProviderSettings)} />
-              <Route path="mpesa" element={withSuspense(MpesaStatus)} />
+              <Route path="team" element={withDemoBlock(TeamManagement)} />
+              <Route path="billing" element={withDemoBlock(BillingSettings)} />
+              <Route path="sms-provider" element={withDemoBlock(SmsProviderSettings)} />
+              <Route path="mpesa" element={withDemoBlock(MpesaStatus)} />
+              <Route path="copilot" element={withDemoBlock(CopilotSettings)} />
               <Route path="audit" element={withSuspense(AuditTrail)} />
-              <Route path="impersonation-requests" element={withSuspense(ImpersonationRequests)} />
+              <Route path="impersonation-requests" element={withDemoBlock(ImpersonationRequests)} />
             </Route>
           </Route>
         </Route>
@@ -325,6 +385,19 @@ export default function AppRoutes() {
           </Route>
         </Route>
 
+        {/* Affiliate portal */}
+        <Route element={<ProtectedRoutes allowedRoles={[USER_ROLES.AFFILIATE]} />}>
+          <Route path={AFFILIATE_ROUTES.root} element={<AffiliateLayout />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={withSuspense(AffiliateDashboard)} />
+            <Route path="referrals" element={withSuspense(AffiliateReferrals)} />
+            <Route path="earnings" element={withSuspense(AffiliateEarnings)} />
+            <Route path="withdrawals" element={withSuspense(AffiliateWithdrawals)} />
+            <Route path="profile" element={withSuspense(AffiliateProfile)} />
+            <Route path="notifications" element={withSuspense(NotificationsPage)} />
+          </Route>
+        </Route>
+
         {/* System Admin portal */}
         <Route element={<ProtectedRoutes allowedRoles={[USER_ROLES.SYSTEM_ADMIN]} />}>
           <Route path={ADMIN_ROUTES.root} element={<AdminLayout />}>
@@ -343,11 +416,17 @@ export default function AppRoutes() {
             <Route path="pricing" element={withSuspense(PricingPackages)} />
             <Route path="pricing/:id" element={withSuspense(PackageDetail)} />
             <Route path="sms" element={withSuspense(SmsManagement)} />
+            <Route path="copilot" element={withSuspense(CopilotManagement)} />
             <Route path="trials" element={withSuspense(TrialConfig)} />
             <Route path="impersonation" element={withSuspense(Impersonation)} />
             <Route path="audit" element={withSuspense(MasterAuditLogs)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
             <Route path="notifications/send" element={withSuspense(SendNotificationAdmin)} />
+            <Route path="affiliates" element={withSuspense(AffiliatesManagement)} />
+            <Route path="affiliates/withdrawals" element={withSuspense(AffiliateWithdrawalsQueue)} />
+            <Route path="affiliates/reports" element={withSuspense(AffiliateReports)} />
+            <Route path="affiliates/settings" element={withSuspense(AffiliateProgramSettings)} />
+            <Route path="affiliates/:id" element={withSuspense(AdminAffiliateDetail)} />
           </Route>
         </Route>
 

@@ -33,6 +33,7 @@ NOTES
 from __future__ import annotations
 
 import enum
+import json
 from datetime import datetime
 from decimal import Decimal
 
@@ -137,6 +138,7 @@ class UserRole(str, enum.Enum):
     property_manager = "property_manager"
     team_member      = "team_member"
     tenant           = "tenant"
+    affiliate        = "affiliate"
 
 
 class AccountType(str, enum.Enum):
@@ -197,6 +199,7 @@ class InvoiceType(str, enum.Enum):
     custom    = "custom"
     recurring = "recurring"
     deposit   = "deposit"      # rent/utility/security deposits — allocated first bucket (#6)
+    monthly   = "monthly"      # the single per-tenant month-end invoice (rollover + auto-bill)
 
 
 class PaymentStatus(str, enum.Enum):
@@ -210,6 +213,13 @@ class PaymentSource(str, enum.Enum):
     co_pilot        = "co_pilot"
     bank_statement  = "bank_statement"
     manual          = "manual"
+    credit          = "credit"   # synthetic payment: re-applying a tenant's held advance/credit
+
+
+# Sources that represent re-application of money already received (not new cash).
+# Cash-received reports/statements must EXCLUDE these; the payments report (which
+# measures what was collected against each subcategory) still counts them.
+NON_CASH_PAYMENT_SOURCES = frozenset({"credit"})
 
 
 class BankStatementStatus(str, enum.Enum):
@@ -223,6 +233,25 @@ class MpesaTransactionStatus(str, enum.Enum):
     recorded  = "recorded"
     unmatched = "unmatched"
     pending   = "pending"
+
+
+class CopilotDeviceStatus(str, enum.Enum):
+    active  = "active"
+    revoked = "revoked"
+
+
+class CopilotParseStatus(str, enum.Enum):
+    """One CopilotMessage row's parse outcome — see services/copilot_service.py."""
+    parsed    = "parsed"      # a template matched and extracted fields
+    unparsed  = "unparsed"    # no active template matched → admin queue
+    duplicate = "duplicate"   # dedupe hit; stored for traceability, no side effects
+    rejected  = "rejected"    # e.g. landlord disabled, malformed payload
+
+
+class CopilotMatchStatus(str, enum.Enum):
+    matched   = "matched"     # tenant resolved (by account or phone)
+    unmatched = "unmatched"   # parsed fine but no tenant hit → landlord queue
+    n_a       = "n_a"         # not applicable (unparsed/duplicate/rejected)
 
 
 class ExpenseStatus(str, enum.Enum):
@@ -249,12 +278,26 @@ class UtilityItem(str, enum.Enum):
     security    = "security"
 
 
-# #6 — landlord-defined utility catalogue. Every chargeable line the landlord
-# tracks falls into one of these three buckets, which also drive auto-allocation.
-class UtilityCategory(str, enum.Enum):
-    deposit         = "deposit"          # e.g. rent deposit, water deposit, security deposit
-    balance         = "balance"          # arrears carried forward (rental balance, electricity balance…)
-    current_utility = "current_utility"  # this month's utilities (water, electricity, garbage, security, custom)
+# ── Charge-category restructure (backbone rework) — CATEGORY_RESTRUCTURE_SPEC.md
+# Every chargeable thing is a ChargeCategory (kind = utility | invoice). Each
+# category implicitly owns THREE subcategories (deposit / balance / current);
+# those are stamped on invoice line items, which is where money is invoiced,
+# allocated, rolled over and reported.
+class ChargeCategoryKind(str, enum.Enum):
+    utility = "utility"   # managed on the Utilities page
+    invoice = "invoice"   # managed on the Invoices page (rent, lease agreement, …)
+
+
+class SubCategory(str, enum.Enum):
+    deposit = "deposit"   # money held (refundable) — NEVER rolls over; excluded from income totals
+    balance = "balance"   # arrears carried forward from prior months
+    current = "current"   # this month's charge
+
+
+class LineItemStatus(str, enum.Enum):
+    open   = "open"
+    paid   = "paid"
+    rolled = "rolled"     # closed by month-end rollover — excluded from "outstanding" everywhere
 
 
 class MaintenanceStatus(str, enum.Enum):
@@ -341,6 +384,40 @@ class BillingTransactionStatus(str, enum.Enum):
     failed  = "failed"
 
 
+# ---------------------------------------------------------------------------
+# §10.6  Affiliate Program  (AFFILIATE_PROGRAM_SPEC.md)
+# ---------------------------------------------------------------------------
+
+class AffiliateStatus(str, enum.Enum):
+    pending   = "pending"     # signed up, awaiting admin approval
+    active    = "active"
+    suspended = "suspended"
+    rejected  = "rejected"
+
+
+class ReferralStatus(str, enum.Enum):
+    active    = "active"      # attributed; window not yet exhausted
+    completed = "completed"   # months_used == months_total
+    void      = "void"        # admin-detached / fraud
+
+
+class CommissionStatus(str, enum.Enum):
+    confirmed = "confirmed"   # counts toward balance
+    reversed  = "reversed"    # underlying payment reversed — nets to zero
+
+
+class WithdrawalStatus(str, enum.Enum):
+    requested  = "requested"
+    processing = "processing"
+    paid       = "paid"
+    rejected   = "rejected"
+
+
+class AffiliateFeeType(str, enum.Enum):
+    percent = "percent"
+    flat    = "flat"
+
+
 class TrialScope(str, enum.Enum):
     global_scope  = "global"        # "global" is a Python builtin; value stays "global"
     per_landlord  = "per_landlord"
@@ -392,6 +469,12 @@ class AuditEntityType(str, enum.Enum):
     notification       = "notification"
     settings           = "settings"
     document           = "document"
+    billing            = "billing"
+    affiliate            = "affiliate"
+    affiliate_referral   = "affiliate_referral"
+    affiliate_commission = "affiliate_commission"
+    affiliate_withdrawal = "affiliate_withdrawal"
+    copilot              = "copilot"
 
 
 class NotificationCategory(str, enum.Enum):
@@ -406,6 +489,13 @@ class NotificationCategory(str, enum.Enum):
     team_member_activated    = "team_member_activated"
     impersonation_requested  = "impersonation_requested"
     impersonation_granted    = "impersonation_granted"
+    affiliate_approved              = "affiliate_approved"
+    affiliate_commission_earned     = "affiliate_commission_earned"
+    affiliate_withdrawal_processed  = "affiliate_withdrawal_processed"
+    affiliate_new_referral          = "affiliate_new_referral"
+    copilot_payment_pending         = "copilot_payment_pending"
+    copilot_payment_unmatched       = "copilot_payment_unmatched"
+    copilot_device_paired           = "copilot_device_paired"
 
 
 class NotificationAudience(str, enum.Enum):
@@ -513,6 +603,9 @@ class User(TimestampMixin, Base):
                                        uselist=False, cascade="all, delete-orphan")
     tenant_profile      = relationship("Tenant",       back_populates="user",
                                        uselist=False, cascade="all, delete-orphan")
+    affiliate_profile   = relationship("Affiliate",    back_populates="user",
+                                       uselist=False, cascade="all, delete-orphan",
+                                       foreign_keys="Affiliate.user_id")
 
     # 1:N
     otp_tokens              = relationship("OtpToken",            back_populates="user")
@@ -585,7 +678,8 @@ class Landlord(TimestampMixin, Base):
     default_account_number = Column(String(50),  nullable=True)
     account_type           = Column(String(30),  nullable=True)    # enum AccountType
     payment_instructions   = Column(Text, nullable=True)           # free-text directives shown to tenants on the pay page
-    allocation_priority    = Column(String(255), nullable=True)    # CSV of allocation category keys, highest priority first
+    allocation_priority    = Column(String(255), nullable=True)    # DEPRECATED old CSV buckets — superseded by allocation_priority_json
+    allocation_priority_json = Column(Text, nullable=True)         # JSON array of "<category_id>:<subcategory>" keys, highest priority first
     default_tax_rate       = Column(Numeric(5, 2),  default=Decimal("7.50"), nullable=False)
     agent_code             = Column(String(50),  unique=True, nullable=True)
     sms_balance            = Column(Integer, default=0, nullable=False)
@@ -593,6 +687,23 @@ class Landlord(TimestampMixin, Base):
     package_id             = Column(Integer, ForeignKey("packages.id"), nullable=True, index=True)
     trial_ends_at          = Column(DateTime, nullable=True)
     is_on_trial            = Column(Boolean, default=True, nullable=False)
+    # §Affiliate program: the raw code typed at registration, kept even when it
+    # didn't resolve to an active affiliate — lets the admin grace-window tool
+    # (POST /api/admin/affiliates/attribute) fix a forgotten/mistyped code
+    # without DB surgery. See AFFILIATE_PROGRAM_SPEC.md D4/E3.
+    referral_code_entered = Column(String(12), nullable=True)
+    # Landlord onboarding/tutorials progress — JSON blob, shape owned by the
+    # frontend tutorials module (see ONBOARDING_TUTORIALS_SPEC.md §4.3).
+    onboarding_state_json = Column(Text, nullable=True)
+    # Demo mode (see DEMO_MODE_SPEC.md) — is_demo marks a hidden "shadow"
+    # landlord that holds example data; demo_owner_landlord_id points from
+    # that shadow back to the real landlord who owns it (at most one shadow
+    # per real landlord). Real landlords have is_demo=False and
+    # demo_owner_landlord_id=None.
+    is_demo                = Column(Boolean, default=False, nullable=False, index=True)
+    demo_owner_landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=True, unique=True, index=True)
+    demo_created_at        = Column(DateTime, nullable=True)
+    demo_last_reset_at     = Column(DateTime, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -620,7 +731,9 @@ class Landlord(TimestampMixin, Base):
     expenses             = relationship("Expense",            back_populates="landlord")
     recurring_expenses   = relationship("RecurringExpense",   back_populates="landlord")
     utility_readings     = relationship("UtilityReading",     back_populates="landlord")
-    utility_types        = relationship("LandlordUtilityType", back_populates="landlord")
+    charge_categories    = relationship("ChargeCategory",     back_populates="landlord")
+    balance_rollovers    = relationship("BalanceRollover",    back_populates="landlord")
+    credit_ledger        = relationship("CreditLedger",       back_populates="landlord")
     maintenance_requests = relationship("MaintenanceRequest", back_populates="landlord")
     message_templates    = relationship("MessageTemplate",    back_populates="landlord")
     communication_logs   = relationship("CommunicationLog",   back_populates="landlord")
@@ -634,6 +747,9 @@ class Landlord(TimestampMixin, Base):
     trial_configs        = relationship("TrialConfig",        back_populates="landlord")
     impersonation_requests = relationship("ImpersonationRequest", back_populates="landlord",
                                           foreign_keys="ImpersonationRequest.landlord_id")
+    affiliate_referral   = relationship("AffiliateReferral",  back_populates="landlord", uselist=False)
+    copilot_devices      = relationship("CopilotDevice",      back_populates="landlord")
+    copilot_messages     = relationship("CopilotMessage",     back_populates="landlord")
 
     def to_dict(self):
         return {
@@ -653,6 +769,7 @@ class Landlord(TimestampMixin, Base):
             "account_type":           self.account_type,
             "payment_instructions":   self.payment_instructions,
             "allocation_priority":    self.allocation_priority,
+            "allocation_priority_json": self.allocation_priority_json,
             "default_tax_rate":       _serialise(self.default_tax_rate),
             "agent_code":             self.agent_code,
             "sms_balance":            self.sms_balance,
@@ -660,9 +777,20 @@ class Landlord(TimestampMixin, Base):
             "package_id":             self.package_id,
             "trial_ends_at":          _serialise(self.trial_ends_at),
             "is_on_trial":            self.is_on_trial,
+            "referral_code_entered":  self.referral_code_entered,
+            "onboarding_state":       self._onboarding_state(),
+            "is_demo":                self.is_demo,
             "created_at":             _serialise(self.created_at),
             "updated_at":             _serialise(self.updated_at),
         }
+
+    def _onboarding_state(self):
+        if not self.onboarding_state_json:
+            return None
+        try:
+            return json.loads(self.onboarding_state_json)
+        except (TypeError, ValueError):
+            return None
 
 
 class TeamMember(TimestampMixin, Base):
@@ -1063,6 +1191,9 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
     rent_payment_penalty = Column(Numeric(10, 2), nullable=True)
     bank_payer_name      = Column(String(150), nullable=True)
     balance              = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    # Advance/credit held on the account (from overpayment). Auto-applied to the next
+    # invoice / monthly billing. Always equals the sum of the credit ledger (spec §1.5).
+    credit_balance       = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     lease_start_date     = Column(Date, nullable=True)
     lease_expiry_date    = Column(Date, nullable=True)
     move_in_date         = Column(Date, nullable=True)
@@ -1086,6 +1217,10 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
     unit_history         = relationship("TenantUnitHistory",  back_populates="tenant",
                                         cascade="all, delete-orphan")
     mpesa_transactions   = relationship("MpesaTransaction",   back_populates="tenant")
+    credit_ledger        = relationship("CreditLedger",       back_populates="tenant",
+                                        cascade="all, delete-orphan")
+    balance_rollovers    = relationship("BalanceRollover",    back_populates="tenant",
+                                        cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
@@ -1107,6 +1242,7 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
             "rent_payment_penalty": _serialise(self.rent_payment_penalty),
             "bank_payer_name":      self.bank_payer_name,
             "balance":              _serialise(self.balance),
+            "credit_balance":       _serialise(self.credit_balance),
             "lease_start_date":     _serialise(self.lease_start_date),
             "lease_expiry_date":    _serialise(self.lease_expiry_date),
             "move_in_date":         _serialise(self.move_in_date),
@@ -1246,9 +1382,23 @@ class InvoiceLineItem(TimestampMixin, Base):
     unit_price         = Column(Numeric(12, 2), nullable=False)
     amount             = Column(Numeric(12, 2), nullable=False)    # qty × unit_price
     utility_reading_id = Column(Integer, ForeignKey("utility_readings.id"), nullable=True, index=True)
+    # Charge-category restructure (spec §1.2): the (category, subcategory) this line
+    # bills, plus its own paid/status so payments allocate at the line level.
+    # category_id/subcategory are nullable for now — they become NOT NULL once every
+    # line-item writer stamps them (later phase).
+    category_id        = Column(Integer, ForeignKey("charge_categories.id"), nullable=True, index=True)
+    subcategory        = Column(String(10), nullable=True, index=True)   # enum SubCategory
+    amount_paid        = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    status             = Column(String(10), default="open", nullable=False)   # enum LineItemStatus
 
     invoice         = relationship("Invoice",        back_populates="line_items")
     utility_reading = relationship("UtilityReading", back_populates="line_items")
+    category        = relationship("ChargeCategory", back_populates="line_items")
+    payment_allocations = relationship("PaymentAllocation", back_populates="line_item")
+
+    @property
+    def remaining(self) -> Decimal:
+        return (self.amount or Decimal("0")) - (self.amount_paid or Decimal("0"))
 
     def to_dict(self):
         return {
@@ -1260,6 +1410,11 @@ class InvoiceLineItem(TimestampMixin, Base):
             "unit_price":         _serialise(self.unit_price),
             "amount":             _serialise(self.amount),
             "utility_reading_id": self.utility_reading_id,
+            "category_id":        self.category_id,
+            "subcategory":        self.subcategory,
+            "amount_paid":        _serialise(self.amount_paid),
+            "remaining":          _serialise(self.remaining),
+            "status":             self.status,
             "created_at":         _serialise(self.created_at),
             "updated_at":         _serialise(self.updated_at),
         }
@@ -1378,21 +1533,27 @@ class PaymentAllocation(TimestampMixin, Base):
     id               = Column(Integer, primary_key=True, autoincrement=True)
     payment_id       = Column(Integer, ForeignKey("payments.id"), nullable=False, index=True)
     invoice_id       = Column(Integer, ForeignKey("invoices.id"), nullable=False, index=True)
+    # Charge-category restructure (spec §1.3): allocation now targets a specific line
+    # item. Nullable for now; the (payment_id, invoice_id) unique constraint below is
+    # swapped for (payment_id, line_item_id) in the phase that rewrites create_payment.
+    line_item_id     = Column(Integer, ForeignKey("invoice_line_items.id"), nullable=True, index=True)
     amount_allocated = Column(Numeric(12, 2), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("payment_id", "invoice_id", name="uq_payment_allocations_payment_invoice"),
+        UniqueConstraint("payment_id", "line_item_id", name="uq_payment_allocations_payment_line_item"),
         CheckConstraint("amount_allocated > 0", name="ck_payment_allocations_positive"),
     )
 
-    payment = relationship("Payment", back_populates="payment_allocations")
-    invoice = relationship("Invoice", back_populates="payment_allocations")
+    payment   = relationship("Payment", back_populates="payment_allocations")
+    invoice   = relationship("Invoice", back_populates="payment_allocations")
+    line_item = relationship("InvoiceLineItem", back_populates="payment_allocations")
 
     def to_dict(self):
         return {
             "id":               self.id,
             "payment_id":       self.payment_id,
             "invoice_id":       self.invoice_id,
+            "line_item_id":     self.line_item_id,
             "amount_allocated": _serialise(self.amount_allocated),
             "created_at":       _serialise(self.created_at),
             "updated_at":       _serialise(self.updated_at),
@@ -1466,6 +1627,185 @@ class MpesaTransaction(TimestampMixin, Base):
             "created_date":     _serialise(self.created_date),
             "created_at":       _serialise(self.created_at),
             "updated_at":       _serialise(self.updated_at),
+        }
+
+
+# ===========================================================================
+# Co-Pilot — SMS-forwarder platform (COPILOT_PLATFORM_SPEC.md)
+# ===========================================================================
+#
+# A landlord installs the Co-Pilot Android app on their phone, pairs it with
+# an agent_code (Landlord.agent_code), and it forwards raw payment-confirmation
+# SMS text to POST /api/copilot/ingest. The pipeline (services/copilot_service.py)
+# parses the text against admin-managed SmsParserTemplate rows, matches the
+# result to a tenant, and creates a Payment through the SAME allocation_service
+# path manual payments use — never a direct balance write.
+# ===========================================================================
+
+class CopilotDevice(TimestampMixin, Base):
+    """One paired phone. Auth token is stored only as a sha256 hash — the raw
+    token is returned once, at pairing, and never persisted in the clear."""
+    __tablename__ = "copilot_devices"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id   = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    device_name   = Column(String(100), nullable=False)
+    device_model  = Column(String(100), nullable=True)
+    app_version   = Column(String(20),  nullable=True)
+    token_hash    = Column(String(64),  nullable=False, unique=True, index=True)
+    status        = Column(String(10),  default=CopilotDeviceStatus.active.value, nullable=False)
+    sender_ids    = Column(Text, nullable=True)   # JSON array of sender IDs this device forwards
+    last_seen_at  = Column(DateTime, nullable=True)
+    revoked_at    = Column(DateTime, nullable=True)
+    revoked_by    = Column(String(20), nullable=True)   # 'landlord' | 'admin'
+
+    landlord = relationship("Landlord", back_populates="copilot_devices")
+    messages = relationship("CopilotMessage", back_populates="device")
+
+    def to_dict(self):
+        import json as _json
+        try:
+            sender_ids = _json.loads(self.sender_ids) if self.sender_ids else []
+        except (ValueError, TypeError):
+            sender_ids = []
+        return {
+            "id":            self.id,
+            "landlord_id":   self.landlord_id,
+            "device_name":   self.device_name,
+            "device_model":  self.device_model,
+            "app_version":   self.app_version,
+            "status":        self.status,
+            "sender_ids":    sender_ids,
+            "last_seen_at":  _serialise(self.last_seen_at),
+            "revoked_at":    _serialise(self.revoked_at),
+            "revoked_by":    self.revoked_by,
+            "created_at":    _serialise(self.created_at),
+            "updated_at":    _serialise(self.updated_at),
+        }
+
+
+class SmsParserTemplate(TimestampMixin, Base):
+    """
+    Admin-managed placeholder pattern for one bank/sender's SMS shape — the
+    "no backend change per bank" registry. Global scope: a KCB alert reads
+    the same for every landlord, so there is no landlord_id here.
+    """
+    __tablename__ = "sms_parser_templates"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(100), nullable=False)
+    sender_id     = Column(String(30),  nullable=False, index=True)
+    template_text = Column(Text, nullable=False)
+    sample_text   = Column(Text, nullable=True)
+    is_active     = Column(Boolean, default=True, nullable=False)
+    priority      = Column(Integer, default=100, nullable=False)
+    created_by    = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "name":          self.name,
+            "sender_id":     self.sender_id,
+            "template_text": self.template_text,
+            "sample_text":   self.sample_text,
+            "is_active":     self.is_active,
+            "priority":      self.priority,
+            "created_by":    self.created_by,
+            "created_at":    _serialise(self.created_at),
+            "updated_at":    _serialise(self.updated_at),
+        }
+
+
+class CopilotMessage(CreatedAtMixin, Base):
+    """
+    One row per SMS ever forwarded by a Co-Pilot device, whatever the outcome —
+    the audit backbone for both the landlord's own activity feed and the
+    admin's global ingest log. Append-only (no updated_at).
+    """
+    __tablename__ = "copilot_messages"
+
+    id                   = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id          = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    device_id            = Column(Integer, ForeignKey("copilot_devices.id"), nullable=False, index=True)
+    client_uuid          = Column(String(40), nullable=False)
+    sender_id            = Column(String(30), nullable=False, index=True)
+    raw_text             = Column(Text, nullable=False)
+    sms_received_at      = Column(DateTime, nullable=True)
+    dedupe_hash          = Column(String(64), nullable=False, index=True)
+    parse_status         = Column(String(12), nullable=False)
+    match_status         = Column(String(12), nullable=False, default=CopilotMatchStatus.n_a.value)
+    template_id          = Column(Integer, ForeignKey("sms_parser_templates.id"), nullable=True)
+    parsed_ref           = Column(String(40),  nullable=True, index=True)
+    parsed_amount        = Column(Numeric(12, 2), nullable=True)
+    parsed_name          = Column(String(120), nullable=True)
+    parsed_account       = Column(String(50),  nullable=True)
+    parsed_phone         = Column(String(20),  nullable=True)
+    error_reason         = Column(String(255), nullable=True)
+    tenant_id            = Column(Integer, ForeignKey("tenants.id"),   nullable=True, index=True)
+    payment_id           = Column(Integer, ForeignKey("payments.id"),  nullable=True, index=True)
+    mpesa_transaction_id = Column(Integer, ForeignKey("mpesa_transactions.id"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("device_id", "client_uuid", name="uq_copilot_messages_device_uuid"),
+    )
+
+    landlord         = relationship("Landlord",       back_populates="copilot_messages")
+    device           = relationship("CopilotDevice",  back_populates="messages")
+    template         = relationship("SmsParserTemplate")
+    tenant           = relationship("Tenant")
+    payment          = relationship("Payment")
+    mpesa_transaction = relationship("MpesaTransaction")
+
+    def to_dict(self, include_raw: bool = True):
+        return {
+            "id":               self.id,
+            "landlord_id":      self.landlord_id,
+            "device_id":        self.device_id,
+            "client_uuid":      self.client_uuid,
+            "sender_id":        self.sender_id,
+            "raw_text":         self.raw_text if include_raw else None,
+            "sms_received_at":  _serialise(self.sms_received_at),
+            "parse_status":     self.parse_status,
+            "match_status":     self.match_status,
+            "template_id":      self.template_id,
+            "parsed_ref":       self.parsed_ref,
+            "parsed_amount":    _serialise(self.parsed_amount),
+            "parsed_name":      self.parsed_name,
+            "parsed_account":   self.parsed_account,
+            "parsed_phone":     self.parsed_phone,
+            "error_reason":     self.error_reason,
+            "tenant_id":        self.tenant_id,
+            "payment_id":       self.payment_id,
+            "mpesa_transaction_id": self.mpesa_transaction_id,
+            "created_at":       _serialise(self.created_at),
+        }
+
+
+class CopilotAppRelease(CreatedAtMixin, Base):
+    """One uploaded Co-Pilot APK build. Admin manages these; the app's
+    heartbeat/latest-version check reads whichever row has is_latest=True."""
+    __tablename__ = "copilot_app_releases"
+
+    id                          = Column(Integer, primary_key=True, autoincrement=True)
+    version_name                = Column(String(20), nullable=False)
+    version_code                = Column(Integer, nullable=False, unique=True)
+    apk_path                    = Column(String(255), nullable=False)
+    release_notes               = Column(Text, nullable=True)
+    is_latest                   = Column(Boolean, default=False, nullable=False)
+    min_supported_version_code  = Column(Integer, nullable=True)
+    uploaded_by                 = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    def to_dict(self):
+        return {
+            "id":                          self.id,
+            "version_name":                self.version_name,
+            "version_code":                self.version_code,
+            "apk_path":                    self.apk_path,
+            "release_notes":               self.release_notes,
+            "is_latest":                   self.is_latest,
+            "min_supported_version_code":  self.min_supported_version_code,
+            "uploaded_by":                 self.uploaded_by,
+            "created_at":                  _serialise(self.created_at),
         }
 
 
@@ -1599,8 +1939,9 @@ class UtilityReading(TimestampMixin, Base):
     property_id      = Column(Integer, ForeignKey("properties.id"), nullable=False, index=True)
     unit_id          = Column(Integer, ForeignKey("units.id"),      nullable=False, index=True)
     utility_item     = Column(String(80), nullable=False)     # enum UtilityItem or a landlord utility-type name
-    # #6 — optional link to the landlord's utility catalogue (nullable for legacy rows).
-    utility_type_id  = Column(Integer, ForeignKey("landlord_utility_types.id"), nullable=True, index=True)
+    # The utility ChargeCategory this reading bills — its invoice line inherits this
+    # category with subcategory=current (spec §1.7).
+    category_id      = Column(Integer, ForeignKey("charge_categories.id"), nullable=True, index=True)
     previous_reading = Column(Numeric(12, 2), nullable=True)
     # #8 — nullable: non-metered utilities (garbage, security, custom flat charges) carry
     # no meter readings and are billed as a flat `amount` instead.
@@ -1620,7 +1961,7 @@ class UtilityReading(TimestampMixin, Base):
     )
 
     landlord = relationship("Landlord", back_populates="utility_readings")
-    utility_type = relationship("LandlordUtilityType")
+    category = relationship("ChargeCategory")
     property = relationship("Property", back_populates="utility_readings")
     unit     = relationship("Unit",     back_populates="utility_readings")
     invoice  = relationship("Invoice",  back_populates="utility_readings")
@@ -1633,7 +1974,7 @@ class UtilityReading(TimestampMixin, Base):
             "property_id":      self.property_id,
             "unit_id":          self.unit_id,
             "utility_item":     self.utility_item,
-            "utility_type_id":  self.utility_type_id,
+            "category_id":      self.category_id,
             "previous_reading": _serialise(self.previous_reading),
             "current_reading":  _serialise(self.current_reading),
             "amount":           _serialise(self.amount),
@@ -1645,38 +1986,146 @@ class UtilityReading(TimestampMixin, Base):
         }
 
 
-class LandlordUtilityType(TimestampMixin, Base):
+class ChargeCategory(TimestampMixin, Base):
     """
-    §8.x (#6) — the landlord's own catalogue of chargeable utilities/charges.
-    Each entry is tagged with one of the three UtilityCategory buckets so it can
-    be invoiced, auto-allocated and reported on individually. Landlords create
-    and manage these themselves (water/electricity/garbage/security are seeded).
+    Charge-category restructure (spec §1.1) — the landlord's unified catalogue of
+    chargeable things. `kind` distinguishes utility-page vs invoice-page categories.
+    Every category implicitly owns three subcategories (deposit / balance / current)
+    — an enum stamped on invoice line items, NOT separate rows — so nothing can
+    delete or desync a subcategory. Replaces LandlordUtilityType.
     """
-    __tablename__ = "landlord_utility_types"
+    __tablename__ = "charge_categories"
+
+    id                = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id       = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    name              = Column(String(80), nullable=False)          # "Water", "Rent"
+    kind              = Column(String(10), nullable=False)          # enum ChargeCategoryKind
+    description       = Column(Text, nullable=True)
+    is_metered        = Column(Boolean, default=False, nullable=False)   # utility kind only
+    default_rate      = Column(Numeric(12, 2), nullable=True)
+    auto_bill_monthly = Column(Boolean, default=False, nullable=False)   # non-metered only
+    is_default        = Column(Boolean, default=False, nullable=False)   # protected: deactivatable, never deletable
+    is_active         = Column(Boolean, default=True, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("landlord_id", "name", name="uq_charge_categories_landlord_name"),
+        # Metered amounts are unpredictable, so they can't be auto-billed on the 1st.
+        CheckConstraint("NOT (is_metered AND auto_bill_monthly)",
+                        name="ck_charge_categories_metered_not_autobill"),
+    )
+
+    landlord   = relationship("Landlord", back_populates="charge_categories")
+    line_items = relationship("InvoiceLineItem", back_populates="category")
+
+    def subcategory_display(self) -> dict:
+        """Derived display names for the three implicit subcategories."""
+        return {
+            "deposit": f"{self.name} Deposit",
+            "balance": f"{self.name} Balance",
+            "current": self.name,
+        }
+
+    def to_dict(self):
+        names = self.subcategory_display()
+        return {
+            "id":                self.id,
+            "landlord_id":       self.landlord_id,
+            "name":              self.name,
+            "kind":              self.kind,
+            "description":       self.description,
+            "is_metered":        self.is_metered,
+            "default_rate":      _serialise(self.default_rate),
+            "auto_bill_monthly": self.auto_bill_monthly,
+            "is_default":        self.is_default,
+            "is_active":         self.is_active,
+            "subcategories":     [
+                {"subcategory": s, "label": names[s]}
+                for s in ("deposit", "balance", "current")
+            ],
+            "created_at":        _serialise(self.created_at),
+            "updated_at":        _serialise(self.updated_at),
+        }
+
+
+class BalanceRollover(TimestampMixin, Base):
+    """
+    Charge-category restructure (spec §1.4) — audit trail answering "where did this
+    carried-forward balance come from?". Each row records that `amount` from a source
+    line item (a prior current/balance line closed at month-end) was carried into a
+    new "{Category} Balance b/f" target line, tagged with the month the debt
+    ORIGINALLY arose. The unique constraint on source_line_item_id makes rollover
+    idempotent (a source can only ever roll once).
+    """
+    __tablename__ = "balance_rollovers"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id         = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    tenant_id           = Column(Integer, ForeignKey("tenants.id"),   nullable=False, index=True)
+    category_id         = Column(Integer, ForeignKey("charge_categories.id"), nullable=False, index=True)
+    source_line_item_id = Column(Integer, ForeignKey("invoice_line_items.id"), nullable=False)
+    target_line_item_id = Column(Integer, ForeignKey("invoice_line_items.id"), nullable=False, index=True)
+    origin_month        = Column(Date, nullable=False)     # month the debt ORIGINALLY arose
+    amount              = Column(Numeric(12, 2), nullable=False)
+
+    __table_args__ = (
+        # One row per (source line, origin month): a balance line carrying several
+        # origin-month components forward gets one row each, while re-running the
+        # rollover for the same source is blocked (idempotency). See spec §1.4.
+        UniqueConstraint("source_line_item_id", "origin_month",
+                         name="uq_balance_rollovers_source_origin"),
+    )
+
+    landlord         = relationship("Landlord", back_populates="balance_rollovers")
+    tenant           = relationship("Tenant",   back_populates="balance_rollovers")
+    category         = relationship("ChargeCategory")
+    source_line_item = relationship("InvoiceLineItem", foreign_keys=[source_line_item_id])
+    target_line_item = relationship("InvoiceLineItem", foreign_keys=[target_line_item_id])
+
+    def to_dict(self):
+        return {
+            "id":                  self.id,
+            "landlord_id":         self.landlord_id,
+            "tenant_id":           self.tenant_id,
+            "category_id":         self.category_id,
+            "source_line_item_id": self.source_line_item_id,
+            "target_line_item_id": self.target_line_item_id,
+            "origin_month":        _serialise(self.origin_month),
+            "amount":              _serialise(self.amount),
+            "created_at":          _serialise(self.created_at),
+            "updated_at":          _serialise(self.updated_at),
+        }
+
+
+class CreditLedger(TimestampMixin, Base):
+    """
+    Charge-category restructure (spec §1.5) — signed movements of a tenant's advance/
+    credit. `amount` is + on a top-up (overpayment remainder) and − on application to
+    a line item. Tenant.credit_balance always equals the sum of these rows.
+    """
+    __tablename__ = "credit_ledger"
 
     id           = Column(Integer, primary_key=True, autoincrement=True)
     landlord_id  = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
-    name         = Column(String(80),  nullable=False)
-    category     = Column(String(20),  nullable=False)   # enum UtilityCategory
-    is_metered   = Column(Boolean, default=False, nullable=False)
-    default_rate = Column(Numeric(12, 2), nullable=True)
-    is_active    = Column(Boolean, default=True, nullable=False)
+    tenant_id    = Column(Integer, ForeignKey("tenants.id"),   nullable=False, index=True)
+    amount       = Column(Numeric(12, 2), nullable=False)      # + top-up, − application
+    payment_id   = Column(Integer, ForeignKey("payments.id"), nullable=True, index=True)
+    line_item_id = Column(Integer, ForeignKey("invoice_line_items.id"), nullable=True, index=True)
+    memo         = Column(String(200), nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint("landlord_id", "name", name="uq_landlord_utility_types_landlord_name"),
-    )
-
-    landlord = relationship("Landlord", back_populates="utility_types")
+    landlord  = relationship("Landlord", back_populates="credit_ledger")
+    tenant    = relationship("Tenant",   back_populates="credit_ledger")
+    payment   = relationship("Payment")
+    line_item = relationship("InvoiceLineItem")
 
     def to_dict(self):
         return {
             "id":           self.id,
             "landlord_id":  self.landlord_id,
-            "name":         self.name,
-            "category":     self.category,
-            "is_metered":   self.is_metered,
-            "default_rate": _serialise(self.default_rate),
-            "is_active":    self.is_active,
+            "tenant_id":    self.tenant_id,
+            "amount":       _serialise(self.amount),
+            "payment_id":   self.payment_id,
+            "line_item_id": self.line_item_id,
+            "memo":         self.memo,
             "created_at":   _serialise(self.created_at),
             "updated_at":   _serialise(self.updated_at),
         }
@@ -2018,6 +2467,16 @@ class BillingTransaction(TimestampMixin, Base):
     """
     §10.2  Ledger of payments landlord makes to the platform.
     Schema-level: sms_count >= 100 when type == 'sms_purchase'.
+
+    Affiliate-program prerequisite (AFFILIATE_PROGRAM_SPEC.md §3): a subscription
+    transaction only becomes commissionable once is_verified=True — either a
+    confirmed Daraja STK callback on Sahil's own paybill, or an explicit admin
+    manual-verify. The legacy self-reported payment_reference flow (pay_subscription)
+    still marks status='paid' immediately for UX continuity, but leaves
+    is_verified=False, so it can NEVER trigger affiliate commission on its own.
+    context_json carries the pending activation intent (billing_cycle, package_id,
+    months, discount) for the STK path, applied only once verification lands
+    (services/billing_service.py::finalize_subscription_payment).
     """
     __tablename__ = "billing_transactions"
 
@@ -2029,6 +2488,16 @@ class BillingTransaction(TimestampMixin, Base):
     payment_reference = Column(String(50), nullable=True)
     status            = Column(String(15), nullable=True)     # enum BillingTransactionStatus
     tax_invoice_url   = Column(String(255), nullable=True)    # generated PDF
+
+    context_json          = Column(JSON, nullable=True)       # pending STK activation intent
+    is_verified            = Column(Boolean, default=False, nullable=False)
+    verified_at             = Column(DateTime, nullable=True)
+    verified_by_admin_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    is_reversed             = Column(Boolean, default=False, nullable=False)
+    reversed_at              = Column(DateTime, nullable=True)
+    reversed_by_admin_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reversal_reason          = Column(String(255), nullable=True)
 
     landlord = relationship("Landlord", back_populates="billing_transactions")
 
@@ -2042,8 +2511,250 @@ class BillingTransaction(TimestampMixin, Base):
             "payment_reference": self.payment_reference,
             "status":            self.status,
             "tax_invoice_url":   self.tax_invoice_url,
+            "is_verified":       self.is_verified,
+            "verified_at":       _serialise(self.verified_at),
+            "verified_by_admin_id": self.verified_by_admin_id,
+            "is_reversed":       self.is_reversed,
+            "reversed_at":       _serialise(self.reversed_at),
+            "reversal_reason":   self.reversal_reason,
             "created_at":        _serialise(self.created_at),
             "updated_at":        _serialise(self.updated_at),
+        }
+
+
+class Affiliate(TimestampMixin, Base):
+    """
+    §10.6  Affiliate Program — referrer profile.
+    See AFFILIATE_PROGRAM_SPEC.md §4.2. Balance is NEVER stored here — it is
+    always derived (services/affiliate_service.py::get_balance) from
+    confirmed commissions minus non-rejected withdrawals (D-decisions §2, R7
+    in the ledger backtest).
+    """
+    __tablename__ = "affiliates"
+
+    id                          = Column(Integer, primary_key=True, autoincrement=True)
+    user_id                     = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    full_name                   = Column(String(120), nullable=False)
+    phone                       = Column(String(20), nullable=False)
+    mpesa_number                = Column(String(20), nullable=True)   # required before first withdrawal
+    national_id                 = Column(String(30), nullable=True)   # required before first withdrawal (KRA)
+    kra_pin                     = Column(String(20), nullable=True)   # optional, shown on receipts when present
+    referral_code                = Column(String(12), unique=True, nullable=False, index=True)
+    status                       = Column(String(12), nullable=False, default=AffiliateStatus.pending.value)
+    commission_rate_override     = Column(Numeric(5, 2), nullable=True)   # null → program default
+    commission_months_override   = Column(Integer, nullable=True)         # null → program default
+    approved_by_admin_id         = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at                  = Column(DateTime, nullable=True)
+    notes                        = Column(Text, nullable=True)   # admin-only
+
+    user      = relationship("User", back_populates="affiliate_profile", foreign_keys=[user_id])
+    referrals    = relationship("AffiliateReferral",  back_populates="affiliate")
+    commissions  = relationship("AffiliateCommission", back_populates="affiliate")
+    withdrawals  = relationship("AffiliateWithdrawal", back_populates="affiliate")
+
+    def to_dict(self):
+        return {
+            "id":                        self.id,
+            "user_id":                   self.user_id,
+            "full_name":                 self.full_name,
+            "phone":                     self.phone,
+            "mpesa_number":              self.mpesa_number,
+            "national_id":               self.national_id,
+            "kra_pin":                   self.kra_pin,
+            "referral_code":             self.referral_code,
+            "status":                    self.status,
+            "commission_rate_override":  _serialise(self.commission_rate_override),
+            "commission_months_override": self.commission_months_override,
+            "approved_by_admin_id":      self.approved_by_admin_id,
+            "approved_at":               _serialise(self.approved_at),
+            "notes":                     self.notes,
+            "created_at":                _serialise(self.created_at),
+            "updated_at":                _serialise(self.updated_at),
+        }
+
+
+class AffiliateReferral(TimestampMixin, Base):
+    """
+    §10.6  One row per (affiliate, landlord) pair — a landlord can be referred
+    by at most one affiliate, ever (unique landlord_id).
+
+    rate/months_total are SNAPSHOTTED at attribution time (D5): changing the
+    program default or the affiliate's override afterwards never rewrites an
+    existing referral's terms. window_started_at is set on the FIRST verified
+    payment (D3), not at attribution.
+    """
+    __tablename__ = "affiliate_referrals"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    affiliate_id       = Column(Integer, ForeignKey("affiliates.id"), nullable=False, index=True)
+    landlord_id        = Column(Integer, ForeignKey("landlords.id"), nullable=False, unique=True, index=True)
+    rate               = Column(Numeric(5, 2), nullable=False)
+    months_total        = Column(Integer, nullable=False)
+    months_used          = Column(Integer, nullable=False, default=0)
+    window_started_at     = Column(DateTime, nullable=True)
+    status              = Column(String(12), nullable=False, default=ReferralStatus.active.value)
+    attributed_by        = Column(String(20), nullable=False, default="registration")  # registration | admin_grace
+
+    __table_args__ = (
+        CheckConstraint("months_used >= 0 AND months_used <= months_total",
+                        name="ck_affiliate_referrals_months_bounds"),
+    )
+
+    affiliate = relationship("Affiliate", back_populates="referrals")
+    landlord  = relationship("Landlord", back_populates="affiliate_referral")
+    commissions = relationship("AffiliateCommission", back_populates="referral")
+
+    def to_dict(self):
+        return {
+            "id":               self.id,
+            "affiliate_id":     self.affiliate_id,
+            "landlord_id":      self.landlord_id,
+            "rate":             _serialise(self.rate),
+            "months_total":     self.months_total,
+            "months_used":      self.months_used,
+            "window_started_at": _serialise(self.window_started_at),
+            "status":           self.status,
+            "attributed_by":    self.attributed_by,
+            "created_at":       _serialise(self.created_at),
+            "updated_at":       _serialise(self.updated_at),
+        }
+
+
+class AffiliateCommission(TimestampMixin, Base):
+    """
+    §10.6  One row per VERIFIED subscription BillingTransaction that earned an
+    affiliate a commission. Reversal (D10) flips status to 'reversed' in
+    place — it does NOT insert a negative row — and the referral's
+    months_used is restored by the same operation
+    (services/affiliate_service.py::reverse_for_transaction).
+
+    Idempotency: a partial unique index on billing_transaction_id WHERE
+    status != 'reversed' guarantees a duplicate accrual attempt (e.g. a
+    replayed Daraja callback) can never create a second live commission for
+    the same transaction (backtest S11 / spec E10).
+    """
+    __tablename__ = "affiliate_commissions"
+
+    id                      = Column(Integer, primary_key=True, autoincrement=True)
+    referral_id             = Column(Integer, ForeignKey("affiliate_referrals.id"), nullable=False, index=True)
+    affiliate_id            = Column(Integer, ForeignKey("affiliates.id"), nullable=False, index=True)
+    billing_transaction_id  = Column(Integer, ForeignKey("billing_transactions.id"), nullable=False, index=True)
+    amount                  = Column(Numeric(12, 2), nullable=False)
+    rate_applied             = Column(Numeric(5, 2), nullable=False)
+    monthly_equivalent       = Column(Numeric(12, 2), nullable=False)
+    months_commissioned       = Column(Integer, nullable=False)
+    status                  = Column(String(12), nullable=False, default=CommissionStatus.confirmed.value)
+    reversed_at               = Column(DateTime, nullable=True)
+
+    referral  = relationship("AffiliateReferral", back_populates="commissions")
+    affiliate = relationship("Affiliate", back_populates="commissions")
+    billing_transaction = relationship("BillingTransaction")
+
+    def to_dict(self):
+        return {
+            "id":                     self.id,
+            "referral_id":            self.referral_id,
+            "affiliate_id":           self.affiliate_id,
+            "billing_transaction_id": self.billing_transaction_id,
+            "amount":                 _serialise(self.amount),
+            "rate_applied":           _serialise(self.rate_applied),
+            "monthly_equivalent":     _serialise(self.monthly_equivalent),
+            "months_commissioned":    self.months_commissioned,
+            "status":                 self.status,
+            "reversed_at":            _serialise(self.reversed_at),
+            "created_at":             _serialise(self.created_at),
+            "updated_at":             _serialise(self.updated_at),
+        }
+
+
+class AffiliateWithdrawal(TimestampMixin, Base):
+    """
+    §10.6  A withdrawal request and its KRA-compliant breakdown. All rate/fee
+    figures are SNAPSHOTTED from AffiliateProgramConfig at request time so a
+    receipt regenerated years later is byte-identical regardless of later
+    config changes (E24) — CheckConstraint enforces the breakdown always sums
+    to the gross (D7/D11).
+    """
+    __tablename__ = "affiliate_withdrawals"
+
+    id                     = Column(Integer, primary_key=True, autoincrement=True)
+    affiliate_id           = Column(Integer, ForeignKey("affiliates.id"), nullable=False, index=True)
+    gross_amount           = Column(Numeric(12, 2), nullable=False)
+    wht_rate               = Column(Numeric(5, 2), nullable=False)
+    wht_amount              = Column(Numeric(12, 2), nullable=False)
+    fee_type                = Column(String(10), nullable=False)   # enum AffiliateFeeType
+    fee_value                = Column(Numeric(12, 2), nullable=False)
+    fee_amount               = Column(Numeric(12, 2), nullable=False)
+    net_amount               = Column(Numeric(12, 2), nullable=False)
+    status                  = Column(String(12), nullable=False, default=WithdrawalStatus.requested.value)
+    receipt_number           = Column(String(30), unique=True, nullable=True)
+    mpesa_reference           = Column(String(50), nullable=True)
+    processed_by_admin_id      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    processed_at              = Column(DateTime, nullable=True)
+    rejection_reason           = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "wht_amount + fee_amount + net_amount = gross_amount",
+            name="ck_affiliate_withdrawals_breakdown_sums",
+        ),
+    )
+
+    affiliate = relationship("Affiliate", back_populates="withdrawals")
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "affiliate_id":       self.affiliate_id,
+            "gross_amount":       _serialise(self.gross_amount),
+            "wht_rate":           _serialise(self.wht_rate),
+            "wht_amount":         _serialise(self.wht_amount),
+            "fee_type":           self.fee_type,
+            "fee_value":          _serialise(self.fee_value),
+            "fee_amount":         _serialise(self.fee_amount),
+            "net_amount":         _serialise(self.net_amount),
+            "status":             self.status,
+            "receipt_number":     self.receipt_number,
+            "mpesa_reference":    self.mpesa_reference,
+            "processed_by_admin_id": self.processed_by_admin_id,
+            "processed_at":       _serialise(self.processed_at),
+            "rejection_reason":   self.rejection_reason,
+            "created_at":         _serialise(self.created_at),
+            "updated_at":         _serialise(self.updated_at),
+        }
+
+
+class AffiliateProgramConfig(TimestampMixin, Base):
+    """
+    §10.6  Single global settings row (mirrors TrialConfig's global-row
+    pattern) — default rate/months, withdrawal minimum, WHT rate, platform
+    fee, attribution grace window, and the program kill switch (D14).
+    """
+    __tablename__ = "affiliate_program_config"
+
+    id                          = Column(Integer, primary_key=True, autoincrement=True)
+    default_commission_rate     = Column(Numeric(5, 2), nullable=False, default=Decimal("40.00"))
+    default_commission_months   = Column(Integer, nullable=False, default=4)
+    min_withdrawal              = Column(Numeric(12, 2), nullable=False, default=Decimal("500.00"))
+    wht_rate                    = Column(Numeric(5, 2), nullable=False, default=Decimal("5.00"))
+    fee_type                    = Column(String(10), nullable=False, default=AffiliateFeeType.percent.value)
+    fee_value                   = Column(Numeric(12, 2), nullable=False, default=Decimal("3.00"))
+    attribution_grace_days      = Column(Integer, nullable=False, default=7)
+    is_program_active           = Column(Boolean, nullable=False, default=True)
+
+    def to_dict(self):
+        return {
+            "id":                        self.id,
+            "default_commission_rate":   _serialise(self.default_commission_rate),
+            "default_commission_months": self.default_commission_months,
+            "min_withdrawal":            _serialise(self.min_withdrawal),
+            "wht_rate":                  _serialise(self.wht_rate),
+            "fee_type":                  self.fee_type,
+            "fee_value":                 _serialise(self.fee_value),
+            "attribution_grace_days":    self.attribution_grace_days,
+            "is_program_active":         self.is_program_active,
+            "created_at":                _serialise(self.created_at),
+            "updated_at":                _serialise(self.updated_at),
         }
 
 
@@ -2147,6 +2858,15 @@ class LandlordSettings(TimestampMixin, Base):
     at_sender_id = Column(String(20),  nullable=True)   # their registered alphanumeric sender ID
     at_connected = Column(Boolean, default=False, nullable=False)
 
+    # Co-Pilot SMS forwarder (COPILOT_PLATFORM_SPEC.md §2.6). Enabling is the
+    # landlord's consent step; auto_allocate picks confirmed+allocated vs
+    # pending-review for every payment the pipeline creates; admin_locked is a
+    # platform kill switch the landlord cannot override.
+    copilot_enabled       = Column(Boolean, default=False, nullable=False)
+    copilot_auto_allocate = Column(Boolean, default=False, nullable=False)
+    copilot_consented_at  = Column(DateTime, nullable=True)
+    copilot_admin_locked  = Column(Boolean, default=False, nullable=False)
+
     landlord = relationship("Landlord", back_populates="landlord_settings")
 
     def to_dict(self, mask_secrets: bool = True):
@@ -2167,6 +2887,10 @@ class LandlordSettings(TimestampMixin, Base):
             "at_connected":              self.at_connected,
             "at_api_key_set":            bool(self.at_api_key),
             "at_api_key_masked":         api_key_display,
+            "copilot_enabled":           self.copilot_enabled,
+            "copilot_auto_allocate":     self.copilot_auto_allocate,
+            "copilot_consented_at":      _serialise(self.copilot_consented_at),
+            "copilot_admin_locked":      self.copilot_admin_locked,
             "created_at":                _serialise(self.created_at),
             "updated_at":                _serialise(self.updated_at),
         }

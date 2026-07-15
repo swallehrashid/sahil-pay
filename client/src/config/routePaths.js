@@ -10,6 +10,7 @@ export const PUBLIC_ROUTES = {
   faq: "/faq",
   privacy: "/privacy",
   terms: "/terms",
+  becomeAffiliate: "/become-affiliate",
 };
 
 export const AUTH_ROUTES = {
@@ -62,6 +63,7 @@ export const LANDLORD_ROUTES = {
   bankStatementReview: "/landlord/payments/bank-statement/:id",
   bankStatementReviewPath: (id) => `/landlord/payments/bank-statement/${id}`,
   notificationsSend: "/landlord/notifications/send",
+  tutorials: "/landlord/tutorials",
   settings: {
     root: "/landlord/settings",
     general: "/landlord/settings/general",
@@ -73,6 +75,7 @@ export const LANDLORD_ROUTES = {
     billing: "/landlord/settings/billing",
     smsProvider: "/landlord/settings/sms-provider",
     mpesa: "/landlord/settings/mpesa",
+    copilot: "/landlord/settings/copilot",
     audit: "/landlord/settings/audit",
     impersonationRequests: "/landlord/settings/impersonation-requests",
   },
@@ -81,6 +84,16 @@ export const LANDLORD_ROUTES = {
 export const TEAM_ROUTES = {
   ...buildPortalRoutes("/team"),
   profile: "/team/profile",
+};
+
+export const AFFILIATE_ROUTES = {
+  root: "/affiliate",
+  dashboard: "/affiliate/dashboard",
+  referrals: "/affiliate/referrals",
+  earnings: "/affiliate/earnings",
+  withdrawals: "/affiliate/withdrawals",
+  profile: "/affiliate/profile",
+  notifications: "/affiliate/notifications",
 };
 
 export const TENANT_ROUTES = {
@@ -121,6 +134,13 @@ export const ADMIN_ROUTES = {
   audit: "/admin/audit",
   notifications: "/admin/notifications",
   notificationsSend: "/admin/notifications/send",
+  affiliates: "/admin/affiliates",
+  affiliateWithdrawals: "/admin/affiliates/withdrawals",
+  affiliateReports: "/admin/affiliates/reports",
+  affiliateSettings: "/admin/affiliates/settings",
+  affiliateDetail: "/admin/affiliates/:id",
+  affiliateDetailPath: (id) => `/admin/affiliates/${id}`,
+  copilot: "/admin/copilot",
 };
 
 export const NOT_FOUND_ROUTE = "*";

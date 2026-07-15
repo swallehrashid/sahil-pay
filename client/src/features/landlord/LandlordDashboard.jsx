@@ -12,6 +12,8 @@ import ImpersonationBanner from "./components/ImpersonationBanner";
 import { useGetDashboardSummaryQuery, useGetUnpaidTenantsQuery, useGetPerformanceGraphQuery } from "./landlordApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows } from "@/utils/tableAdapters";
+import GettingStartedChecklist from "./tutorials/GettingStartedChecklist";
+import { ANCHORS } from "./tutorials/anchors";
 
 // §4.1 — landlord dashboard: arrears/advances/occupancy, payments-vs-invoices,
 // arrears overview, quick actions, subscription/SMS shortcuts and the performance graph.
@@ -39,10 +41,12 @@ export default function LandlordDashboard() {
       <ImpersonationBanner />
       <PageHeader title="Dashboard" subtitle="An overview of how your portfolio is performing" />
 
+      <GettingStartedChecklist />
+
       {isSummaryLoading ? (
         <SkeletonStatCards count={4} />
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div data-tour={ANCHORS.dashboard.kpiCards} className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <SummaryCard label="Total arrears" value={formatCurrency(summary?.total_arrears)} icon={<AlertTriangle className="h-5 w-5" />} />
           <SummaryCard label="Total advances" value={formatCurrency(summary?.total_advances)} icon={<TrendingUp className="h-5 w-5" />} />
           <SummaryCard label="Occupancy" value={summary?.occupancy_percent ?? 0} icon={<HomeIcon className="h-5 w-5" />} isCountUp accent="third" />

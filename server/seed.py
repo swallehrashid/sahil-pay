@@ -16,7 +16,7 @@ What it builds
   Platform        — global TrialConfig, 3 Packages (Starter/Growth/Scale)
   System Admin    — 1 admin account
   4 Landlords     — deliberately varied account states:
-                      Acme Properties Ltd      — active, paid, Growth plan
+                      Acme Properties Ltd      — active, paid, Starter plan (7 units)
                       Sunrise Estates          — on trial (20 days left)
                       Pioneer Housing Group    — SUSPENDED (policy violation)
                       Coastal Rentals          — trial expiring in 2 days
@@ -70,6 +70,18 @@ _ALL_TABLES = [
     "document_templates", "packages", "subscriptions", "billing_transactions", "trial_configs",
     "impersonation_requests", "landlord_settings", "automation_settings", "alert_settings",
     "audit_logs", "backups", "notifications",
+    # Charge-category restructure tables.
+    "charge_categories", "balance_rollovers", "credit_ledger",
+    # Affiliate program tables.
+    "affiliate_program_config", "affiliates", "affiliate_referrals",
+    "affiliate_commissions", "affiliate_withdrawals",
+    # Co-pilot SMS forwarder tables. Listed explicitly (not left to the
+    # users/landlords FK cascade) so seed() owns recreating them exactly
+    # like packages/TrialConfig — otherwise sms_parser_templates silently
+    # loses the migration's seed rows every time this script runs (its
+    # created_by FK to users cascades the TRUNCATE even though it's global,
+    # platform-level data).
+    "sms_parser_templates", "copilot_devices", "copilot_messages", "copilot_app_releases",
 ]
 
 
@@ -521,6 +533,106 @@ def _seed_notifications(m, landlord, tenant, team_member, today):
     db.session.flush()
 
 
+def _seed_sms_parser_templates(m) -> None:
+    """
+    The four known-format Co-pilot parser templates (COPILOT_PLATFORM_SPEC.md
+    §3.2) — mirrors migrations/versions/5789a1551068_copilot_sms_forwarder.py's
+    upgrade() data step. Re-inserted here (not left to that one-time migration
+    insert) because this is global platform data, same as Packages/TrialConfig
+    above, and reset_all_data() truncates it every run.
+    """
+    templates = [
+        ("M-Pesa C2B (received from)", "MPESA",
+         "{ref} Confirmed. {*}Ksh{amount} received from {name} {phone} on {*}",
+         "QCA1B2C3D4 Confirmed. Ksh1,500.00 received from JOHN DOE 254712345678 on 1/6/25 at 10:34 AM",
+         100),
+        ("M-Pesa paybill with account", "MPESA",
+         "{ref} Confirmed.{*}Ksh{amount}{*}received from {name} {phone}{*}for account {account}{*}",
+         "QCA1B2C3D5 Confirmed. Ksh1,500.00 received from JOHN DOE 254712345678 for account A12 on 1/6/25 at 10:34 AM",
+         90),
+        ("KCB credit alert", "KCB",
+         "{*}KES {amount} received from {name} to your account {account}, Ref {ref}{*}",
+         "Dear Customer, KES 15,000.00 received from JANE WANJIKU to your account A12, Ref FT2312345678 on 01-06-2025.",
+         100),
+        ("Equity credit alert", "EQUITY BANK",
+         "{*}received KES {amount} from {name}. Ref: {ref}{*}",
+         "You have received KES 10,000.00 from PETER OTIENO. Ref: EQ12345678. Available balance is KES 25,000.00.",
+         100),
+    ]
+    for name, sender_id, template_text, sample_text, priority in templates:
+        db.session.add(m.SmsParserTemplate(
+            name=name, sender_id=sender_id, template_text=template_text,
+            sample_text=sample_text, is_active=True, priority=priority,
+        ))
+    db.session.flush()
+
+
+def _seed_copilot_demo(m, landlord, tenant, today) -> None:
+    """
+    Demo Co-pilot data for one landlord — enables Co-pilot, pairs one device,
+    and runs a handful of real SMSs through the actual ingest pipeline (not
+    hand-built rows) so every outcome — matched/pending, unmatched, unparsed,
+    duplicate — has a real example in both the landlord and admin UIs.
+    See COPILOT_PLATFORM_SPEC.md §10.
+    """
+    import uuid
+    from services.copilot_service import process_copilot_message
+
+    ls = landlord.landlord_settings
+    ls.copilot_enabled = True
+    ls.copilot_auto_allocate = False
+    ls.copilot_consented_at = datetime.utcnow()
+    db.session.flush()
+
+    from services.copilot_service import generate_device_token
+    _raw_token, token_hash = generate_device_token()
+    device = m.CopilotDevice(
+        landlord_id=landlord.id,
+        device_name=f"{landlord.abbreviated_name}'s Phone",
+        device_model="Samsung SM-A125F",
+        app_version="1.0.0",
+        token_hash=token_hash,
+        status=m.CopilotDeviceStatus.active.value,
+        sender_ids='["MPESA", "KCB"]',
+        last_seen_at=datetime.utcnow(),
+    )
+    db.session.add(device)
+    db.session.flush()
+
+    tenant_phone = tenant.phone.lstrip("+")
+    matched_text = (
+        f"QCADEMO01 Confirmed. Ksh2,500.00 received from "
+        f"{tenant.first_name.upper()} {tenant.last_name.upper()} {tenant_phone} "
+        f"on {today:%-d/%-m/%y} at 9:00 AM"
+    )
+
+    # 1) matched, pending allocation (auto_allocate is off above)
+    process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=matched_text, received_at=datetime.utcnow(),
+    )
+    # 2) same SMS forwarded again (queue retry) — must land as a duplicate
+    process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=matched_text, received_at=datetime.utcnow(),
+    )
+    # 3) unmatched — a phone number that belongs to no tenant
+    process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text="QCADEMO02 Confirmed. Ksh1,000.00 received from JOHN STRANGER "
+                 "254799999999 on 05/06/25 at 3:15 PM",
+        received_at=datetime.utcnow(),
+    )
+    # 4) unparsed — a sender with no parser template yet (the admin's queue)
+    process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="NCBA",
+        raw_text="You have received a credit of KES 500 to your account. "
+                 "Thank you for banking with NCBA.",
+        received_at=datetime.utcnow(),
+    )
+    db.session.flush()
+
+
 def _seed_billing_history(m, landlord, spec, today):
     for txn in spec.get("billing_transactions", []):
         db.session.add(m.BillingTransaction(
@@ -532,6 +644,98 @@ def _seed_billing_history(m, landlord, spec, today):
 
 
 # ---------------------------------------------------------------------------
+# Affiliate program — 3 affiliates covering every portal state, built through
+# the REAL services/affiliate_service.py engine (not hand-computed numbers)
+# so the seeded ledger is provably consistent with the code that generated it.
+# See AFFILIATE_PROGRAM_SPEC.md §12.2 step 0 (fixture requirements).
+# ---------------------------------------------------------------------------
+
+def _seed_affiliate_program(m, landlords_by_key, admin_user_id, today):
+    from services import affiliate_service as svc
+
+    print("\n  ── Affiliate Program ──")
+
+    def _verified_subscription_payment(landlord, amount):
+        """Mirrors what billing_service.finalize_subscription_payment stamps
+        on a monthly subscription payment, without going through the STK/
+        webhook plumbing — this IS the shape affiliate_service reads."""
+        txn = m.BillingTransaction(
+            landlord_id=landlord.id, type=m.BillingTransactionType.subscription.value,
+            amount=Decimal(str(amount)), payment_reference=f"SEED-VERIFIED-{landlord.id}-{today.isoformat()}-{amount}",
+            status=m.BillingTransactionStatus.paid.value, is_verified=True,
+            context_json={"billing_cycle": "monthly", "months": 1, "discount": "0",
+                          "package_id": None, "applied": True},
+        )
+        db.session.add(txn)
+        db.session.flush()
+        return txn
+
+    # ── Affiliate A: active, custom 50% rate, one paying + one not-yet-paying referral ──
+    user_a = _create_user(m, "affiliate.wanjiru@sahilpay.test", "+254733000001",
+                          m.UserRole.affiliate.value, password="Affiliate@123")
+    affiliate_a = svc.create_affiliate(user_a, "Wanjiru Njoroge", "+254733000001")
+    affiliate_a.commission_rate_override = Decimal("50.00")
+    svc.approve_affiliate(affiliate_a, admin_user_id, mpesa_number="+254733000001", national_id="30112233")
+    db.session.flush()
+
+    acme = landlords_by_key["acme"]
+    referral_acme = svc.attribute_referral(acme, affiliate_a)
+    for _ in range(4):
+        txn = _verified_subscription_payment(acme, acme.subscription.subscription_cost)
+        svc.accrue_for_transaction(txn)
+    print(f"    {affiliate_a.full_name} ({affiliate_a.referral_code}, 50% override): "
+          f"Acme referral {referral_acme.months_used}/{referral_acme.months_total} months, "
+          f"balance KES {svc.get_balance(affiliate_a.id)}")
+
+    sunrise = landlords_by_key["sunrise"]
+    svc.attribute_referral(sunrise, affiliate_a)   # still on trial — never paid, window not started
+    print(f"    {affiliate_a.full_name}: + Sunrise referral (trial, not yet paying)")
+
+    withdrawal_paid = svc.request_withdrawal(affiliate_a, "500")
+    svc.pay_withdrawal(withdrawal_paid, admin_user_id, mpesa_reference="QGH7X8K2P1")
+    db.session.flush()
+    print(f"    {affiliate_a.full_name}: withdrawal PAID — gross {withdrawal_paid.gross_amount}, "
+          f"net {withdrawal_paid.net_amount}, receipt {withdrawal_paid.receipt_number}")
+
+    # ── Affiliate B: PENDING — demonstrates the admin approval queue ──
+    user_b = _create_user(m, "affiliate.otieno@sahilpay.test", "+254733000002",
+                          m.UserRole.affiliate.value, password="Affiliate@123")
+    affiliate_b = svc.create_affiliate(user_b, "Otieno Barasa", "+254733000002")
+    db.session.flush()
+    print(f"    {affiliate_b.full_name} ({affiliate_b.referral_code}): PENDING admin approval")
+
+    # ── Affiliate C: active, custom 60% rate, one COMPLETED referral + a withdrawal
+    #    left in 'requested' state — demonstrates the admin processing queue ──
+    user_c = _create_user(m, "affiliate.amina@sahilpay.test", "+254733000003",
+                          m.UserRole.affiliate.value, password="Affiliate@123")
+    affiliate_c = svc.create_affiliate(user_c, "Amina Yusuf", "+254733000003")
+    affiliate_c.commission_rate_override = Decimal("60.00")
+    svc.approve_affiliate(affiliate_c, admin_user_id, mpesa_number="+254733000003", national_id="30445566")
+    db.session.flush()
+
+    coastal = landlords_by_key["coastal"]
+    referral_coastal = svc.attribute_referral(coastal, affiliate_c)
+    for _ in range(4):
+        txn = _verified_subscription_payment(coastal, coastal.subscription.subscription_cost)
+        svc.accrue_for_transaction(txn)
+    print(f"    {affiliate_c.full_name} ({affiliate_c.referral_code}, 60% override): "
+          f"Coastal referral {referral_coastal.status} ({referral_coastal.months_used}/{referral_coastal.months_total}), "
+          f"balance KES {svc.get_balance(affiliate_c.id)}")
+
+    withdrawal_requested = svc.request_withdrawal(affiliate_c, "550")
+    db.session.flush()
+    print(f"    {affiliate_c.full_name}: withdrawal REQUESTED — gross {withdrawal_requested.gross_amount} "
+          f"(awaiting admin action)")
+
+    db.session.flush()
+    return [
+        ("AFFILIATE (active, 50% override)", user_a.email, "Affiliate@123"),
+        ("AFFILIATE (pending approval)", user_b.email, "Affiliate@123"),
+        ("AFFILIATE (active, 60% override)", user_c.email, "Affiliate@123"),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Landlord specs — the dataset
 # ---------------------------------------------------------------------------
 
@@ -540,7 +744,7 @@ def _landlord_specs(today):
         {
             "key": "acme", "company_name": "Acme Properties Ltd", "abbreviated_name": "Acme",
             "email": "landlord@sahilpay.test", "password": "Landlord@123", "phone": "+254700000001",
-            "mpesa_number": "123456", "package": "Growth", "sub_status": "active",
+            "mpesa_number": "123456", "package": "Starter", "sub_status": "active",
             "is_on_trial": False, "trial_ends_at": today - timedelta(days=200), "user_active": True,
             "sms_balance": 500, "unit_count_for_subscription": 7,
             "groups": ["Nairobi Portfolio"],
@@ -597,7 +801,7 @@ def _landlord_specs(today):
                  }},
             ],
             "billing_transactions": [
-                {"type": "subscription", "amount": "280.00", "status": "paid", "ref": "ACME-SUB-001"},
+                {"type": "subscription", "amount": "350.00", "status": "paid", "ref": "ACME-SUB-001"},
                 {"type": "sms_purchase", "amount": "200.00", "sms_count": 200, "status": "paid", "ref": "ACME-SMS-001"},
             ],
         },
@@ -766,6 +970,176 @@ def _landlord_specs(today):
 # Main seed
 # ---------------------------------------------------------------------------
 
+def _seed_category_demo(m, packages, today):
+    """
+    An ISOLATED landlord exercising the full charge-category flow across 3 months,
+    built by driving the real engine (allocation_service + the monthly billing task)
+    so every rollover / credit / allocation row is exactly what production produces.
+
+    Tenants:
+      Alice  — fully paid every month (auto allocation).
+      Ben    — pays only Garbage each month (manual); Rent rolls, ending as a single
+               "Rent Balance b/f" with TWO origin-month components.
+      Carol  — overpays month 1 → credit, consumed by month 2's billing.
+      Dan    — keeps a Water DEPOSIT unpaid (never rolls) + metered water/electricity.
+    """
+    from decimal import Decimal
+    from utils import gen_reference
+    from services.category_service import seed_default_categories
+    from services.allocation_service import (
+        auto_allocate, apply_allocations, normalize_manual_allocations, outstanding_line_items,
+    )
+    from tasks.invoice_tasks import _run_monthly_billing_for_tenant
+
+    spec = {
+        "key": "catdemo", "company_name": "Category Demo Ltd", "abbreviated_name": "CatDemo",
+        "email": "category@sahilpay.test", "phone": "0788000000", "password": "Category@123",
+        "address": "1 Demo Street, Nairobi", "mpesa_number": "555111",
+        "package": "Starter", "sms_balance": 300,
+        "trial_ends_at": None, "is_on_trial": False, "sub_status": "active",
+        "unit_count_for_subscription": 4,
+    }
+    landlord = _create_landlord(m, spec, packages, today)
+
+    # Categories: protected defaults + custom Garbage (non-metered, auto-bill 300) + Parking.
+    seed_default_categories(landlord.id)
+    db.session.flush()
+    cats = {c.name: c for c in m.ChargeCategory.query.filter_by(landlord_id=landlord.id).all()}
+    cats["Garbage"] = m.ChargeCategory(landlord_id=landlord.id, name="Garbage", kind="utility",
+                                       is_metered=False, default_rate=Decimal("300"),
+                                       auto_bill_monthly=True, is_default=False, is_active=True)
+    cats["Parking"] = m.ChargeCategory(landlord_id=landlord.id, name="Parking", kind="invoice",
+                                       is_metered=False, auto_bill_monthly=False, is_default=False, is_active=True)
+    db.session.add_all([cats["Garbage"], cats["Parking"]])
+    db.session.flush()
+
+    prop, units = _create_property_with_units(m, landlord, {
+        "name": "Demo Court", "city": "Nairobi", "street": "Demo Ave",
+        "water_rate": 120, "electricity_rate": 30,
+        "units": [{"name": f"D{i}", "rent": 10000, "occupied": True} for i in (1, 2, 3, 4)],
+    }, None)
+
+    def make_tenant(unit_name, fn, ln, phone, acct):
+        return _create_tenant(m, landlord, units[unit_name], {
+            "first_name": fn, "last_name": ln, "phone": phone,
+            "email": f"{fn.lower()}@catdemo.test", "account_number": acct,
+            "move_in": _first_of_month(today, 3),
+        }, today)
+
+    alice = make_tenant("D1", "Alice", "Paid",    "0788000001", "CAT-A")
+    ben   = make_tenant("D2", "Ben",   "Partial", "0788000002", "CAT-B")
+    carol = make_tenant("D3", "Carol", "Advance", "0788000003", "CAT-C")
+    dan   = make_tenant("D4", "Dan",   "Deposit", "0788000004", "CAT-D")
+
+    m1, m2, m3 = _first_of_month(today, 2), _first_of_month(today, 1), _first_of_month(today, 0)
+
+    def bill(tenant, month):
+        _run_monthly_billing_for_tenant(landlord, tenant, month, month, None)
+        db.session.flush()
+
+    def pay(tenant, amount, when, mode="auto", manual=None):
+        p = m.Payment(
+            payment_ref=gen_reference("PMT"), landlord_id=landlord.id, tenant_id=tenant.id,
+            unit_id=tenant.unit_id, property_id=prop.id, amount=Decimal(str(amount)),
+            payment_date=when, status=m.PaymentStatus.confirmed.value,
+            source=(m.PaymentSource.manual.value if mode == "manual" else m.PaymentSource.mpesa.value),
+            payment_method=("Manual" if mode == "manual" else "M-Pesa"),
+        )
+        db.session.add(p)
+        db.session.flush()
+        rows = (normalize_manual_allocations(manual, tenant, landlord, ref_date=when)
+                if mode == "manual" else auto_allocate(tenant, p.amount, landlord, ref_date=when))
+        apply_allocations(p, tenant, rows, landlord.id)
+        db.session.flush()
+
+    def line_of(tenant, cat_name, subcat):
+        for li in outstanding_line_items(tenant):
+            if li.category_id == cats[cat_name].id and li.subcategory == subcat:
+                return li
+        return None
+
+    # Alice — fully paid, auto.
+    for mo in (m1, m2, m3):
+        bill(alice, mo)
+        pay(alice, 10300, mo, mode="auto")
+
+    # Ben — pays only Garbage (manual) → Rent rolls into a 2-origin-month balance.
+    for mo in (m1, m2, m3):
+        bill(ben, mo)
+        gl = line_of(ben, "Garbage", "current")
+        if gl:
+            pay(ben, 300, mo, mode="manual", manual=[{"line_item_id": gl.id, "amount": 300}])
+
+    # Carol — overpays m1 → credit; m2 billing auto-applies it.
+    bill(carol, m1)
+    pay(carol, 15000, m1, mode="auto")           # clears 10300, 4700 → credit
+    bill(carol, m2)                               # apply_tenant_credit consumes the 4700
+    rem = sum(li.remaining for li in outstanding_line_items(carol))
+    if rem > 0:
+        pay(carol, rem, m2, mode="auto")
+    bill(carol, m3)
+    pay(carol, 10300, m3, mode="auto")
+
+    # Dan — Water DEPOSIT stays unpaid (never rolls) + metered readings.
+    dep_inv = m.Invoice(
+        invoice_number=gen_reference("INV"), landlord_id=landlord.id, tenant_id=dan.id,
+        unit_id=dan.unit_id, property_id=prop.id, invoice_type=m.InvoiceType.deposit.value,
+        issue_date=m1, status=m.InvoiceStatus.open.value, total_amount=Decimal("5000"),
+        amount_paid=Decimal("0"), balance=Decimal("5000"), title="Water deposit",
+    )
+    db.session.add(dep_inv)
+    db.session.flush()
+    db.session.add(m.InvoiceLineItem(
+        invoice_id=dep_inv.id, item="Water Deposit", quantity=Decimal("1"),
+        unit_price=Decimal("5000"), amount=Decimal("5000"), category_id=cats["Water"].id,
+        subcategory="deposit", amount_paid=Decimal("0"), status="open",
+    ))
+    dan.balance = Decimal(str(dan.balance)) - Decimal("5000")
+    db.session.flush()
+
+    for mo in (m1, m2, m3):
+        bill(dan, mo)
+        manual = []
+        if (rl := line_of(dan, "Rent", "current")):
+            manual.append({"line_item_id": rl.id, "amount": 10000})
+        if (gl := line_of(dan, "Garbage", "current")):
+            manual.append({"line_item_id": gl.id, "amount": 300})
+        if manual:
+            pay(dan, sum(x["amount"] for x in manual), mo, mode="manual", manual=manual)
+
+    # Metered water + electricity readings for the current month (left unpaid → show on reports).
+    for item, cat_name, prev, curr, rate in (
+        ("water", "Water", 1200, 1235, 120), ("electricity", "Electricity", 800, 845, 30),
+    ):
+        reading = m.UtilityReading(
+            landlord_id=landlord.id, property_id=prop.id, unit_id=dan.unit_id, utility_item=item,
+            category_id=cats[cat_name].id, previous_reading=Decimal(str(prev)),
+            current_reading=Decimal(str(curr)), consumption=Decimal(str(curr - prev)),
+            reading_month=m3.strftime("%Y-%m"),
+        )
+        db.session.add(reading)
+        db.session.flush()
+        amt = Decimal(str((curr - prev) * rate))
+        util_inv = m.Invoice(
+            invoice_number=gen_reference("INV"), landlord_id=landlord.id, tenant_id=dan.id,
+            unit_id=dan.unit_id, property_id=prop.id, invoice_type=m.InvoiceType.utility.value,
+            issue_date=m3, status=m.InvoiceStatus.open.value, total_amount=amt,
+            amount_paid=Decimal("0"), balance=amt, title=f"{cat_name} — {m3:%B %Y}",
+        )
+        db.session.add(util_inv)
+        db.session.flush()
+        db.session.add(m.InvoiceLineItem(
+            invoice_id=util_inv.id, item=cat_name, description=f"{prev} to {curr}",
+            quantity=Decimal("1"), unit_price=amt, amount=amt, category_id=cats[cat_name].id,
+            subcategory="current", utility_reading_id=reading.id, amount_paid=Decimal("0"), status="open",
+        ))
+        reading.invoice_id = util_inv.id
+        dan.balance = Decimal(str(dan.balance)) - amt
+
+    db.session.flush()
+    return spec, [alice, ben, carol, dan]
+
+
 def seed() -> None:
     import models as m
 
@@ -779,6 +1153,12 @@ def seed() -> None:
         scope=m.TrialScope.global_scope.value, landlord_id=None,
         duration_days=trial_days, is_active=True,
     ))
+    db.session.add(m.AffiliateProgramConfig(
+        default_commission_rate=Decimal("40.00"), default_commission_months=4,
+        min_withdrawal=Decimal("500.00"), wht_rate=Decimal("5.00"),
+        fee_type="percent", fee_value=Decimal("3.00"),
+        attribution_grace_days=7, is_program_active=True,
+    ))
     package_specs = [
         {"name": "Starter", "min_units": 1, "max_units": 20, "price_per_unit": Decimal("50.00")},
         {"name": "Growth", "min_units": 21, "max_units": 70, "price_per_unit": Decimal("40.00")},
@@ -791,7 +1171,8 @@ def seed() -> None:
         db.session.add(pkg)
         db.session.flush()
         packages[spec["name"]] = pkg
-    print(f"  Platform: TrialConfig + {len(packages)} packages")
+    _seed_sms_parser_templates(m)
+    print(f"  Platform: TrialConfig + {len(packages)} packages + 4 Co-pilot parser templates")
 
     # ===== System Admin =====
     from utils import hash_password
@@ -808,9 +1189,14 @@ def seed() -> None:
 
     # ===== Landlords =====
     credentials = [("SYSTEM ADMIN", "admin@sahilpay.test", "Admin@123")]
+    landlords_by_key = {}
 
     for spec in _landlord_specs(today):
         landlord = _create_landlord(m, spec, packages, today)
+        landlords_by_key[spec["key"]] = landlord
+        # Protected default charge categories (matches the registration hook).
+        from services.category_service import seed_default_categories
+        seed_default_categories(landlord.id)
         credentials.append((f"LANDLORD ({spec['company_name']})", spec["email"], spec["password"]))
         print(f"\n  ── Landlord: {spec['company_name']} ({spec['sub_status']}) ──")
 
@@ -880,6 +1266,11 @@ def seed() -> None:
         _seed_notifications(m, landlord, tenant, tm, today)
         print("    Notifications: sample read/unread rows seeded for landlord/tenant/team member")
 
+        if spec["key"] == "acme":
+            _seed_copilot_demo(m, landlord, tenant, today)
+            print("    Co-pilot: enabled, 1 paired device, messages seeded "
+                  "(matched-pending, duplicate, unmatched, unparsed)")
+
         # Per-landlord trial override demo on Coastal (the near-expiry one)
         if spec["key"] == "coastal":
             db.session.add(m.TrialConfig(
@@ -889,6 +1280,18 @@ def seed() -> None:
 
         credentials.append((f"TENANT (OTP, {spec['abbreviated_name']})",
                              ", ".join(t["phone"] for t in spec["tenants"]), "POST /api/otp/request"))
+
+    # ===== Affiliate program =====
+    credentials.extend(_seed_affiliate_program(m, landlords_by_key, admin_user.id, today))
+
+    # ===== Charge-category restructure demo (isolated landlord) =====
+    print("\n  ── Landlord: Category Demo Ltd (charge-category restructure) ──")
+    demo_spec, demo_tenants = _seed_category_demo(m, packages, today)
+    credentials.append((f"LANDLORD ({demo_spec['company_name']})", demo_spec["email"], demo_spec["password"]))
+    for t in demo_tenants:
+        print(f"    Tenant: {t.first_name} {t.last_name} (balance after 3 months: {t.balance})")
+    credentials.append(("TENANT (OTP, CatDemo)",
+                        ", ".join(t.phone for t in demo_tenants), "POST /api/otp/request"))
 
     db.session.commit()
     print("\n─── Seed committed successfully ───\n")

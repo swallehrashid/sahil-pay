@@ -10,6 +10,7 @@ export default function Tabs({ tabs = [], activeKey, onChange, className }) {
           <button
             key={tab.key}
             type="button"
+            data-tour={tab.dataTour}
             onClick={() => onChange?.(tab.key)}
             className={clsx(
               "relative flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium transition-colors duration-200",

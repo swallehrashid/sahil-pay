@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, FileText, Send, Download, Pencil, Trash2, Layers } from "lucide-react";
+import { Plus, FileText, Send, Download, Pencil, Trash2, Layers, Settings2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -16,11 +16,14 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
 import InvoiceForm from "./InvoiceForm";
 import BulkInvoices from "./BulkInvoices";
+import ChargeCategoryManager from "../ChargeCategoryManager";
 import GenerateRentInvoices from "./GenerateRentInvoices";
 import GenerateRecurringInvoices from "./GenerateRecurringInvoices";
 import GeneratePenaltyInvoices from "./GeneratePenaltyInvoices";
 import GenerateCustomInvoices from "./GenerateCustomInvoices";
+import GenerateCategoryInvoices from "./GenerateCategoryInvoices";
 import { useGetInvoicesQuery, useCreateInvoiceMutation, useUpdateInvoiceMutation, useDeleteInvoiceMutation, useSendInvoiceMutation } from "./invoiceApiSlice";
+import { useGetChargeCategoriesQuery } from "../chargeCategoryApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
@@ -30,6 +33,7 @@ import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { INVOICE_STATUSES } from "@/utils/constants";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function InvoicesPage() {
   const [searchParams] = useSearchParams();
@@ -43,6 +47,7 @@ export default function InvoicesPage() {
   const { data, isLoading } = useGetInvoicesQuery({ ...appliedFilters, ...pg.params });
   const { data: tenantsData } = useGetTenantsQuery();
   const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: catData } = useGetChargeCategoriesQuery({ kind: "invoice", include_inactive: 0 });
   const [createInvoice, { isLoading: isCreating }] = useCreateInvoiceMutation();
   const [updateInvoice, { isLoading: isUpdating }] = useUpdateInvoiceMutation();
   const [deleteInvoice] = useDeleteInvoiceMutation();
@@ -51,11 +56,17 @@ export default function InvoicesPage() {
   const [activeInvoice, setActiveInvoice] = useState(() => (tenantIdFromQuery ? { tenant_id: tenantIdFromQuery } : null));
   const [isFormOpen, setIsFormOpen] = useState(() => Boolean(tenantIdFromQuery));
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
 
   const invoices = toRows(data);
   const meta = toPaginationMeta(data);
   const tenants = toRows(tenantsData);
   const properties = toRows(propertiesData);
+  const categories = catData?.categories ?? [];
+  // The five fixed generators already cover rent/recurring/penalty/custom/bulk — skip a
+  // dynamic entry for any category whose name duplicates one of those so it isn't offered twice.
+  const FIXED_GENERATOR_NAMES = new Set(["rent", "recurring", "penalty", "custom"]);
+  const dynamicCategories = categories.filter((c) => !FIXED_GENERATOR_NAMES.has(c.name.trim().toLowerCase()));
 
   const totals = {
     total: data?.total_amount ?? invoices.reduce((sum, inv) => sum + Number(inv.total_amount ?? 0), 0),
@@ -101,7 +112,7 @@ export default function InvoicesPage() {
     { key: "invoice_number", header: "Invoice #" },
     { key: "date", header: "Date", render: (row) => formatDate(row.issue_date) },
     { key: "tenant", header: "Tenant", render: (row) => row.tenant_name },
-    { key: "item", header: "Item", render: (row) => row.invoice_type },
+    { key: "item", header: "Item", render: (row) => row.title || row.invoice_type },
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
     { key: "amount", header: "Amount", render: (row) => formatCurrency(row.total_amount) },
@@ -127,8 +138,20 @@ export default function InvoicesPage() {
                 { label: "Generate penalty invoices", onClick: () => setActiveGenerator("penalty") },
                 { label: "Generate custom invoices", onClick: () => setActiveGenerator("custom") },
                 { label: "Bulk add invoices", onClick: () => setActiveGenerator("bulk") },
+                ...dynamicCategories.map((c) => ({
+                  label: `Generate ${c.name} invoices`,
+                  onClick: () => setActiveGenerator({ category: c }),
+                })),
               ]}
             />
+            <Button
+              variant="ghost"
+              data-tour={ANCHORS.invoices.categoriesButton}
+              leftIcon={<Settings2 className="h-4 w-4" />}
+              onClick={() => setIsCategoriesOpen(true)}
+            >
+              Categories
+            </Button>
             <Button
               variant="ghost"
               leftIcon={<Download className="h-4 w-4" />}
@@ -136,7 +159,7 @@ export default function InvoicesPage() {
             >
               Download all
             </Button>
-            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+            <Button data-tour={ANCHORS.invoices.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
               Add invoice
             </Button>
           </>
@@ -170,7 +193,7 @@ export default function InvoicesPage() {
           />
         </FilterPanel>
 
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <ResponsiveTable
             columns={columns}
             rows={invoices}
@@ -194,6 +217,8 @@ export default function InvoicesPage() {
         </div>
       </div>
 
+      <ChargeCategoryManager isOpen={isCategoriesOpen} onClose={() => setIsCategoriesOpen(false)} kind="invoice" />
+
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={activeInvoice?.id ? "Edit invoice" : "Add invoice"} size="lg">
         <InvoiceForm
           initialValues={activeInvoice}
@@ -209,6 +234,13 @@ export default function InvoicesPage() {
       <GeneratePenaltyInvoices isOpen={activeGenerator === "penalty"} onClose={() => setActiveGenerator(null)} properties={properties} />
       <GenerateCustomInvoices isOpen={activeGenerator === "custom"} onClose={() => setActiveGenerator(null)} tenants={tenants} />
       <BulkInvoices isOpen={activeGenerator === "bulk"} onClose={() => setActiveGenerator(null)} tenants={tenants} />
+      <GenerateCategoryInvoices
+        isOpen={Boolean(activeGenerator && typeof activeGenerator === "object")}
+        onClose={() => setActiveGenerator(null)}
+        category={activeGenerator?.category}
+        tenants={tenants}
+        properties={properties}
+      />
 
       <ConfirmDialog
         isOpen={Boolean(pendingDelete)}

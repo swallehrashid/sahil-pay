@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Upload, Pencil, Trash2, ReceiptText, Settings2 } from "lucide-react";
+import { Plus, Upload, Pencil, Trash2, ReceiptText, Settings2, Layers } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Dropdown from "@/components/ui/Dropdown";
@@ -9,21 +9,27 @@ import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import { toast } from "@/components/ui/Toast";
 import RecordUtilityForm from "./RecordUtilityForm";
-import UtilityTypesManager from "./UtilityTypesManager";
+import ChargeCategoryManager from "../ChargeCategoryManager";
 import BulkUploadUtilities from "./BulkUploadUtilities";
+import GenerateUtilityCategoryInvoices from "./GenerateUtilityCategoryInvoices";
 import { useGetUtilityReadingsQuery, useCreateUtilityReadingMutation, useUpdateUtilityReadingMutation, useDeleteUtilityReadingMutation, useAddReadingToInvoiceMutation } from "./utilityApiSlice";
+import { useGetChargeCategoriesQuery } from "../chargeCategoryApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
-// water/electricity are billed at the property rate automatically; the others have no
-// rate column, so the landlord types an amount.
-const RATED_ITEMS = ["water", "electricity"];
+// A reading has a resolvable rate if its category carries a default_rate, or it's
+// water/electricity (billed at the property's own rate columns) — everything else
+// (garbage, security, or any other non-rated category) needs an explicit amount.
+const hasResolvableRate = (reading) =>
+  reading.default_rate != null || ["water", "electricity"].includes((reading.utility_item || "").toLowerCase());
 
 export default function UtilitiesPage() {
   const { data, isLoading } = useGetUtilityReadingsQuery();
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: unitsData } = useGetUnitsQuery();
+  const { data: catData } = useGetChargeCategoriesQuery({ kind: "utility", include_inactive: 0 });
   const [createReading, { isLoading: isCreating }] = useCreateUtilityReadingMutation();
   const [updateReading, { isLoading: isUpdating }] = useUpdateUtilityReadingMutation();
   const [deleteReading] = useDeleteUtilityReadingMutation();
@@ -36,6 +42,9 @@ export default function UtilitiesPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [billReading, setBillReading] = useState(null); // reading being added to an invoice
   const [billAmount, setBillAmount] = useState("");
+  const [generateCategory, setGenerateCategory] = useState(null);
+
+  const categories = catData?.categories ?? [];
 
   const bill = async (mode) => {
     try {
@@ -84,7 +93,7 @@ export default function UtilitiesPage() {
     { key: "month", header: "Month", render: (row) => row.reading_month },
     { key: "property", header: "Property", render: (row) => row.property_name },
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
-    { key: "item", header: "Item", render: (row) => row.utility_item },
+    { key: "item", header: "Item", render: (row) => row.category_name || row.utility_item },
     { key: "previous", header: "Previous", render: (row) => row.previous_reading ?? "—" },
     { key: "current", header: "Current", render: (row) => row.current_reading ?? "—" },
     { key: "amount", header: "Flat amount", render: (row) => (row.amount != null ? row.amount : "—") },
@@ -98,13 +107,35 @@ export default function UtilitiesPage() {
         subtitle="Meter readings across water, electricity, garbage and security"
         actions={
           <>
-            <Button variant="ghost" leftIcon={<Settings2 className="h-4 w-4" />} onClick={() => setIsTypesOpen(true)}>
-              Utility types
+            <Dropdown
+              align="right"
+              trigger={
+                <Button variant="ghost" leftIcon={<Layers className="h-4 w-4" />}>
+                  Generate invoices
+                </Button>
+              }
+              items={
+                categories.length
+                  ? categories.map((c) => ({
+                      label: `Generate ${c.name} invoices`,
+                      onClick: () => setGenerateCategory(c),
+                    }))
+                  : [{ label: "No utility categories yet", onClick: () => setIsTypesOpen(true) }]
+              }
+            />
+            <Button
+              variant="ghost"
+              data-tour={ANCHORS.utilities.categoriesButton}
+              leftIcon={<Settings2 className="h-4 w-4" />}
+              onClick={() => setIsTypesOpen(true)}
+            >
+              Utility categories
             </Button>
             <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setIsBulkOpen(true)}>
               Bulk upload
             </Button>
             <Button
+              data-tour={ANCHORS.utilities.recordButton}
               leftIcon={<Plus className="h-4 w-4" />}
               onClick={() => {
                 setActive(null);
@@ -152,20 +183,20 @@ export default function UtilitiesPage() {
         {billReading && (
           <div className="space-y-4">
             <p className="text-sm text-white/60">
-              {billReading.utility_item} · {billReading.unit_name} · {billReading.reading_month}
+              {billReading.category_name || billReading.utility_item} · {billReading.unit_name} · {billReading.reading_month}
               {billReading.consumption != null ? ` · consumption ${billReading.consumption}` : ""}
             </p>
-            {!RATED_ITEMS.includes(billReading.utility_item) && (
+            {!hasResolvableRate(billReading) && (
               <Input
                 label="Amount to bill"
                 type="number"
                 step="0.01"
                 value={billAmount}
                 onChange={(e) => setBillAmount(e.target.value)}
-                hint={`${billReading.utility_item} has no meter rate — enter the charge.`}
+                hint={`${billReading.category_name || billReading.utility_item} has no meter rate — enter the charge.`}
               />
             )}
-            {RATED_ITEMS.includes(billReading.utility_item) && (
+            {hasResolvableRate(billReading) && (
               <Input
                 label="Amount (optional override)"
                 type="number"
@@ -198,9 +229,16 @@ export default function UtilitiesPage() {
         />
       </Modal>
 
-      <UtilityTypesManager isOpen={isTypesOpen} onClose={() => setIsTypesOpen(false)} />
+      <ChargeCategoryManager isOpen={isTypesOpen} onClose={() => setIsTypesOpen(false)} kind="utility" />
 
       <BulkUploadUtilities isOpen={isBulkOpen} onClose={() => setIsBulkOpen(false)} properties={properties} units={units} />
+
+      <GenerateUtilityCategoryInvoices
+        isOpen={Boolean(generateCategory)}
+        onClose={() => setGenerateCategory(null)}
+        category={generateCategory}
+        properties={properties}
+      />
 
       <ConfirmDialog
         isOpen={Boolean(pendingDelete)}

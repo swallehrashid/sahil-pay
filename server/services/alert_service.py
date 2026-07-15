@@ -108,7 +108,9 @@ def dispatch_alert(
 def _deliver_email(user, subject: str, body: str, app) -> str | None:
     if not user or not user.email:
         return None
-    if app.config.get("COMMS_SIMULATION_MODE", True):
+    # DEMO_MODE_SPEC.md §3.3 — a demo shadow landlord's own alert emails/SMS
+    # must never really send either, regardless of COMMS_SIMULATION_MODE.
+    if app.config.get("COMMS_SIMULATION_MODE", True) or _is_demo_user(user):
         logger.info("SIMULATED alert email to %s | %s", user.email, subject)
         return "email"
     from services.email_service import _send_email
@@ -119,9 +121,14 @@ def _deliver_email(user, subject: str, body: str, app) -> str | None:
 def _deliver_sms(user, text: str, app) -> str | None:
     if not user or not user.phone:
         return None
-    if app.config.get("COMMS_SIMULATION_MODE", True):
+    if app.config.get("COMMS_SIMULATION_MODE", True) or _is_demo_user(user):
         logger.info("SIMULATED alert SMS to %s | %s", user.phone, text)
         return "sms"
     from services.sms_service import send_sms
 
     return "sms" if send_sms(user.phone, text) else None
+
+
+def _is_demo_user(user) -> bool:
+    profile = getattr(user, "landlord_profile", None)
+    return bool(profile and profile.is_demo)

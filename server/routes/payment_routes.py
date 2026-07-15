@@ -198,24 +198,23 @@ def create_payment():
     db.session.flush()
 
     # #5/#7 — the allocation service is the single writer of PaymentAllocation rows and
-    # invoice amount_paid/balance/status (fully-cleared invoices auto-flip to 'paid').
-    from services.allocation_service import auto_allocate, apply_allocations
+    # line-item/invoice amount_paid/balance/status (cleared lines flip to 'paid'; any
+    # unallocated remainder becomes tenant credit). It also moves Tenant.balance by the
+    # allocated amount. A pending payment is NOT allocated until it's confirmed.
+    from services.allocation_service import (
+        auto_allocate, normalize_manual_allocations, apply_allocations,
+    )
     landlord = db.session.get(Landlord, landlord_id)
-    if allocation_mode == "auto" and payment.status == PaymentStatus.confirmed.value:
-        allocations = auto_allocate(tenant, amount, landlord, ref_date=payment.payment_date or date.today())
-    # A pending payment is not allocated until it's confirmed; only confirmed payments
-    # touch the ledger.
+    ref_date = payment.payment_date or date.today()
     if payment.status == PaymentStatus.confirmed.value:
-        apply_allocations(payment, tenant, allocations, landlord_id)
-
-    # Ledger convention (matches landlord_dashboard_routes/report_routes/export_service):
-    # negative balance = arrears (owed), positive = advance (credit). The FULL payment
-    # reduces what's owed regardless of how it's allocated across invoices — allocation
-    # only determines which invoices show as paid; the tenant's running balance is
-    # simply lifetime charges minus lifetime payments. A pending (unconfirmed) payment
-    # does NOT touch the ledger until it's confirmed.
-    if payment.status == PaymentStatus.confirmed.value:
-        tenant.balance = (tenant.balance or Decimal("0")) + amount
+        if allocation_mode == "manual":
+            alloc_rows = normalize_manual_allocations(allocations, tenant, landlord, ref_date=ref_date)
+        else:
+            alloc_rows = auto_allocate(tenant, amount, landlord, ref_date=ref_date)
+        # Single writer of allocations + ledger; unallocated remainder → tenant credit,
+        # held for the next invoice / monthly billing (NOT force-applied now, so a manual
+        # decision to leave an item unpaid is respected).
+        apply_allocations(payment, tenant, alloc_rows, landlord_id)
 
     db.session.commit()
 
@@ -308,6 +307,59 @@ def update_payment(payment_id):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/payments/tenants/<id>/outstanding-items  — for manual allocation UI
+# ---------------------------------------------------------------------------
+@payment_bp.route("/tenants/<int:tenant_id>/outstanding-items", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "view")
+def tenant_outstanding_items(tenant_id):
+    """
+    Every outstanding line item for a tenant, grouped by invoice, plus their held
+    credit — the data the record-payment "manual allocation" screen lists (spec §4.3).
+    """
+    from services.allocation_service import outstanding_line_items
+
+    landlord_id = get_current_landlord_id()
+    tenant = Tenant.query.filter_by(id=tenant_id, landlord_id=landlord_id, is_deleted=False).first()
+    if not tenant:
+        return jsonify({"error": "Tenant not found."}), 404
+
+    groups: dict[int, dict] = {}
+    for li in sorted(outstanding_line_items(tenant),
+                     key=lambda x: (x.invoice.issue_date if x.invoice else date.today(), x.invoice_id, x.id)):
+        inv = li.invoice
+        grp = groups.setdefault(inv.id, {
+            "invoice_id":     inv.id,
+            "invoice_number": inv.invoice_number,
+            "issue_date":     str(inv.issue_date),
+            "title":          inv.title or inv.invoice_type,
+            "invoice_type":   inv.invoice_type,
+            "balance":        0.0,
+            "lines":          [],
+        })
+        cat = li.category
+        label = (cat.subcategory_display()[li.subcategory]
+                 if cat and li.subcategory in ("deposit", "balance", "current") else li.item)
+        grp["lines"].append({
+            "line_item_id":  li.id,
+            "item":          li.item,
+            "category_id":   li.category_id,
+            "category_name": cat.name if cat else None,
+            "subcategory":   li.subcategory,
+            "label":         label,
+            "remaining":     float(li.remaining),
+        })
+        grp["balance"] += float(li.remaining)
+
+    return jsonify({
+        "tenant_id":      tenant.id,
+        "credit_balance": float(tenant.credit_balance or 0),
+        "invoices":       list(groups.values()),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # GET /api/payments/<id>/allocation-preview  — proposed auto-allocation
 # ---------------------------------------------------------------------------
 @payment_bp.route("/<int:payment_id>/allocation-preview", methods=["GET"])
@@ -319,6 +371,10 @@ def allocation_preview(payment_id):
     Show how this payment WOULD be auto-allocated across the tenant's
     outstanding invoices (in the landlord's configured priority order), so the
     landlord can accept it or switch to manual before confirming. Read-only.
+
+    A payment with no tenant yet (unmatched bank-statement import / co-pilot
+    payment) returns an empty "unmatched" shape instead of erroring — the
+    landlord picks a tenant in the review UI first via ?tenant_id=.
     ---
     tags: [Payments]
     security:
@@ -327,40 +383,81 @@ def allocation_preview(payment_id):
       200: {description: Outstanding invoices + proposed auto-allocation.}
     """
     from services.allocation_service import (
-        auto_allocate, outstanding_invoices, categorize_invoice,
-        CATEGORY_LABELS, get_allocation_priority,
+        auto_allocate, outstanding_line_items, priority_pairs_labeled,
     )
     landlord_id = get_current_landlord_id()
     pay = _get_or_404(landlord_id, payment_id)
-    tenant = pay.tenant
     landlord = db.session.get(Landlord, landlord_id)
+
+    tenant_id_override = request.args.get("tenant_id", type=int)
+    if tenant_id_override:
+        tenant = Tenant.query.filter_by(
+            id=tenant_id_override, landlord_id=landlord_id, is_deleted=False
+        ).first()
+    else:
+        tenant = pay.tenant
+
+    if tenant is None:
+        return jsonify({
+            "payment_id":        pay.id,
+            "amount":            float(pay.amount),
+            "unmatched":         True,
+            "priority_order":    priority_pairs_labeled(landlord),
+            "outstanding":       [],
+            "outstanding_items": [],
+            "credit_balance":    0.0,
+            "proposed_total":    0.0,
+            "advance_credit":    float(pay.amount),
+        }), 200
+
     ref_date = pay.payment_date or date.today()
 
     proposed = auto_allocate(tenant, pay.amount, landlord, ref_date=ref_date)
-    proposed_by_inv = {a["invoice_id"]: float(a["amount_allocated"]) for a in proposed}
+    proposed_by_line = {a["line_item_id"]: float(a["amount_allocated"]) for a in proposed}
 
-    invoices = []
-    for inv in sorted(outstanding_invoices(tenant), key=lambda i: (i.issue_date or ref_date, i.id)):
-        bal = float((inv.total_amount or 0) - (inv.amount_paid or 0))
-        cat = categorize_invoice(inv, ref_date)
-        invoices.append({
-            "id":             inv.id,
+    # Line-level view (new UI), grouped by invoice.
+    items_by_invoice: dict[int, dict] = {}
+    lines_sorted = sorted(
+        outstanding_line_items(tenant),
+        key=lambda li: (li.invoice.issue_date if li.invoice else ref_date, li.invoice_id, li.id),
+    )
+    for li in lines_sorted:
+        inv = li.invoice
+        grp = items_by_invoice.setdefault(inv.id, {
+            "invoice_id":     inv.id,
             "invoice_number": inv.invoice_number,
+            "issue_date":     str(inv.issue_date),
             "title":          inv.title or inv.invoice_type,
             "invoice_type":   inv.invoice_type,
-            "category":       cat,
-            "category_label": CATEGORY_LABELS.get(cat, cat),
-            "issue_date":     str(inv.issue_date),
-            "balance":        bal,
-            "proposed_amount": proposed_by_inv.get(inv.id, 0.0),
+            "balance":        0.0,
+            "proposed_amount": 0.0,
+            "lines":          [],
         })
+        cat = li.category
+        proposed_amt = proposed_by_line.get(li.id, 0.0)
+        grp["lines"].append({
+            "line_item_id":   li.id,
+            "item":           li.item,
+            "category_id":    li.category_id,
+            "category_name":  cat.name if cat else None,
+            "subcategory":    li.subcategory,
+            "label":          cat.subcategory_display()[li.subcategory]
+                              if (cat and li.subcategory in ("deposit", "balance", "current")) else li.item,
+            "remaining":      float(li.remaining),
+            "proposed_amount": proposed_amt,
+        })
+        grp["balance"] += float(li.remaining)
+        grp["proposed_amount"] += proposed_amt
 
-    total_allocated = round(sum(proposed_by_inv.values()), 2)
+    invoices = list(items_by_invoice.values())
+    total_allocated = round(sum(proposed_by_line.values()), 2)
     return jsonify({
         "payment_id":      pay.id,
         "amount":          float(pay.amount),
-        "priority_order":  get_allocation_priority(landlord),
-        "outstanding":     invoices,
+        "priority_order":  priority_pairs_labeled(landlord),
+        "outstanding":     invoices,          # invoice-grouped, each with its lines
+        "outstanding_items": invoices,        # alias (new UI)
+        "credit_balance":  float(tenant.credit_balance or 0),
         "proposed_total":  total_allocated,
         "advance_credit":  round(max(0.0, float(pay.amount) - total_allocated), 2),
     }), 200
@@ -375,50 +472,67 @@ def allocation_preview(payment_id):
 @require_permission("payments", "edit")
 def confirm_payment(payment_id):
     """
-    Confirm a pending (tenant-submitted) payment. Applies it to the tenant's
-    invoices — either `manual` (explicit allocations) or `auto` (the landlord's
-    priority order) — moves the tenant's balance, marks the payment confirmed,
-    and notifies the tenant. Only now does the payment reflect on the tenant's
-    ledger and become a downloadable receipt.
+    Confirm a pending (tenant-submitted, co-pilot, or unmatched bank-statement)
+    payment. Applies it to the tenant's invoices — either `manual` (explicit
+    allocations) or `auto` (the landlord's priority order) — moves the tenant's
+    balance, marks the payment confirmed, and notifies the tenant. Only now does
+    the payment reflect on the tenant's ledger and become a downloadable receipt.
 
-    Body: { mode: 'auto'|'manual', allocations?: [{invoice_id, amount_allocated}] }
+    Body: { tenant_id?, mode: 'auto'|'manual', allocations?: [{invoice_id, amount_allocated}] }
+    tenant_id is required when the payment has no tenant yet (unmatched import);
+    it may also be passed to re-match a payment to a different tenant before confirming.
     ---
     tags: [Payments]
     security:
       - Bearer: []
     responses:
       200: {description: Payment confirmed.}
-      400: {description: Already confirmed or invalid allocation.}
+      400: {description: Already confirmed, no tenant, or invalid allocation.}
     """
-    from services.allocation_service import auto_allocate, apply_allocations
+    from services.allocation_service import (
+        auto_allocate, normalize_manual_allocations, apply_allocations,
+    )
 
     landlord_id = get_current_landlord_id()
     pay = _get_or_404(landlord_id, payment_id)
     if pay.status == PaymentStatus.confirmed.value:
         return jsonify({"error": "This payment is already confirmed."}), 400
 
-    tenant = pay.tenant
+    data     = request.get_json(silent=True) or {}
+    tenant_id = data.get("tenant_id")
+    if tenant_id:
+        tenant = Tenant.query.filter_by(
+            id=tenant_id, landlord_id=landlord_id, is_deleted=False
+        ).first()
+        if not tenant:
+            return jsonify({"error": "Tenant not found."}), 404
+        pay.tenant_id   = tenant.id
+        pay.unit_id     = tenant.unit_id
+        pay.property_id = tenant.unit.property_id if tenant.unit else None
+    else:
+        tenant = pay.tenant
+
     if not tenant:
-        return jsonify({"error": "Payment has no tenant to allocate to."}), 400
+        return jsonify({"error": "Match this payment to a tenant before confirming."}), 400
 
     landlord = db.session.get(Landlord, landlord_id)
-    data     = request.get_json(silent=True) or {}
     mode     = (data.get("mode") or "auto").lower()
     before   = pay.to_dict()
+    ref_date = pay.payment_date or date.today()
 
     if mode == "manual":
-        allocations = data.get("allocations", [])
-        alloc_total = sum(Decimal(str(a.get("amount_allocated", 0))) for a in allocations)
+        rows = data.get("allocations", [])
+        alloc_total = sum(Decimal(str(a.get("amount") if a.get("amount") is not None
+                                        else a.get("amount_allocated", 0))) for a in rows)
         if alloc_total > pay.amount:
             return jsonify({"error": "Allocation total exceeds the payment amount."}), 400
+        allocations = normalize_manual_allocations(rows, tenant, landlord, ref_date=ref_date)
     else:
-        allocations = auto_allocate(tenant, pay.amount, landlord, ref_date=pay.payment_date or date.today())
+        allocations = auto_allocate(tenant, pay.amount, landlord, ref_date=ref_date)
 
+    # apply_allocations moves Tenant.balance by the allocated amount and routes any
+    # unallocated remainder into tenant credit.
     apply_allocations(pay, tenant, allocations, landlord_id)
-
-    # Ledger convention: the FULL payment reduces what's owed; any unallocated
-    # remainder is advance credit (matches create_payment / the landlord side).
-    tenant.balance = (tenant.balance or Decimal("0")) + pay.amount
     pay.status = PaymentStatus.confirmed.value
     db.session.commit()
 
@@ -860,9 +974,19 @@ def get_statement_transactions(upload_id):
 @require_permission("payments", "edit")
 def import_statement_transactions(upload_id):
     """
-    Import selected parsed transactions as confirmed payments.
-    Body: { transaction_ids: [int], tenant_mappings?: { txn_id: tenant_id } }
-    Each imported transaction creates a Payment row (source=bank_statement).
+    Import selected parsed transactions as payments.
+    Body: {
+      transaction_ids: [int],
+      tenant_mappings?: { txn_id: tenant_id },
+      allocations?: { txn_id: {"mode": "auto"} | {"mode": "manual", "lines": [{line_item_id, amount}]} }
+    }
+    A transaction matched to a tenant (tenant_mappings) is created CONFIRMED and
+    immediately allocated (auto by the landlord's priority order, or manual using the
+    given line rows) through the shared allocation_service — same engine record_payment
+    and confirm_payment use, so open/partial/paid transitions and advance-credit
+    handling are identical everywhere. A transaction with no tenant match is created
+    PENDING (source=bank_statement) so it surfaces on the Payments page with the amber
+    "Review" action, and is allocated later via the same review modal used for co-pilot.
     ---
     tags: [Payments]
     security:
@@ -871,6 +995,8 @@ def import_statement_transactions(upload_id):
       201: {description: Payments created from selected transactions.}
       404: {description: Upload not found.}
     """
+    from services.allocation_service import auto_allocate, normalize_manual_allocations, apply_allocations
+
     landlord_id      = get_current_landlord_id()
     upload           = BankStatementUpload.query.filter_by(
         id=upload_id, landlord_id=landlord_id
@@ -881,10 +1007,12 @@ def import_statement_transactions(upload_id):
     data             = request.get_json(silent=True) or {}
     transaction_ids  = data.get("transaction_ids", [])
     tenant_mappings  = data.get("tenant_mappings", {})
+    allocation_specs = data.get("allocations", {})
 
     if not transaction_ids:
         return jsonify({"error": "transaction_ids list is required."}), 400
 
+    landlord = db.session.get(Landlord, landlord_id)
     created = []
     for txn_id in transaction_ids:
         txn = BankStatementTransaction.query.filter_by(
@@ -894,20 +1022,37 @@ def import_statement_transactions(upload_id):
             continue
 
         tenant_id = tenant_mappings.get(str(txn_id))
+        tenant = None
+        if tenant_id:
+            tenant = Tenant.query.filter_by(
+                id=int(tenant_id), landlord_id=landlord_id, is_deleted=False
+            ).first()
 
         payment = Payment(
             payment_ref       = _ref_number(landlord_id),
             landlord_id       = landlord_id,
-            tenant_id         = int(tenant_id) if tenant_id else None,
+            tenant_id         = tenant.id if tenant else None,
+            unit_id           = tenant.unit_id if tenant else None,
+            property_id       = (tenant.unit.property_id if tenant and tenant.unit else None),
             amount            = txn.amount or Decimal("0"),
             payment_date      = txn.txn_date or date.today(),
-            status            = PaymentStatus.confirmed.value,
+            status            = PaymentStatus.confirmed.value if tenant else PaymentStatus.pending.value,
             source            = PaymentSource.bank_statement.value,
             bank_statement_id = upload.id,
             notes             = txn.description,
         )
         db.session.add(payment)
         db.session.flush()
+
+        if tenant:
+            ref_date = payment.payment_date or date.today()
+            spec = allocation_specs.get(str(txn_id)) or {"mode": "auto"}
+            if spec.get("mode") == "manual":
+                rows = spec.get("lines", [])
+                alloc_rows = normalize_manual_allocations(rows, tenant, landlord, ref_date=ref_date)
+            else:
+                alloc_rows = auto_allocate(tenant, payment.amount, landlord, ref_date=ref_date)
+            apply_allocations(payment, tenant, alloc_rows, landlord_id)
 
         txn.is_imported       = True
         txn.matched_payment_id = payment.id

@@ -1,17 +1,16 @@
 import { useState } from "react";
-import { Copy } from "lucide-react";
 import Input from "@/components/ui/Input";
 import FileUpload from "@/components/ui/FileUpload";
 import Button from "@/components/ui/Button";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
-import { useGetAccountSettingsQuery, useUpdateAccountSettingsMutation, useGenerateAgentCodeMutation } from "./settingsApiSlice";
+import { useGetAccountSettingsQuery, useUpdateAccountSettingsMutation } from "./settingsApiSlice";
 
-// §4.17 — profile, signature, change password, generate Co-pilot agent code.
+// §4.17 — profile, signature, change password. Co-pilot agent code lives in
+// Settings → Co-pilot now (CopilotSettings.jsx) alongside the rest of its config.
 export default function AccountSettings() {
   const { data, isLoading } = useGetAccountSettingsQuery();
   const [updateAccount, { isLoading: isSaving }] = useUpdateAccountSettingsMutation();
-  const [generateAgentCode, { isLoading: isGeneratingCode }] = useGenerateAgentCodeMutation();
 
   const [prevData, setPrevData] = useState();
   const [form, setForm] = useState(null);
@@ -35,23 +34,6 @@ export default function AccountSettings() {
       setPasswords({ current_password: "", new_password: "" });
     } catch {
       toast("Could not update your account.", { type: "error" });
-    }
-  };
-
-  const handleGenerateCode = async () => {
-    try {
-      const result = await generateAgentCode().unwrap();
-      setForm((f) => ({ ...f, agent_code: result?.agent_code ?? f.agent_code }));
-      toast("Agent code generated.", { type: "success" });
-    } catch {
-      toast("Could not generate an agent code.", { type: "error" });
-    }
-  };
-
-  const copyAgentCode = () => {
-    if (form.agent_code) {
-      navigator.clipboard.writeText(form.agent_code);
-      toast("Agent code copied.", { type: "success" });
     }
   };
 
@@ -85,22 +67,6 @@ export default function AccountSettings() {
             value={passwords.new_password}
             onChange={(e) => setPasswords((p) => ({ ...p, new_password: e.target.value }))}
           />
-        </div>
-      </div>
-
-      <div className="glass space-y-3 p-6">
-        <h3 className="text-base font-medium text-white">Co-pilot agent code</h3>
-        <p className="text-sm text-white/50">Connects your Co-pilot SMS-forwarding app to this account.</p>
-        <div className="flex items-center gap-3">
-          <Input value={form.agent_code ?? "Not generated yet"} readOnly className="flex-1" />
-          {form.agent_code && (
-            <Button type="button" variant="ghost" size="sm" leftIcon={<Copy className="h-4 w-4" />} onClick={copyAgentCode}>
-              Copy
-            </Button>
-          )}
-          <Button type="button" variant="ghost" size="sm" isLoading={isGeneratingCode} onClick={handleGenerateCode}>
-            Generate new
-          </Button>
         </div>
       </div>
 

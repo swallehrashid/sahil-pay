@@ -28,8 +28,10 @@ import { downloadFile } from "@/utils/downloadFile";
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
-import { PAYMENT_STATUSES, PAYMENT_SOURCES } from "@/utils/constants";
+import { PAYMENT_STATUSES, PAYMENT_SOURCES, PAYMENT_SOURCE_LABELS } from "@/utils/constants";
+import { Smartphone } from "lucide-react";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function PaymentsPage() {
   const navigate = useNavigate();
@@ -120,14 +122,22 @@ export default function PaymentsPage() {
     {
       key: "status",
       header: "Status",
-      render: (row) =>
-        row.status === "pending" ? (
-          <button onClick={() => setReviewPayment(row)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/15 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/25">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Review
-          </button>
-        ) : (
-          <StatusBadge status={row.status} />
-        ),
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          {row.status === "pending" ? (
+            <button onClick={() => setReviewPayment(row)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-400/15 px-2.5 py-1 text-xs font-medium text-amber-300 transition-colors hover:bg-amber-400/25">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Review
+            </button>
+          ) : (
+            <StatusBadge status={row.status} />
+          )}
+          {row.source === "co_pilot" && (
+            <span title="Recorded via Co-pilot" className="inline-flex items-center gap-1 text-xs text-white/40">
+              <Smartphone className="h-3.5 w-3.5" /> Co-pilot
+            </span>
+          )}
+        </div>
+      ),
     },
     { key: "amount", header: "Amount", render: (row) => formatCurrency(row.amount) },
   ];
@@ -145,7 +155,7 @@ export default function PaymentsPage() {
             <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setIsUploadOpen(true)}>
               Upload statement
             </Button>
-            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+            <Button data-tour={ANCHORS.payments.recordButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
               Record payment
             </Button>
           </>
@@ -181,11 +191,11 @@ export default function PaymentsPage() {
             label="Source"
             value={filters.source}
             onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
-            options={PAYMENT_SOURCES.map((s) => ({ value: s, label: s }))}
+            options={PAYMENT_SOURCES.map((s) => ({ value: s, label: PAYMENT_SOURCE_LABELS[s] ?? s }))}
           />
         </FilterPanel>
 
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <ResponsiveTable
             columns={columns}
             rows={payments}

@@ -40,6 +40,14 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     from utils import decrement_sms_balance
 
     simulate = current_app.config.get("COMMS_SIMULATION_MODE", True)
+    # DEMO_MODE_SPEC.md §3.3 — a demo shadow landlord's messages are ALWAYS
+    # simulated, no matter the platform's COMMS_SIMULATION_MODE setting. This
+    # is layer 1 of the no-real-sends guarantee (layer 2 is that every demo
+    # tenant has an obviously fake phone/email — see services/demo_service.py).
+    demo_landlord = db.session.get(Landlord, landlord_id)
+    is_demo = demo_landlord is not None and demo_landlord.is_demo
+    if is_demo:
+        simulate = True
     # Destination the message needs to be deliverable at all.
     destination = tenant.email if channel == "email" else getattr(tenant, "phone", None)
 
@@ -57,7 +65,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         # §9.3 reselling charge model: own connected sender ID (custom) → custom
         # price; SahilPay's shared sender ID (default) → default price by length,
         # delivered out of the shared pool.
-        landlord = db.session.get(Landlord, landlord_id)
+        landlord = demo_landlord if demo_landlord is not None else db.session.get(Landlord, landlord_id)
         settings = landlord.landlord_settings if landlord else None
         rates = load_rates()
         econ = price_sms(content, settings, rates)
@@ -69,9 +77,12 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
             at_api_key = settings.at_api_key
 
         cfg = None
-        if not uses_own:
+        if not uses_own and not is_demo:
             # Shared (default) sends are gated by the master toggle and the
-            # shared pool balance; custom sends never touch the pool.
+            # shared pool balance; custom sends never touch the pool. A demo
+            # shadow never draws from the real shared pool or shows up in
+            # platform SMS revenue — its "balance" is decremented below for a
+            # realistic training experience, but nothing platform-facing moves.
             cfg = SmsPricingConfig.get_singleton()
             if not rates["shared_enabled"]:
                 blocked = "Shared-sender sending is disabled by the administrator."
@@ -79,8 +90,9 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
                 blocked = "SahilPay shared SMS pool is exhausted."
 
         if not blocked:
-            sms_charge    = econ["charge"]
-            platform_cost = econ["platform_cost"]
+            if not is_demo:
+                sms_charge    = econ["charge"]
+                platform_cost = econ["platform_cost"]
             if landlord is not None:
                 # Decrement one balance credit per segment (balance is a credit
                 # count; the resale price only affects KES billed at purchase).

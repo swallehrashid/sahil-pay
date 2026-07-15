@@ -16,10 +16,9 @@ Two payment flows supported:
            → Landlord uses POST /status-check to find the transaction
            → Manually or auto-matched to a tenant/payment.
 
-  3. Co-Pilot SMS Ingest — landlord's phone agent forwarding M-Pesa
-     confirmation SMS text to the platform.
-     Flow: Co-Pilot mobile app → POST /copilot/ingest
-           → Platform parses SMS → Creates MpesaTransaction → Matches.
+Co-Pilot SMS ingestion lives in routes/copilot_routes.py (POST
+/api/copilot/ingest) — it's device-token authenticated, not landlord-JWT, so
+it can't live here. See COPILOT_PLATFORM_SPEC.md.
 
 Environment variables required:
   DARAJA_CONSUMER_KEY, DARAJA_CONSUMER_SECRET,
@@ -80,36 +79,6 @@ def _daraja_stk_password(shortcode: str, passkey: str, timestamp: str) -> str:
 def _payment_ref_number(landlord_id: int) -> str:
     count = Payment.query.filter_by(landlord_id=landlord_id).count()
     return f"PAY-{landlord_id}-{count + 1:06d}"
-
-
-# ===========================================================================
-# Co-Pilot SMS Parser
-# ===========================================================================
-
-# Example Safaricom M-Pesa confirmation SMS:
-# "RXXXXXXXXX Confirmed. Ksh1,500.00 received from JOHN DOE 254712345678 on 1/6/25 at 10:34 AM"
-_MPESA_SMS_PATTERN = re.compile(
-    r"(?P<ref>[A-Z0-9]{10})\s+Confirmed\.\s+"
-    r"Ksh(?P<amount>[\d,]+\.?\d*)\s+received from\s+"
-    r"(?P<sender_name>.+?)\s+(?P<phone>2547\d{8})",
-    re.IGNORECASE,
-)
-
-
-def _parse_mpesa_sms(sms_text: str) -> dict | None:
-    """
-    Parse a raw M-Pesa C2B confirmation SMS.
-    Returns dict with keys: ref, amount, sender_name, phone — or None if no match.
-    """
-    match = _MPESA_SMS_PATTERN.search(sms_text)
-    if not match:
-        return None
-    return {
-        "ref":         match.group("ref"),
-        "amount":      Decimal(match.group("amount").replace(",", "")),
-        "sender_name": match.group("sender_name").strip(),
-        "phone":       match.group("phone"),
-    }
 
 
 # ===========================================================================
@@ -381,145 +350,6 @@ def stk_push():
 
 
 # ---------------------------------------------------------------------------
-# POST /api/mpesa/copilot/ingest
-# ---------------------------------------------------------------------------
-@mpesa_bp.route("/copilot/ingest", methods=["POST"])
-@jwt_required()
-@require_landlord_or_team()
-@require_permission("payments", "edit")
-def copilot_ingest():
-    """
-    Co-Pilot app forwards a raw M-Pesa confirmation SMS text.
-    The platform parses it, creates or updates a MpesaTransaction,
-    and attempts to auto-match it to a Tenant.
-
-    Matching rules (in order):
-      1. Phone number → Tenant.phone (exact match after normalisation)
-      2. If no match: status=unmatched; landlord resolves manually.
-
-    If a match is found and auto-confirm is enabled, a Payment row is created.
-
-    Body:
-      { sms_text: str,
-        agent_code: str,    -- identifies which landlord account
-        shortcode?: str,
-        till_number?: str,
-        auto_confirm?: bool  -- default False; if True creates Payment automatically }
-    ---
-    tags: [M-Pesa]
-    security:
-      - Bearer: []
-    responses:
-      201: {description: M-Pesa transaction ingested.}
-      400: {description: SMS parse failure or validation error.}
-    """
-    landlord_id  = get_current_landlord_id()
-    data         = request.get_json(silent=True) or {}
-    sms_text     = (data.get("sms_text") or "").strip()
-    auto_confirm = bool(data.get("auto_confirm", False))
-
-    if not sms_text:
-        return jsonify({"error": "sms_text is required."}), 400
-
-    # Parse SMS
-    parsed = _parse_mpesa_sms(sms_text)
-    if not parsed:
-        return jsonify({
-            "error": "Could not parse M-Pesa SMS. Ensure it is a valid Safaricom confirmation message.",
-            "sms_text": sms_text,
-        }), 400
-
-    ref    = parsed["ref"]
-    amount = parsed["amount"]
-    phone  = parsed["phone"]
-
-    # Check for duplicate reference
-    existing = MpesaTransaction.query.filter_by(
-        landlord_id=landlord_id, reference_number=ref
-    ).first()
-    if existing:
-        return jsonify({
-            "message":     "Transaction already recorded.",
-            "transaction": existing.to_dict(),
-        }), 200
-
-    # Attempt tenant match by phone
-    norm_phone = phone if phone.startswith("254") else "254" + phone[1:]
-    tenant     = Tenant.query.filter_by(
-        landlord_id=landlord_id, is_deleted=False
-    ).filter(
-        db.or_(Tenant.phone == phone, Tenant.phone == norm_phone)
-    ).first()
-
-    status = (
-        MpesaTransactionStatus.recorded.value if tenant
-        else MpesaTransactionStatus.unmatched.value
-    )
-
-    mpesa_txn = MpesaTransaction(
-        landlord_id      = landlord_id,
-        reference_number = ref,
-        shortcode        = data.get("shortcode"),
-        till_number      = data.get("till_number"),
-        status           = status,
-        amount           = amount,
-        tenant_id        = tenant.id if tenant else None,
-        description      = f"Co-Pilot | {parsed['sender_name']} | {sms_text[:120]}",
-    )
-    db.session.add(mpesa_txn)
-    db.session.flush()
-
-    payment = None
-    if tenant and auto_confirm:
-        # Auto-create a confirmed payment
-        payment = Payment(
-            payment_ref     = _payment_ref_number(landlord_id),
-            landlord_id     = landlord_id,
-            tenant_id       = tenant.id,
-            unit_id         = tenant.unit_id,
-            property_id     = (tenant.unit.property_id if tenant.unit else None),
-            amount          = amount,
-            payment_date    = datetime.utcnow().date(),
-            status          = PaymentStatus.confirmed.value,
-            source          = PaymentSource.co_pilot.value,
-            mpesa_reference = ref,
-            notes           = f"Auto-confirmed via Co-Pilot. SMS ref: {ref}",
-        )
-        db.session.add(payment)
-        db.session.flush()
-
-        mpesa_txn.payment_id = payment.id
-        mpesa_txn.status     = MpesaTransactionStatus.recorded.value
-
-        # Update tenant balance
-        tenant.balance = (tenant.balance or Decimal("0")) + amount
-
-    db.session.commit()
-
-    record_audit(
-        actor_user_id=int(get_jwt_identity()),
-        landlord_id=landlord_id,
-        action="copilot_ingest",
-        entity_type="payment",
-        entity_id=mpesa_txn.id,
-        description=(
-            f"Co-Pilot SMS ingested: {ref}, KES {amount}. "
-            f"Tenant match: {'yes' if tenant else 'no'}. "
-            f"Auto-confirmed: {auto_confirm}."
-        ),
-    )
-    db.session.commit()
-
-    return jsonify({
-        "message":       "SMS ingested successfully.",
-        "transaction":   mpesa_txn.to_dict(),
-        "tenant_matched": tenant is not None,
-        "payment":       payment.to_dict() if payment else None,
-        "status":        status,
-    }), 201
-
-
-# ---------------------------------------------------------------------------
 # POST /api/mpesa/transactions/<id>/match
 # ---------------------------------------------------------------------------
 @mpesa_bp.route("/transactions/<int:txn_id>/match", methods=["POST"])
@@ -562,6 +392,16 @@ def match_transaction(txn_id):
     if not tenant:
         return jsonify({"error": "Tenant not found."}), 404
 
+    # If this transaction originated from Co-pilot, tag the payment's source
+    # accordingly and respect the landlord's copilot_auto_allocate choice —
+    # otherwise (a plain C2B/STK transaction the landlord is resolving
+    # themselves) confirm immediately, same as before.
+    from models import CopilotMessage, CopilotMatchStatus
+    copilot_msg = CopilotMessage.query.filter_by(mpesa_transaction_id=mpesa_txn.id).first()
+    landlord    = db.session.get(Landlord, landlord_id)
+    ls          = landlord.landlord_settings if landlord else None
+    auto_now    = bool(ls and ls.copilot_auto_allocate) if copilot_msg else True
+
     payment = Payment(
         payment_ref     = _payment_ref_number(landlord_id),
         landlord_id     = landlord_id,
@@ -570,8 +410,8 @@ def match_transaction(txn_id):
         property_id     = (tenant.unit.property_id if tenant.unit else None),
         amount          = mpesa_txn.amount or Decimal("0"),
         payment_date    = datetime.utcnow().date(),
-        status          = PaymentStatus.confirmed.value,
-        source          = PaymentSource.mpesa.value,
+        status          = PaymentStatus.confirmed.value if auto_now else PaymentStatus.pending.value,
+        source          = PaymentSource.co_pilot.value if copilot_msg else PaymentSource.mpesa.value,
         mpesa_reference = mpesa_txn.reference_number,
         notes           = f"Manually matched from M-Pesa transaction #{mpesa_txn.id}",
     )
@@ -582,7 +422,32 @@ def match_transaction(txn_id):
     mpesa_txn.payment_id = payment.id
     mpesa_txn.status     = MpesaTransactionStatus.recorded.value
 
-    tenant.balance = (tenant.balance or Decimal("0")) + (mpesa_txn.amount or Decimal("0"))
+    # #4.6 — the allocation service is the single writer of allocations/ledgers;
+    # a pending payment (copilot review mode) touches no balances until confirmed.
+    if payment.status == PaymentStatus.confirmed.value:
+        from services.allocation_service import auto_allocate as _auto_allocate, apply_allocations
+        alloc_rows = _auto_allocate(tenant, payment.amount, landlord, ref_date=payment.payment_date)
+        apply_allocations(payment, tenant, alloc_rows, landlord_id)
+    elif copilot_msg and landlord and landlord.user_id:
+        from services.notification_service import notify
+        notify(
+            recipient_user_id=landlord.user_id,
+            category="copilot_payment_pending",
+            template_key="copilot_payment_pending",
+            template_kwargs={
+                "amount": f"{payment.amount:,.2f}",
+                "sender_name": copilot_msg.parsed_name or copilot_msg.sender_id,
+                "tenant_name": f"{tenant.first_name} {tenant.last_name}",
+            },
+            landlord_id=landlord_id,
+            link="/landlord/payments?status=pending",
+            entity_type="payment", entity_id=payment.id,
+        )
+
+    if copilot_msg:
+        copilot_msg.tenant_id    = tenant.id
+        copilot_msg.payment_id   = payment.id
+        copilot_msg.match_status = CopilotMatchStatus.matched.value
 
     db.session.commit()
 

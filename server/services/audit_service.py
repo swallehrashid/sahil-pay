@@ -15,7 +15,7 @@ import logging
 
 from flask import request
 
-from utils import to_json_safe, active_impersonation
+from utils import to_json_safe, active_impersonation, is_demo_scope
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,11 @@ def record_audit(
     if imp is not None:
         prefix = f"[Impersonating landlord #{imp.landlord_id}]"
         description = f"{prefix} {description}" if description else prefix
+
+    # Defense-in-depth: mark demo-scope writes (DEMO_MODE_SPEC.md §3.5) — the
+    # shadow landlord's own landlord_id already isolates the row either way.
+    if is_demo_scope():
+        description = f"[DEMO] {description}" if description else "[DEMO]"
 
     # Callers that already hold the acting entity (e.g. the tenant-portal routes
     # know exactly which Tenant submitted) may pass actor_full_name/actor_username

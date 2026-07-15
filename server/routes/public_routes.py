@@ -33,3 +33,24 @@ def public_packages():
         .all()
     )
     return jsonify({"packages": [p.to_public_dict() for p in packages]}), 200
+
+
+@public_bp.route("/affiliate-program", methods=["GET"])
+def public_affiliate_program():
+    """
+    Whether the affiliate program is currently accepting signups, plus the
+    default commission rate/months so the marketing copy never drifts from
+    what the admin has actually configured (AFFILIATE_PROGRAM_SPEC.md §11.1).
+    ---
+    tags: [Public]
+    responses:
+      200: {description: Affiliate program public info.}
+    """
+    from services.affiliate_service import get_program_config
+
+    cfg = get_program_config()
+    return jsonify({
+        "is_active":               cfg.is_program_active,
+        "default_commission_rate": str(cfg.default_commission_rate),
+        "default_commission_months": cfg.default_commission_months,
+    }), 200

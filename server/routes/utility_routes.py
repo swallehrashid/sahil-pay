@@ -15,8 +15,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import (
-    UtilityReading, Unit, Property, Tenant, UtilityItem,
-    LandlordUtilityType, UtilityCategory,
+    UtilityReading, Unit, Property, Tenant, UtilityItem, ChargeCategory,
 )
 from decorators import (
     require_landlord_or_team, require_permission, get_current_landlord_id,
@@ -27,134 +26,8 @@ from services.audit_service import record_audit
 utility_bp = Blueprint("utilities", __name__, url_prefix="/api/utilities")
 
 
-# ===========================================================================
-# #6 — Landlord utility catalogue (the utilities a landlord defines/manages).
-# ===========================================================================
-
-# Seeded for any landlord that has none yet, so the catalogue is never empty.
-_DEFAULT_UTILITY_TYPES = [
-    ("Water",         UtilityCategory.current_utility.value, True),
-    ("Electricity",   UtilityCategory.current_utility.value, True),
-    ("Garbage",       UtilityCategory.current_utility.value, False),
-    ("Security",      UtilityCategory.current_utility.value, False),
-    ("Rent deposit",   UtilityCategory.deposit.value, False),
-    ("Rental balance", UtilityCategory.balance.value, False),
-]
-
-
-def _ensure_utility_types(landlord_id: int):
-    """Lazily seed the default catalogue for a landlord that has none."""
-    exists = LandlordUtilityType.query.filter_by(landlord_id=landlord_id).first()
-    if exists:
-        return
-    for name, category, metered in _DEFAULT_UTILITY_TYPES:
-        db.session.add(LandlordUtilityType(
-            landlord_id=landlord_id, name=name, category=category, is_metered=metered,
-        ))
-    db.session.commit()
-
-
-@utility_bp.route("/types", methods=["GET"])
-@jwt_required()
-@require_landlord_or_team()
-@require_permission("utilities", "view")
-def list_utility_types():
-    """List the landlord's utility catalogue. ?category=&include_inactive="""
-    landlord_id = get_current_landlord_id()
-    _ensure_utility_types(landlord_id)
-    query = LandlordUtilityType.query.filter_by(landlord_id=landlord_id)
-    if not request.args.get("include_inactive"):
-        query = query.filter_by(is_active=True)
-    if cat := request.args.get("category"):
-        query = query.filter_by(category=cat)
-    types = query.order_by(LandlordUtilityType.category, LandlordUtilityType.name).all()
-    return jsonify({"utility_types": [t.to_dict() for t in types]}), 200
-
-
-@utility_bp.route("/types", methods=["POST"])
-@jwt_required()
-@require_landlord_or_team()
-@require_permission("utilities", "edit")
-def create_utility_type():
-    """Create a utility type. Body: { name, category, is_metered?, default_rate? }"""
-    landlord_id = get_current_landlord_id()
-    data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    category = data.get("category")
-    if not name or not category:
-        return jsonify({"error": "name and category are required."}), 400
-    if category not in [c.value for c in UtilityCategory]:
-        return jsonify({"error": f"category must be one of: {[c.value for c in UtilityCategory]}."}), 400
-    if LandlordUtilityType.query.filter_by(landlord_id=landlord_id, name=name).first():
-        return jsonify({"error": f"A utility named '{name}' already exists."}), 400
-
-    ut = LandlordUtilityType(
-        landlord_id=landlord_id, name=name, category=category,
-        is_metered=bool(data.get("is_metered")),
-        default_rate=data.get("default_rate") or None,
-    )
-    db.session.add(ut)
-    db.session.commit()
-    record_audit(
-        actor_user_id=int(get_jwt_identity()), landlord_id=landlord_id,
-        action="create_utility_type", entity_type="utility", entity_id=ut.id,
-        description=f"Utility type '{name}' ({category}) created.", after_data=ut.to_dict(),
-    )
-    db.session.commit()
-    return jsonify(ut.to_dict()), 201
-
-
-@utility_bp.route("/types/<int:type_id>", methods=["PUT"])
-@jwt_required()
-@require_landlord_or_team()
-@require_permission("utilities", "edit")
-def update_utility_type(type_id):
-    """Update a utility type. Body: any of { name, category, is_metered, default_rate, is_active }"""
-    landlord_id = get_current_landlord_id()
-    ut = LandlordUtilityType.query.filter_by(id=type_id, landlord_id=landlord_id).first()
-    if not ut:
-        abort(404, description="Utility type not found.")
-    data = request.get_json(silent=True) or {}
-    before = ut.to_dict()
-    if "name" in data and data["name"]:
-        ut.name = data["name"].strip()
-    if "category" in data and data["category"] in [c.value for c in UtilityCategory]:
-        ut.category = data["category"]
-    if "is_metered" in data:
-        ut.is_metered = bool(data["is_metered"])
-    if "default_rate" in data:
-        ut.default_rate = data["default_rate"] or None
-    if "is_active" in data:
-        ut.is_active = bool(data["is_active"])
-    db.session.commit()
-    record_audit(
-        actor_user_id=int(get_jwt_identity()), landlord_id=landlord_id,
-        action="update_utility_type", entity_type="utility", entity_id=ut.id,
-        description=f"Utility type '{ut.name}' updated.", before_data=before, after_data=ut.to_dict(),
-    )
-    db.session.commit()
-    return jsonify(ut.to_dict()), 200
-
-
-@utility_bp.route("/types/<int:type_id>", methods=["DELETE"])
-@jwt_required()
-@require_landlord_or_team()
-@require_permission("utilities", "edit")
-def delete_utility_type(type_id):
-    """Deactivate a utility type (soft — keeps historical readings/invoices intact)."""
-    landlord_id = get_current_landlord_id()
-    ut = LandlordUtilityType.query.filter_by(id=type_id, landlord_id=landlord_id).first()
-    if not ut:
-        abort(404, description="Utility type not found.")
-    ut.is_active = False
-    db.session.commit()
-    record_audit(
-        actor_user_id=int(get_jwt_identity()), landlord_id=landlord_id,
-        action="delete_utility_type", entity_type="utility", entity_id=ut.id,
-        description=f"Utility type '{ut.name}' deactivated.",
-    )
-    db.session.commit()
-    return jsonify({"message": "Utility type deactivated."}), 200
+# The landlord utility catalogue now lives in the unified ChargeCategory table —
+# see routes/charge_category_routes.py (GET/POST /api/charge-categories?kind=utility).
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +78,12 @@ def list_readings():
     items = []
     for r in paginated.items:
         d = r.to_dict()
-        d["property_name"] = r.property.name if r.property else None
-        d["unit_name"]     = r.unit.name     if r.unit     else None
+        d["property_name"]  = r.property.name if r.property else None
+        d["unit_name"]      = r.unit.name     if r.unit     else None
         d["invoice_number"] = r.invoice.invoice_number if r.invoice else None
+        d["category_name"]  = r.category.name if r.category else None
+        d["is_metered"]     = r.category.is_metered if r.category else (r.current_reading is not None)
+        d["default_rate"]   = str(r.category.default_rate) if r.category and r.category.default_rate is not None else None
         items.append(d)
 
     return jsonify({
@@ -246,18 +122,20 @@ def create_reading():
     property_id      = data.get("property_id")
     unit_id          = data.get("unit_id")
     utility_item     = data.get("utility_item")
-    utility_type_id  = data.get("utility_type_id")
+    category_id      = data.get("category_id") or data.get("utility_type_id")  # utility_type_id: legacy alias
     current_reading  = data.get("current_reading")
     reading_month    = data.get("reading_month")
     previous_reading = data.get("previous_reading")
     amount           = data.get("amount")
 
-    # #6 — resolve the catalogue type (preferred). utility_item name is derived from it.
+    # Resolve the utility ChargeCategory (preferred). utility_item name is derived from it.
     utype = None
-    if utility_type_id:
-        utype = LandlordUtilityType.query.filter_by(id=utility_type_id, landlord_id=landlord_id).first()
+    if category_id:
+        utype = ChargeCategory.query.filter_by(
+            id=category_id, landlord_id=landlord_id, kind="utility"
+        ).first()
         if not utype:
-            return jsonify({"error": "utility_type_id not found for this landlord."}), 400
+            return jsonify({"error": "category_id not found for this landlord."}), 400
         utility_item = utype.name
 
     if not all([property_id, unit_id, utility_item, reading_month]):
@@ -290,7 +168,7 @@ def create_reading():
         property_id      = property_id,
         unit_id          = unit_id,
         utility_item     = utility_item,
-        utility_type_id  = utype.id if utype else None,
+        category_id      = utype.id if utype else None,
         previous_reading = previous_reading if has_reading else None,
         current_reading  = current_reading if has_reading else None,
         amount           = Decimal(str(amount)) if has_amount else None,
@@ -392,10 +270,14 @@ def bulk_upload_readings():
     """
     Accept bulk utility readings for all tenants in a property.
     Body:
-      { property_id, utility_item, reading_month,
-        readings: [{ unit_id, current_reading, previous_reading? }] }
-    Validates each reading but does NOT generate invoices yet —
-    call /bulk-upload/generate-invoices after review.
+      { property_id, utility_item?, category_id?, reading_month,
+        readings: [{ unit_id, current_reading?, previous_reading?, amount? }] }
+    category_id (preferred) resolves the landlord's utility ChargeCategory — its
+    name becomes utility_item and each reading is tagged with it, so the invoice
+    line generated later inherits the right category for allocation priority.
+    Metered categories take current/previous readings; non-metered ones take a
+    flat `amount` per row instead. Validates each reading but does NOT generate
+    invoices yet — call /bulk-upload/generate-invoices after review.
     ---
     tags: [Utilities]
     security:
@@ -408,11 +290,21 @@ def bulk_upload_readings():
     data          = request.get_json(silent=True) or {}
     property_id   = data.get("property_id")
     utility_item  = data.get("utility_item")
+    category_id   = data.get("category_id")
     reading_month = data.get("reading_month")
     readings_data = data.get("readings", [])
 
+    utype = None
+    if category_id:
+        utype = ChargeCategory.query.filter_by(
+            id=category_id, landlord_id=landlord_id, kind="utility"
+        ).first()
+        if not utype:
+            return jsonify({"error": "category_id not found for this landlord."}), 400
+        utility_item = utype.name
+
     if not all([property_id, utility_item, reading_month]):
-        return jsonify({"error": "property_id, utility_item, and reading_month are required."}), 400
+        return jsonify({"error": "property_id, utility (category_id or utility_item), and reading_month are required."}), 400
     if not readings_data:
         return jsonify({"error": "readings list is required."}), 400
 
@@ -420,17 +312,21 @@ def bulk_upload_readings():
     errors   = []
 
     for r_data in readings_data:
-        unit_id         = r_data.get("unit_id")
-        current_reading = r_data.get("current_reading")
+        unit_id          = r_data.get("unit_id")
+        current_reading  = r_data.get("current_reading")
         previous_reading = r_data.get("previous_reading")
+        amount           = r_data.get("amount")
 
-        if not unit_id or current_reading is None:
-            errors.append({"unit_id": unit_id, "error": "unit_id and current_reading required."})
+        has_reading = current_reading not in (None, "")
+        has_amount  = amount not in (None, "")
+        if not unit_id or (not has_reading and not has_amount):
+            errors.append({"unit_id": unit_id, "error": "unit_id and either a current_reading or an amount are required."})
             continue
 
-        if previous_reading is not None and Decimal(str(current_reading)) < Decimal(str(previous_reading)):
-            errors.append({"unit_id": unit_id, "error": "current_reading < previous_reading."})
-            continue
+        if has_reading and previous_reading is not None:
+            if Decimal(str(current_reading)) < Decimal(str(previous_reading)):
+                errors.append({"unit_id": unit_id, "error": "current_reading < previous_reading."})
+                continue
 
         # Skip duplicates silently
         if UtilityReading.query.filter_by(
@@ -440,7 +336,7 @@ def bulk_upload_readings():
             continue
 
         consumption = None
-        if previous_reading is not None:
+        if has_reading and previous_reading is not None:
             consumption = Decimal(str(current_reading)) - Decimal(str(previous_reading))
 
         reading = UtilityReading(
@@ -448,8 +344,10 @@ def bulk_upload_readings():
             property_id      = property_id,
             unit_id          = unit_id,
             utility_item     = utility_item,
-            previous_reading = previous_reading,
-            current_reading  = current_reading,
+            category_id      = utype.id if utype else None,
+            previous_reading = previous_reading if has_reading else None,
+            current_reading  = current_reading if has_reading else None,
+            amount           = Decimal(str(amount)) if has_amount else None,
             consumption      = consumption,
             reading_month    = reading_month,
         )
@@ -489,8 +387,10 @@ def bulk_generate_utility_invoices():
     """
     Generate utility invoices from bulk-uploaded readings (after review).
     Body:
-      { property_id, utility_item, reading_month,
+      { property_id, category_id? | utility_item?, reading_month,
         reading_ids?: [int]  (default: all unlinked readings for this batch) }
+    category_id (preferred) resolves the landlord's utility ChargeCategory to its
+    name for scoping the readings query.
     ---
     tags: [Utilities]
     security:
@@ -501,11 +401,21 @@ def bulk_generate_utility_invoices():
     landlord_id   = get_current_landlord_id()
     data          = request.get_json(silent=True) or {}
 
+    utility_item = data.get("utility_item")
+    category_id  = data.get("category_id")
+    if category_id:
+        utype = ChargeCategory.query.filter_by(
+            id=category_id, landlord_id=landlord_id, kind="utility"
+        ).first()
+        if not utype:
+            return jsonify({"error": "category_id not found for this landlord."}), 400
+        utility_item = utype.name
+
     from tasks.invoice_tasks import generate_utility_invoices_task
     task = generate_utility_invoices_task.delay(
         landlord_id,
         data.get("property_id"),
-        data.get("utility_item"),
+        utility_item,
         data.get("reading_month"),
         data.get("reading_ids"),
         int(get_jwt_identity()),
@@ -565,11 +475,12 @@ def add_reading_to_invoice(reading_id):
         # Metered: consumption × rate. Prefer the catalogue default_rate, then the
         # property's water/electricity rate.
         rate = None
-        if reading.utility_type and reading.utility_type.default_rate is not None:
-            rate = reading.utility_type.default_rate
-        elif reading.utility_item == "water":
+        item_lower = (reading.utility_item or "").lower()
+        if reading.category and reading.category.default_rate is not None:
+            rate = reading.category.default_rate
+        elif item_lower == "water":
             rate = reading.property.water_rate if reading.property else None
-        elif reading.utility_item == "electricity":
+        elif item_lower == "electricity":
             rate = reading.property.electricity_rate if reading.property else None
         if rate is None:
             return jsonify({"error": f"No rate configured for {reading.utility_item}; pass an explicit amount."}), 400
@@ -597,14 +508,24 @@ def add_reading_to_invoice(reading_id):
         except (ValueError, AttributeError):
             target = None
 
+    # A utility reading always bills the category's current-month subcategory.
+    cat_id = reading.category_id
+    utility_name = reading.category.name if reading.category else reading.utility_item.capitalize()
     if target is not None:
         db.session.add(InvoiceLineItem(
             invoice_id=target.id, item=reading.utility_item, description=description,
             quantity=Decimal("1"), unit_price=amount, amount=amount, utility_reading_id=reading.id,
+            category_id=cat_id, subcategory="current",
         ))
         target.total_amount = (target.total_amount or Decimal("0")) + amount
         target.balance      = target.total_amount - (target.amount_paid or Decimal("0"))
         tenant.balance      = (tenant.balance or Decimal("0")) - amount
+        # Append the utility's name to the invoice's title if it isn't already there —
+        # "Rent" becomes "Rent, Electricity" (comma-joined, matching the invoice-form format).
+        existing_names = [p.strip() for p in (target.title or "").split(",") if p.strip()]
+        if utility_name not in existing_names:
+            existing_names.append(utility_name)
+            target.title = ", ".join(existing_names)
         invoice = target
     else:
         # New invoice (also the fallback when no open invoice exists for the month).
@@ -614,16 +535,14 @@ def add_reading_to_invoice(reading_id):
             issue_dt = _date(year, month, 1)
         except (ValueError, AttributeError):
             pass
-        # #6 — a deposit-category utility bills as a deposit invoice so auto-allocation
-        # clears it in the deposits bucket; everything else stays a utility invoice.
-        inv_type = "deposit" if (reading.utility_type and reading.utility_type.category == "deposit") else "utility"
         invoice = _create_invoice(
-            landlord_id, tenant, reading.unit, reading.property, inv_type, issue_dt, None,
+            landlord_id, tenant, reading.unit, reading.property, "utility", issue_dt, None,
             [{
                 "item": reading.utility_item, "description": description,
                 "quantity": 1, "unit_price": amount, "utility_reading_id": reading.id,
+                "category_id": cat_id, "subcategory": "current",
             }],
-            title=f"{reading.utility_item.capitalize()} — {reading.reading_month}",
+            title=utility_name,
         )
 
     reading.invoice_id = invoice.id

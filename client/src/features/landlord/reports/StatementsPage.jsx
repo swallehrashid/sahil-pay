@@ -9,12 +9,15 @@ import MonthOnMonthReport from "./MonthOnMonthReport";
 import YearOnYearReport from "./YearOnYearReport";
 import GroupingReport from "./GroupingReport";
 import DeletedTenantsReport from "./DeletedTenantsReport";
+import PaymentsReport from "./PaymentsReport";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetPropertyGroupsQuery } from "../groups/groupApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 const TABS = [
+  { key: "payments", label: "Payments" },
   { key: "tenant", label: "Tenant Statement" },
   { key: "property", label: "Property Statement" },
   { key: "arrears", label: "Arrears" },
@@ -41,7 +44,10 @@ export default function StatementsPage() {
   return (
     <div>
       <PageHeader title="Statements" subtitle="Generate and export detailed financial statements" />
-      <Tabs tabs={TABS} activeKey={tab} onChange={setTab} className="mb-6" />
+      <div data-tour={ANCHORS.reports.list}>
+        <Tabs tabs={TABS} activeKey={tab} onChange={setTab} className="mb-6" />
+      </div>
+      {tab === "payments" && <PaymentsReport properties={properties} />}
       {tab === "tenant" && <TenantStatement tenants={tenants} />}
       {tab === "property" && <PropertyStatement properties={properties} />}
       {tab === "arrears" && <ArrearsReport properties={properties} />}

@@ -45,6 +45,7 @@ import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 import SendReminderModal from "../communications/SendReminderModal";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function TenantsPage() {
   const navigate = useNavigate();
@@ -152,7 +153,7 @@ export default function TenantsPage() {
             >
               Download PDF
             </Button>
-            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+            <Button data-tour={ANCHORS.tenants.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
               Add tenant
             </Button>
           </>

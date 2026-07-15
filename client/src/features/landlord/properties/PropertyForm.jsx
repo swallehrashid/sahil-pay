@@ -4,6 +4,7 @@ import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
 import { isRequired, validateMoneyField } from "@/utils/validators";
 import { DEFAULT_TAX_RATE } from "@/utils/constants";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 const EMPTY_FORM = {
   name: "",
@@ -43,7 +44,7 @@ export default function PropertyForm({ initialValues, onSubmit, onCancel, isSubm
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" data-tour={ANCHORS.properties.form}>
       <Input label="Property name" value={form.name} onChange={update("name")} error={errors.name} required />
       <div className="grid grid-cols-2 gap-4">
         <Input
@@ -76,7 +77,7 @@ export default function PropertyForm({ initialValues, onSubmit, onCancel, isSubm
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" data-tour={ANCHORS.properties.saveButton} isLoading={isSubmitting}>
           Save property
         </Button>
       </div>

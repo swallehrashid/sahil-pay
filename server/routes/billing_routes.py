@@ -17,11 +17,13 @@ Billing cycle discounts (applied server-side):
 SMS pricing: 1 credit = KES 1 (configurable).  The minimum purchase is 100 credits.
 """
 
+import os
+import re
+import base64
 from decimal import Decimal
-from datetime import date
-from dateutil.relativedelta import relativedelta
+from datetime import date, datetime
 
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -32,6 +34,7 @@ from models import (
 )
 from decorators import require_landlord_or_team, get_current_landlord_id
 from services.audit_service import record_audit
+from services import billing_service
 
 billing_bp = Blueprint("billing", __name__, url_prefix="/api/billing")
 
@@ -40,17 +43,11 @@ billing_bp = Blueprint("billing", __name__, url_prefix="/api/billing")
 # (it's a different axis: how often the landlord is actually invoiced, not
 # which commitment tier's discount applies). The variable name "billing_cycle"
 # below is kept as the original route used it, but it's really selecting a
-# SubscriptionPlan value.
-_CYCLE_DISCOUNTS = {
-    SubscriptionPlan.monthly.value:   Decimal("0.00"),
-    SubscriptionPlan.quarterly.value: Decimal("10.00"),
-    SubscriptionPlan.annual.value:    Decimal("15.00"),
-}
-_CYCLE_MONTHS = {
-    SubscriptionPlan.monthly.value:   1,
-    SubscriptionPlan.quarterly.value: 3,
-    SubscriptionPlan.annual.value:   12,
-}
+# SubscriptionPlan value. The actual discount/tenor table now lives in
+# services/billing_service.py so the legacy and verified-STK paths (and
+# affiliate_service's commission math) all read the exact same numbers.
+_CYCLE_DISCOUNTS = billing_service._CYCLE_DISCOUNTS
+_CYCLE_MONTHS    = billing_service._CYCLE_MONTHS
 _SMS_PRICE_PER_CREDIT = Decimal("1.00")
 _SMS_MIN_PURCHASE     = 100
 
@@ -143,8 +140,6 @@ def pay_subscription():
     payment_reference = data.get("payment_reference", "").strip()
     new_package_id    = data.get("package_id")
 
-    if billing_cycle not in _CYCLE_DISCOUNTS:
-        return jsonify({"error": f"billing_cycle must be one of: {list(_CYCLE_DISCOUNTS.keys())}."}), 400
     if not payment_reference:
         return jsonify({"error": "payment_reference is required."}), 400
 
@@ -152,34 +147,25 @@ def pay_subscription():
     if not subscription:
         return jsonify({"error": "No subscription found for this account."}), 400
 
-    # Optionally switch package
-    if new_package_id:
-        pkg = Package.query.filter_by(id=new_package_id, is_active=True).first()
-        if not pkg:
-            return jsonify({"error": "Package not found."}), 404
-        landlord.package_id = new_package_id
-        subscription.unit_count = (subscription.unit_count or 0)
-        # Recalculate cost based on new package
-        if pkg.price_per_unit:
-            subscription.subscription_cost = pkg.price_per_unit * subscription.unit_count
-        elif pkg.flat_price:
-            subscription.subscription_cost = pkg.flat_price
+    try:
+        amount_due, months, discount = billing_service.preview_subscription_cost(
+            subscription, billing_cycle, new_package_id
+        )
+    except ValueError as e:
+        status_code = 404 if "Package" in str(e) else 400
+        return jsonify({"error": str(e)}), status_code
 
-    months        = _CYCLE_MONTHS[billing_cycle]
-    discount      = _CYCLE_DISCOUNTS[billing_cycle]
-    base_cost     = Decimal(str(subscription.subscription_cost or 0))
-    discounted    = base_cost * months * (1 - discount / 100)
-    amount_due    = discounted.quantize(Decimal("0.01"))
-
-    # Update subscription
-    subscription.billing_cycle     = billing_cycle
-    subscription.discount_rate     = discount
-    subscription.amount_due        = Decimal("0.00")
-    subscription.status            = SubscriptionStatus.active.value
-    subscription.next_billing_date = date.today() + relativedelta(months=months)
-
-    if landlord.is_on_trial:
-        landlord.is_on_trial = False
+    # NOTE: this is the self-reported flow — the subscription is activated
+    # immediately for UX continuity, but the resulting BillingTransaction is
+    # NOT verified (is_verified defaults False) and therefore can NEVER accrue
+    # an affiliate commission on its own. An admin can later confirm the money
+    # actually arrived via POST /api/admin/billing-transactions/<id>/verify,
+    # which is the only thing that flips is_verified and fires accrual. See
+    # AFFILIATE_PROGRAM_SPEC.md §3.
+    ctx = billing_service.build_subscription_context(
+        billing_cycle, months, discount, new_package_id, applied=True
+    )
+    billing_service.apply_subscription_activation(landlord, subscription, ctx)
 
     txn = BillingTransaction(
         landlord_id       = landlord_id,
@@ -187,6 +173,7 @@ def pay_subscription():
         amount            = amount_due,
         payment_reference = payment_reference,
         status            = BillingTransactionStatus.paid.value,
+        context_json      = ctx,
     )
     db.session.add(txn)
     db.session.commit()
@@ -210,6 +197,228 @@ def pay_subscription():
         "transaction":  txn.to_dict(),
         "subscription": subscription.to_dict(),
     }), 201
+
+
+def _daraja_access_token(consumer_key: str, consumer_secret: str, base_url: str) -> str:
+    import requests as ext_requests
+    credentials = base64.b64encode(f"{consumer_key}:{consumer_secret}".encode()).decode()
+    resp = ext_requests.get(
+        f"{base_url}/oauth/v1/generate?grant_type=client_credentials",
+        headers={"Authorization": f"Basic {credentials}"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return resp.json()["access_token"]
+
+
+def _daraja_stk_password(shortcode: str, passkey: str, timestamp: str) -> str:
+    return base64.b64encode(f"{shortcode}{passkey}{timestamp}".encode()).decode()
+
+
+# ---------------------------------------------------------------------------
+# POST /api/billing/pay-subscription/stk
+# ---------------------------------------------------------------------------
+@billing_bp.route("/pay-subscription/stk", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+def pay_subscription_stk():
+    """
+    Verified subscription payment — Daraja STK Push to Sahil's OWN paybill
+    (distinct from the landlord's own shortcode used to collect rent).
+
+    Body:
+      { billing_cycle: 'monthly'|'quarterly'|'annual',
+        phone: str,             -- landlord's phone to receive the STK prompt
+        package_id?: int }      -- to switch package
+
+    Unlike POST /pay-subscription, this endpoint does NOT activate the
+    subscription immediately. It creates a PENDING, UNVERIFIED
+    BillingTransaction and either:
+      - simulates an instant successful callback (MPESA_SIMULATION_MODE=true,
+        the default until Sahil's paybill credentials are configured), or
+      - sends a real STK push and waits for
+        POST /api/webhooks/mpesa/billing-callback to confirm it.
+    Only a verified transaction activates the subscription and is eligible
+    for affiliate commission accrual (AFFILIATE_PROGRAM_SPEC.md §3).
+    ---
+    tags: [Billing]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: STK Push sent, awaiting confirmation.}
+      201: {description: Simulated payment verified immediately (simulation mode).}
+      400: {description: Validation error or Daraja rejection.}
+    """
+    landlord_id = get_current_landlord_id()
+    landlord    = db.session.get(Landlord, landlord_id)
+    data        = request.get_json(silent=True) or {}
+
+    billing_cycle  = data.get("billing_cycle", SubscriptionPlan.monthly.value)
+    new_package_id = data.get("package_id")
+    phone          = (data.get("phone") or landlord.mpesa_number or "").replace("+", "").replace(" ", "")
+    if phone.startswith("07") or phone.startswith("01"):
+        phone = "254" + phone[1:]
+
+    if not re.match(r"^2547\d{8}$|^2541\d{8}$", phone):
+        return jsonify({"error": f"Phone '{phone}' is not a valid Safaricom number."}), 400
+
+    subscription = landlord.subscription
+    if not subscription:
+        return jsonify({"error": "No subscription found for this account."}), 400
+
+    try:
+        amount_due, months, discount = billing_service.preview_subscription_cost(
+            subscription, billing_cycle, new_package_id
+        )
+    except ValueError as e:
+        status_code = 404 if "Package" in str(e) else 400
+        return jsonify({"error": str(e)}), status_code
+
+    ctx = billing_service.build_subscription_context(
+        billing_cycle, months, discount, new_package_id, applied=False
+    )
+    txn = BillingTransaction(
+        landlord_id  = landlord_id,
+        type         = BillingTransactionType.subscription.value,
+        amount       = amount_due,
+        status       = BillingTransactionStatus.pending.value,
+        context_json = ctx,
+    )
+    db.session.add(txn)
+    db.session.flush()
+
+    simulation_mode = current_app.config.get("MPESA_SIMULATION_MODE", True)
+
+    if simulation_mode:
+        txn.payment_reference = f"SIM{txn.id:08d}"
+        db.session.commit()
+        billing_service.finalize_subscription_payment(txn)
+        db.session.commit()
+
+        record_audit(
+            actor_user_id=int(get_jwt_identity()),
+            landlord_id=landlord_id,
+            action="pay_subscription_stk_simulated",
+            entity_type="billing",
+            entity_id=txn.id,
+            description=(
+                f"[SIMULATION] Subscription payment of KES {amount_due} verified "
+                f"instantly ({billing_cycle}, {discount}% discount)."
+            ),
+            after_data=txn.to_dict(),
+        )
+        db.session.commit()
+
+        return jsonify({
+            "message":      "Subscription payment simulated and verified (simulation mode).",
+            "simulated":    True,
+            "transaction":  txn.to_dict(),
+            "subscription": subscription.to_dict(),
+        }), 201
+
+    shortcode  = os.getenv("PLATFORM_DARAJA_SHORTCODE") or os.getenv("DARAJA_SHORTCODE", "")
+    passkey    = os.getenv("PLATFORM_DARAJA_PASSKEY") or os.getenv("DARAJA_PASSKEY", "")
+    consumer_key    = os.getenv("PLATFORM_DARAJA_CONSUMER_KEY") or os.getenv("DARAJA_CONSUMER_KEY", "")
+    consumer_secret = os.getenv("PLATFORM_DARAJA_CONSUMER_SECRET") or os.getenv("DARAJA_CONSUMER_SECRET", "")
+    base_url   = os.getenv("DARAJA_BASE_URL", "https://sandbox.safaricom.co.ke")
+    callback   = os.getenv("PLATFORM_DARAJA_STK_CALLBACK_URL") or os.getenv("DARAJA_STK_CALLBACK_URL", "")
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    password  = _daraja_stk_password(shortcode, passkey, timestamp)
+
+    try:
+        token = _daraja_access_token(consumer_key, consumer_secret, base_url)
+    except Exception as e:
+        current_app.logger.error(f"Daraja token error: {e}")
+        db.session.rollback()
+        return jsonify({"error": "Could not obtain M-Pesa API token. Check credentials."}), 502
+
+    stk_payload = {
+        "BusinessShortCode": shortcode,
+        "Password":          password,
+        "Timestamp":         timestamp,
+        "TransactionType":   "CustomerPayBillOnline",
+        "Amount":            int(float(amount_due)),
+        "PartyA":            phone,
+        "PartyB":            shortcode,
+        "PhoneNumber":       phone,
+        "CallBackURL":       callback,
+        "AccountReference":  f"SUB-{landlord_id}"[:12],
+        "TransactionDesc":   "Subscription"[:13],
+    }
+
+    try:
+        import requests as ext_requests
+        resp = ext_requests.post(
+            f"{base_url}/mpesa/stkpush/v1/processrequest",
+            json=stk_payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        resp_data = resp.json()
+    except Exception as e:
+        current_app.logger.error(f"Platform STK Push API error: {e}")
+        txn.status = BillingTransactionStatus.failed.value
+        db.session.commit()
+        return jsonify({"error": "STK Push request failed. Try again."}), 502
+
+    if resp_data.get("ResponseCode") != "0":
+        txn.status = BillingTransactionStatus.failed.value
+        db.session.commit()
+        return jsonify({
+            "error":       resp_data.get("ResponseDescription", "STK Push rejected."),
+            "daraja_code": resp_data.get("ResponseCode"),
+        }), 400
+
+    checkout_request_id   = resp_data.get("CheckoutRequestID", "")
+    txn.payment_reference = checkout_request_id
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="pay_subscription_stk_initiated",
+        entity_type="billing",
+        entity_id=txn.id,
+        description=(
+            f"Platform STK Push of KES {amount_due} sent to {phone} "
+            f"(CheckoutRequestID: {checkout_request_id})."
+        ),
+    )
+    db.session.commit()
+
+    return jsonify({
+        "message":             "STK Push sent. Awaiting confirmation.",
+        "checkout_request_id": checkout_request_id,
+        "transaction":         txn.to_dict(),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/billing/transactions/<id>/status
+# ---------------------------------------------------------------------------
+@billing_bp.route("/transactions/<int:txn_id>/status", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+def transaction_status(txn_id):
+    """
+    Poll a pending transaction's verification status — used by the client
+    while waiting for the Daraja callback to land (E18 in
+    AFFILIATE_PROGRAM_SPEC.md §10: STK push times out / user cancels).
+    ---
+    tags: [Billing]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Transaction status.}
+      404: {description: Transaction not found.}
+    """
+    landlord_id = get_current_landlord_id()
+    txn = BillingTransaction.query.filter_by(id=txn_id, landlord_id=landlord_id).first()
+    if not txn:
+        return jsonify({"error": "Transaction not found."}), 404
+    return jsonify({"transaction": txn.to_dict()}), 200
 
 
 # ---------------------------------------------------------------------------

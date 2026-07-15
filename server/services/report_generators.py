@@ -32,6 +32,28 @@ from utils import parse_date
 
 ZERO = Decimal("0.00")
 
+# Charge-category restructure (spec §4.5). Two ledger rules keep reports from
+# double-counting once balances roll and credit is re-applied:
+#   • a "balance" line is a carried-forward re-presentation of debt already counted
+#     in its origin month — it must NOT count again as a new charge.
+#   • a "credit"-sourced payment is a re-application of money already received — it
+#     must NOT count again as cash collected.
+_BALANCE_SUB = "balance"                     # models.SubCategory.balance
+_NON_CASH_SOURCES = frozenset({"credit"})    # models.NON_CASH_PAYMENT_SOURCES
+
+
+def _invoice_charge(inv) -> Decimal:
+    """An invoice's real new charge for reports — excludes carried-forward b/f lines."""
+    lines = inv.line_items or []
+    if not lines:
+        return inv.total_amount or ZERO
+    return sum(((li.amount or ZERO) for li in lines if li.subcategory != _BALANCE_SUB), ZERO)
+
+
+def _is_cash_payment(p) -> bool:
+    """True unless the payment is a synthetic credit re-application (not new cash)."""
+    return (p.source or "") not in _NON_CASH_SOURCES
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -117,7 +139,7 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
     # advance/credit = negative).
     invoices = Invoice.query.filter_by(tenant_id=tenant_id).filter_by(is_deleted=False).all()
     payments = [p for p in Payment.query.filter_by(tenant_id=tenant_id).all()
-                if not p.is_deleted and (p.status or "") == "confirmed"]
+                if not p.is_deleted and (p.status or "") == "confirmed" and _is_cash_payment(p)]
 
     # sort key uses created_at (falls back to a huge sentinel so undated sorts last)
     def _key(d, created, oid):
@@ -126,9 +148,12 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
     # (sortkey, date, item, description, due, paid)
     events: list[tuple] = []
     for inv in invoices:
-        line_items = inv.line_items or []
-        if line_items:
-            for li in line_items:
+        raw_lines = inv.line_items or []
+        if raw_lines:
+            # Skip carried-forward b/f lines — the debt already appears in its origin month.
+            for li in raw_lines:
+                if li.subcategory == _BALANCE_SUB:
+                    continue
                 events.append((_key(inv.issue_date, inv.created_at, inv.id), inv.issue_date, li.item,
                                li.description or f"Invoice {inv.invoice_number}", li.amount or ZERO, ZERO))
         else:
@@ -266,19 +291,22 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         # towards the ledger figures (pending/declined submissions must not inflate them).
         live_invoices = [inv for inv in t.invoices if not inv.is_deleted]
         confirmed_payments = [p for p in t.payments
-                              if not p.is_deleted and (p.status or "") == "confirmed"]
+                              if not p.is_deleted and (p.status or "") == "confirmed"
+                              and _is_cash_payment(p)]
 
-        amount_due = ZERO          # total invoiced in period
+        amount_due = ZERO          # total invoiced in period (excludes b/f re-presentations)
         for inv in live_invoices:
             if not _in_range(inv.issue_date, start, end):
                 continue
             for li in (inv.line_items or []):
+                if li.subcategory == _BALANCE_SUB:
+                    continue
                 cats[_classify_line_item(li.item)] += li.amount or ZERO
             if not inv.line_items:
                 cats["rent"] += inv.total_amount or ZERO
-            amount_due += inv.total_amount or ZERO
+            amount_due += _invoice_charge(inv)
 
-        # payments (in period, confirmed only)
+        # payments (in period, confirmed cash only)
         amount_paid = ZERO
         for pay in confirmed_payments:
             if _in_range(pay.payment_date, start, end):
@@ -290,7 +318,7 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         if start:
             for inv in live_invoices:
                 if inv.issue_date and inv.issue_date < start:
-                    balance_cf -= inv.total_amount or ZERO
+                    balance_cf -= _invoice_charge(inv)
             for pay in confirmed_payments:
                 if pay.payment_date and pay.payment_date < start:
                     balance_cf += pay.amount or ZERO
@@ -625,16 +653,20 @@ def _window_metrics(invoices, payments, expenses, units, histories, start, end, 
     for inv in invoices:
         d = inv.issue_date
         if d and d < start:
-            carried_forward += inv.total_amount or ZERO
+            carried_forward += _invoice_charge(inv)
         if _in_range(d, start, end):
             for li in (inv.line_items or []):
+                if li.subcategory == _BALANCE_SUB:
+                    continue
                 cats[_classify_line_item(li.item)] += li.amount or ZERO
             if not inv.line_items:
                 cats["rent"] += inv.total_amount or ZERO
-            total_bills += inv.total_amount or ZERO
+            total_bills += _invoice_charge(inv)
 
     total_paid = ZERO
     for pay in payments:
+        if not _is_cash_payment(pay):
+            continue
         if pay.payment_date and pay.payment_date < start:
             carried_forward -= pay.amount or ZERO
         if _in_range(pay.payment_date, start, end):

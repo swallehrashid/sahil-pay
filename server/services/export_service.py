@@ -27,7 +27,23 @@ from utils import parse_date, render_pdf
 def _render_table(title: str, headers: list[str], rows: list[list], fmt: str) -> bytes:
     if fmt == "excel":
         return _render_excel(title, headers, rows)
+    if fmt == "csv":
+        return _render_csv(headers, rows)
     return _render_pdf_table(title, headers, rows)
+
+
+def _render_csv(headers: list[str], rows: list[list]) -> bytes:
+    import csv as _csv
+
+    buf = BytesIO()
+    text = __import__("io").TextIOWrapper(buf, encoding="utf-8", newline="")
+    writer = _csv.writer(text)
+    writer.writerow(headers)
+    for row in rows:
+        writer.writerow([str(c) if isinstance(c, Decimal) else c for c in row])
+    text.flush()
+    text.detach()
+    return buf.getvalue()
 
 
 def _render_pdf_table(title: str, headers: list[str], rows: list[list]) -> bytes:
@@ -87,12 +103,18 @@ def generate_tenant_statement(landlord_id: int, tenant_id: int, fmt: str, start_
     if tenant is None:
         return _render_table("Tenant Statement", ["Error"], [["Tenant not found."]], fmt)
 
+    # Charge-category ledger rules: b/f lines aren't re-charged, credit re-applications
+    # aren't re-counted as cash (spec §4.5).
+    from services.report_generators import _invoice_charge, _is_cash_payment
+
     entries = []
     invoices = _date_range_filter(Invoice.query.filter_by(tenant_id=tenant_id), Invoice.issue_date, start_date, end_date)
     for inv in invoices.all():
-        entries.append((inv.issue_date, f"Invoice {inv.invoice_number}", inv.total_amount, Decimal("0")))
+        entries.append((inv.issue_date, f"Invoice {inv.invoice_number}", _invoice_charge(inv), Decimal("0")))
     payments = _date_range_filter(Payment.query.filter_by(tenant_id=tenant_id), Payment.payment_date, start_date, end_date)
     for pay in payments.all():
+        if not _is_cash_payment(pay):
+            continue
         entries.append((pay.payment_date, f"Payment {pay.payment_ref}", Decimal("0"), pay.amount))
     entries.sort(key=lambda e: e[0] or date.min)
 
@@ -119,6 +141,7 @@ def generate_property_statement(landlord_id: int, property_id: int, fmt: str, st
     if prop is None:
         return _render_table("Property Statement", ["Error"], [["Property not found."]], fmt)
 
+    from services.report_generators import _is_cash_payment
     query = _date_range_filter(Payment.query.filter_by(property_id=property_id), Payment.payment_date, start_date, end_date)
     rows = [
         [
@@ -128,6 +151,7 @@ def generate_property_statement(landlord_id: int, property_id: int, fmt: str, st
             _money(pay.amount),
         ]
         for pay in query.order_by(Payment.payment_date).all()
+        if _is_cash_payment(pay)
     ]
     return _render_table(f"Property Statement — {prop.name}", ["Date", "Tenant", "Reference", "Amount"], rows, fmt)
 
@@ -241,8 +265,9 @@ def generate_grouping_report(landlord_id: int, group_id: int, fmt: str, start_da
 
     rows = []
     for prop in group.properties:
+        from services.report_generators import _is_cash_payment
         collected_q = _date_range_filter(Payment.query.filter_by(property_id=prop.id), Payment.payment_date, start_date, end_date)
-        collected = sum((p.amount or 0 for p in collected_q.all()), Decimal("0"))
+        collected = sum((p.amount or 0 for p in collected_q.all() if _is_cash_payment(p)), Decimal("0"))
         # Ledger convention: negative balance = arrears (owed), positive = advance.
         arrears = sum(
             (abs(t.balance or 0) for t in Tenant.query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id == prop.id, Tenant.balance < 0).all()),
@@ -290,6 +315,7 @@ def generate_payments_report(landlord_id: int, fmt: str, start_date: str | None,
     """Returns (file_bytes, mime, filename) — the one export function streamed directly as a download."""
     from models import Payment
 
+    from services.report_generators import _is_cash_payment
     query = Payment.query.filter_by(landlord_id=landlord_id)
     if property_id:
         query = query.filter(Payment.property_id == property_id)
@@ -304,6 +330,7 @@ def generate_payments_report(landlord_id: int, fmt: str, start_date: str | None,
             _money(p.amount),
         ]
         for p in query.order_by(Payment.payment_date).all()
+        if _is_cash_payment(p)
     ]
     file_bytes = _render_table("Payments Report", ["Date", "Reference", "Tenant", "Status", "Amount"], rows, fmt)
 

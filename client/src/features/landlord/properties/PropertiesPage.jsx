@@ -14,6 +14,7 @@ import { useGetPropertiesQuery, useCreatePropertyMutation, useUpdatePropertyMuta
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function PropertiesPage() {
   const pg = usePagination();
@@ -83,7 +84,7 @@ export default function PropertiesPage() {
         title="Properties"
         subtitle="Every property in your portfolio"
         actions={
-          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+          <Button data-tour={ANCHORS.properties.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
             Add property
           </Button>
         }

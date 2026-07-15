@@ -5,7 +5,7 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useBulkUploadUtilitiesMutation, useGenerateUtilityInvoicesMutation } from "./utilityApiSlice";
-import { UTILITY_ITEMS } from "@/utils/constants";
+import { useGetChargeCategoriesQuery } from "../chargeCategoryApiSlice";
 import { currentMonth } from "@/utils/dateFormatter";
 
 const STEP_TITLES = {
@@ -22,16 +22,23 @@ const STEP_TITLES = {
 export default function BulkUploadUtilities({ isOpen, onClose, properties = [], units = [] }) {
   const [bulkUpload, { isLoading: isUploading }] = useBulkUploadUtilitiesMutation();
   const [generateInvoices, { isLoading: isGenerating }] = useGenerateUtilityInvoicesMutation();
+  const { data: catData } = useGetChargeCategoriesQuery({ kind: "utility", include_inactive: 0 });
+  const categories = catData?.categories ?? [];
 
   const [step, setStep] = useState(1);
-  const [scope, setScope] = useState({ property_id: "", utility_item: "water", reading_month: currentMonth() });
-  const [readings, setReadings] = useState({}); // { [unit_id]: { previous, current } }
+  const [scope, setScope] = useState({ property_id: "", category_id: "", reading_month: currentMonth() });
+  const [readings, setReadings] = useState({}); // { [unit_id]: { previous, current, amount } }
   const [savedCount, setSavedCount] = useState(0);
 
   const scopedUnits = useMemo(
     () => units.filter((u) => !scope.property_id || String(u.property_id) === String(scope.property_id)),
     [units, scope.property_id]
   );
+  const selectedCategory = useMemo(
+    () => categories.find((c) => String(c.id) === String(scope.category_id)),
+    [categories, scope.category_id]
+  );
+  const isMetered = selectedCategory?.is_metered ?? false;
 
   const reset = () => {
     setStep(1);
@@ -47,21 +54,27 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
     setReadings((prev) => ({ ...prev, [unitId]: { ...prev[unitId], [key]: value } }));
 
   const handleUpload = async () => {
-    const entries = Object.entries(readings).filter(([, v]) => v?.current !== "" && v?.current !== undefined);
+    const entries = isMetered
+      ? Object.entries(readings).filter(([, v]) => v?.current !== "" && v?.current !== undefined)
+      : Object.entries(readings).filter(([, v]) => v?.amount !== "" && v?.amount !== undefined);
     if (!entries.length) {
-      toast("Enter at least one current reading.", { type: "info" });
+      toast(isMetered ? "Enter at least one current reading." : "Enter at least one amount.", { type: "info" });
       return;
     }
     try {
       const result = await bulkUpload({
         property_id: scope.property_id,
-        utility_item: scope.utility_item,
+        category_id: scope.category_id,
         reading_month: scope.reading_month,
-        readings: entries.map(([unit_id, v]) => ({
-          unit_id,
-          current_reading: v.current,
-          ...(v.previous !== "" && v.previous !== undefined ? { previous_reading: v.previous } : {}),
-        })),
+        readings: entries.map(([unit_id, v]) =>
+          isMetered
+            ? {
+                unit_id,
+                current_reading: v.current,
+                ...(v.previous !== "" && v.previous !== undefined ? { previous_reading: v.previous } : {}),
+              }
+            : { unit_id, amount: v.amount }
+        ),
       }).unwrap();
       const skipped = result?.errors?.length ?? 0;
       setSavedCount(result?.created ?? 0);
@@ -92,6 +105,7 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
           onSubmit={(e) => {
             e.preventDefault();
             if (!scope.property_id) return toast("Choose a property.", { type: "info" });
+            if (!scope.category_id) return toast("Choose a utility.", { type: "info" });
             setStep(2);
           }}
           className="space-y-4"
@@ -102,6 +116,14 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
             value={scope.property_id}
             onChange={(e) => setScope((s) => ({ ...s, property_id: e.target.value }))}
             options={properties.map((p) => ({ value: p.id, label: p.name }))}
+            required
+          />
+          <Select
+            label="Utility"
+            value={scope.category_id}
+            onChange={(e) => setScope((s) => ({ ...s, category_id: e.target.value }))}
+            options={categories.map((c) => ({ value: c.id, label: `${c.name}${c.is_metered ? " (metered)" : ""}` }))}
+            hint="Manage the list under Utilities → Utility categories"
             required
           />
           <Input
@@ -122,40 +144,63 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
       {/* ── Step 2 — record readings ───────────────────────────────────── */}
       {step === 2 && (
         <div className="space-y-4">
-          <Select
-            label="Which utility are you recording?"
-            value={scope.utility_item}
-            onChange={(e) => setScope((s) => ({ ...s, utility_item: e.target.value }))}
-            options={UTILITY_ITEMS.map((u) => ({ value: u, label: u.charAt(0).toUpperCase() + u.slice(1) }))}
-          />
-          <div className="grid grid-cols-12 px-3 text-[11px] uppercase tracking-wide text-white/40">
-            <span className="col-span-4">Unit</span>
-            <span className="col-span-4 text-right">Previous (last month)</span>
-            <span className="col-span-4 text-right">Current (this month)</span>
-          </div>
-          <div className="max-h-72 space-y-2 overflow-y-auto">
-            {scopedUnits.map((unit) => (
-              <div key={unit.id} className="grid grid-cols-12 items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
-                <span className="col-span-4 truncate text-sm text-white/70">{unit.name}</span>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={readings[unit.id]?.previous ?? ""}
-                  onChange={(e) => setReading(unit.id, "previous", e.target.value)}
-                  className="glass-input col-span-4 text-right"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={readings[unit.id]?.current ?? ""}
-                  onChange={(e) => setReading(unit.id, "current", e.target.value)}
-                  className="glass-input col-span-4 text-right"
-                />
+          <p className="text-sm text-white/50">
+            Recording <span className="text-white/80">{selectedCategory?.name}</span> for {scope.reading_month}.
+          </p>
+          {isMetered ? (
+            <>
+              <div className="grid grid-cols-12 px-3 text-[11px] uppercase tracking-wide text-white/40">
+                <span className="col-span-4">Unit</span>
+                <span className="col-span-4 text-right">Previous (last month)</span>
+                <span className="col-span-4 text-right">Current (this month)</span>
               </div>
-            ))}
-          </div>
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {scopedUnits.map((unit) => (
+                  <div key={unit.id} className="grid grid-cols-12 items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                    <span className="col-span-4 truncate text-sm text-white/70">{unit.name}</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={readings[unit.id]?.previous ?? ""}
+                      onChange={(e) => setReading(unit.id, "previous", e.target.value)}
+                      className="glass-input col-span-4 text-right"
+                    />
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={readings[unit.id]?.current ?? ""}
+                      onChange={(e) => setReading(unit.id, "current", e.target.value)}
+                      className="glass-input col-span-4 text-right"
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-12 px-3 text-[11px] uppercase tracking-wide text-white/40">
+                <span className="col-span-8">Unit</span>
+                <span className="col-span-4 text-right">Amount</span>
+              </div>
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {scopedUnits.map((unit) => (
+                  <div key={unit.id} className="grid grid-cols-12 items-center gap-2 rounded-lg bg-white/5 px-3 py-2">
+                    <span className="col-span-8 truncate text-sm text-white/70">{unit.name}</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={readings[unit.id]?.amount ?? ""}
+                      onChange={(e) => setReading(unit.id, "amount", e.target.value)}
+                      className="glass-input col-span-4 text-right"
+                    />
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={() => setStep(1)}>Back</Button>
             <Button type="button" isLoading={isUploading} onClick={handleUpload}>Save readings</Button>
@@ -167,7 +212,7 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
       {step === 3 && (
         <div className="space-y-5">
           <p className="text-sm text-white/70">
-            {savedCount} {scope.utility_item} reading(s) saved for {scope.reading_month}. How do you want to bill them?
+            {savedCount} {selectedCategory?.name} reading(s) saved for {scope.reading_month}. How do you want to bill them?
           </p>
           <div className="space-y-3">
             <button

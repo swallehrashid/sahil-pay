@@ -65,7 +65,7 @@ export default function AuditTrail() {
           />
         </FilterPanel>
 
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <ResponsiveTable columns={columns} rows={logs} isLoading={isLoading} onRowClick={(row) => setActiveEntry(row)} />
           <Pagination
             page={pg.page}

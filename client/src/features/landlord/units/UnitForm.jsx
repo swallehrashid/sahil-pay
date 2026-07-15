@@ -4,6 +4,7 @@ import Select from "@/components/ui/Select";
 import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
 import { isRequired, validateMoneyField } from "@/utils/validators";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function UnitForm({ initialValues, properties = [], onSubmit, onCancel, isSubmitting }) {
   const [form, setForm] = useState({
@@ -31,7 +32,7 @@ export default function UnitForm({ initialValues, properties = [], onSubmit, onC
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" data-tour={ANCHORS.units.form}>
       <Select
         label="Property"
         value={form.property_id}
@@ -39,6 +40,7 @@ export default function UnitForm({ initialValues, properties = [], onSubmit, onC
         error={errors.property_id}
         options={properties.map((p) => ({ value: p.id, label: p.name }))}
         required
+        data-tour={ANCHORS.units.propertySelect}
       />
       <Input label="Unit name / ID" value={form.name} onChange={update("name")} error={errors.name} required />
       <div className="grid grid-cols-2 gap-4">
@@ -50,7 +52,7 @@ export default function UnitForm({ initialValues, properties = [], onSubmit, onC
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" data-tour={ANCHORS.units.saveButton} isLoading={isSubmitting}>
           Save unit
         </Button>
       </div>

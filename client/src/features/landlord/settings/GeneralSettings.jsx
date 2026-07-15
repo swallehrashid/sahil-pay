@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FlaskConical } from "lucide-react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Checkbox from "@/components/ui/Checkbox";
@@ -16,6 +17,8 @@ import {
 import { MPESA_TYPES, ACCOUNT_TYPES } from "@/utils/constants";
 import Textarea from "@/components/ui/Textarea";
 import AllocationPriorityEditor from "./AllocationPriorityEditor";
+import { useDemoMode } from "@/features/landlord/useDemoMode";
+import DemoModeEnterDialog from "@/features/landlord/components/DemoModeEnterDialog";
 
 // §4.14 — company branding, M-Pesa config, automation toggles and communication channels.
 export default function GeneralSettings() {
@@ -24,6 +27,8 @@ export default function GeneralSettings() {
   const [updateGeneral, { isLoading: isSavingGeneral }] = useUpdateGeneralSettingsMutation();
   const [updateAutomation, { isLoading: isSavingAutomation }] = useUpdateAutomationSettingsMutation();
   const [runAutomations, { isLoading: isRunningAutomations }] = useRunAutomationsMutation();
+  const { isActive: isDemoActive, enter, exit, isEntering, isExiting } = useDemoMode();
+  const [showEnterConfirm, setShowEnterConfirm] = useState(false);
 
   const [prevData, setPrevData] = useState();
   const [form, setForm] = useState(null);
@@ -120,10 +125,30 @@ export default function GeneralSettings() {
           hint="Shown to tenants when they go to pay — e.g. how to use the paybill, what account number to enter, to send proof, etc."
           rows={3}
         />
-        <AllocationPriorityEditor
-          value={form.allocation_priority}
-          onChange={(csv) => setForm((f) => ({ ...f, allocation_priority: csv }))}
-        />
+        <AllocationPriorityEditor />
+      </div>
+
+      <div className="glass space-y-3 p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="flex items-center gap-2 text-base font-medium text-white">
+              <FlaskConical className="h-4 w-4" /> Demo mode
+            </h3>
+            <p className="text-xs text-white/40">
+              Practice with realistic example data — properties, tenants, invoices, and payments —
+              without affecting your real account.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant={isDemoActive ? "ghost" : "subtle"}
+            size="sm"
+            isLoading={isEntering || isExiting}
+            onClick={() => (isDemoActive ? exit() : setShowEnterConfirm(true))}
+          >
+            {isDemoActive ? "Exit demo mode" : "Try demo mode"}
+          </Button>
+        </div>
       </div>
 
       <div className="glass space-y-3 p-6">
@@ -184,6 +209,16 @@ export default function GeneralSettings() {
           Save changes
         </Button>
       </div>
+
+      <DemoModeEnterDialog
+        isOpen={showEnterConfirm}
+        onClose={() => setShowEnterConfirm(false)}
+        onConfirm={async () => {
+          await enter();
+          setShowEnterConfirm(false);
+        }}
+        isLoading={isEntering}
+      />
     </form>
   );
 }

@@ -66,6 +66,63 @@ def _fmt_response(file_bytes, fmt: str, filename: str):
 
 
 # ---------------------------------------------------------------------------
+# GET /api/reports/payments  — the charge-category Payments Report (§5.5)
+# ---------------------------------------------------------------------------
+@report_bp.route("/payments", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("reports", "view")
+def payments_report():
+    """
+    Consolidated per-category / per-tenant payments report.
+    Query: ?category_id=<id|all>&date_from=&date_to=&property_id=
+    """
+    from utils import parse_date
+    from services.payment_report_service import build_payments_report, build_payments_report_document
+
+    landlord_id = get_current_landlord_id()
+    category_id = request.args.get("category_id", "all")
+    date_from = parse_date(request.args.get("date_from"))
+    date_to = parse_date(request.args.get("date_to"))
+    property_id = request.args.get("property_id", type=int)
+
+    fmt = (request.args.get("format") or "json").lower()
+    if fmt in ("pdf", "excel"):
+        # Export through the shared report_builder pipeline (letterhead + signature).
+        doc = build_payments_report_document(
+            _current_landlord(), category_id=category_id,
+            date_from=date_from, date_to=date_to, property_id=property_id,
+        )
+        selection = parse_column_selection(request.args.get("columns"))
+        file_bytes = render_document(doc, fmt, selection, None)
+        return _fmt_response(file_bytes, fmt, "payments-report"), 200
+
+    data = build_payments_report(
+        landlord_id, category_id=category_id,
+        date_from=date_from, date_to=date_to, property_id=property_id,
+    )
+    return jsonify(data), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/reports/line-items/<id>/rollover-trail  — balance provenance (§4.4)
+# ---------------------------------------------------------------------------
+@report_bp.route("/line-items/<int:line_id>/rollover-trail", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("reports", "view")
+def line_item_rollover_trail(line_id):
+    """The origin-month breakdown of a balance line ('5,000 from May + 10,000 from June')."""
+    from services.payment_report_service import rollover_trail
+
+    landlord_id = get_current_landlord_id()
+    trail = rollover_trail(line_id, landlord_id)
+    if trail.get("error") == "not_found":
+        return jsonify({"error": "Line item not found."}), 404
+    return jsonify(trail), 200
+
+
+# ---------------------------------------------------------------------------
 # GET /api/reports/statements/tenant/<id>
 # ---------------------------------------------------------------------------
 @report_bp.route("/statements/tenant/<int:tenant_id>", methods=["GET"])

@@ -8,6 +8,7 @@ export const USER_ROLES = {
   PROPERTY_MANAGER: "property_manager",
   TEAM_MEMBER: "team_member",
   TENANT: "tenant",
+  AFFILIATE: "affiliate",
 };
 
 export const ACCOUNT_TYPES = ["gated_community", "property_management", "landlord"];
@@ -36,6 +37,13 @@ export const INVOICE_TYPES = ["rent", "utility", "penalty", "custom", "recurring
 
 export const PAYMENT_STATUSES = ["confirmed", "pending", "declined"];
 export const PAYMENT_SOURCES = ["mpesa", "co_pilot", "bank_statement", "manual"];
+export const PAYMENT_SOURCE_LABELS = {
+  mpesa: "M-Pesa",
+  co_pilot: "Co-pilot",
+  bank_statement: "Bank Statement",
+  manual: "Manual",
+  credit: "Credit",
+};
 
 export const EXPENSE_STATUSES = ["confirmed", "pending"];
 export const EXPENSE_CATEGORIES = [
@@ -48,8 +56,6 @@ export const EXPENSE_CATEGORIES = [
   "internet",
   "other",
 ];
-
-export const UTILITY_ITEMS = ["water", "electricity", "garbage", "security"];
 
 // Selectable charge types for an invoice line item. "other" reveals a free-text
 // field so anything not listed can still be billed.
@@ -111,6 +117,10 @@ export const IMPERSONATION_STATUSES = ["pending", "granted", "revoked", "expired
 export const BANK_STATEMENT_STATUSES = ["uploaded", "parsing", "parsed", "failed"];
 export const MPESA_TRANSACTION_STATUSES = ["recorded", "unmatched", "pending"];
 
+export const COPILOT_DEVICE_STATUSES = ["active", "revoked"];
+export const COPILOT_PARSE_STATUSES = ["parsed", "unparsed", "duplicate", "rejected"];
+export const COPILOT_MATCH_STATUSES = ["matched", "unmatched", "n_a"];
+
 export const AUDIT_ENTITY_TYPES = [
   "payment",
   "invoice",
@@ -167,6 +177,16 @@ export const STATUS_BADGE_MAP = {
   granted: { label: "Granted", color: "emerald" },
   revoked: { label: "Revoked", color: "rose" },
   expired: { label: "Expired", color: "slate" },
+  // Affiliate program
+  rejected: { label: "Rejected", color: "rose" },
+  completed: { label: "Completed", color: "emerald" },
+  requested: { label: "Requested", color: "indigo" },
+  processing: { label: "Processing", color: "amber" },
+  // Co-pilot ingest log (parse_status / match_status)
+  unparsed: { label: "Not recognized", color: "amber" },
+  duplicate: { label: "Duplicate", color: "slate" },
+  matched: { label: "Matched", color: "emerald" },
+  n_a: { label: "—", color: "slate" },
 };
 
 export const STATUS_BADGE_COLOR_CLASSES = {

@@ -29,7 +29,7 @@ from decorators import (
 from services.audit_service  import record_audit
 from services.pdf_service    import generate_invoice_pdf
 from services.email_service  import send_invoice_email
-from tasks.invoice_tasks     import bulk_generate_invoices_task, bulk_download_invoices_task
+from tasks.invoice_tasks     import bulk_generate_invoices_task
 
 invoice_bp = Blueprint("invoices", __name__, url_prefix="/api/invoices")
 
@@ -241,6 +241,8 @@ def create_invoice():
             unit_price         = unit_price,
             amount             = amount,
             utility_reading_id = li_data.get("utility_reading_id"),
+            category_id        = li_data.get("category_id"),
+            subcategory        = li_data.get("subcategory"),
         ))
 
     # Recompute header totals + status from the (possibly larger) set of charges.
@@ -340,6 +342,8 @@ def update_invoice(invoice_id):
                 quantity    = qty,
                 unit_price  = unit_price,
                 amount      = amount,
+                category_id = li_data.get("category_id"),
+                subcategory = li_data.get("subcategory"),
             ))
         inv.total_amount = new_total
         inv.balance      = new_total - inv.amount_paid
@@ -441,33 +445,54 @@ def download_invoice(invoice_id):
 
 
 # ---------------------------------------------------------------------------
-# POST /api/invoices/bulk-download
+# GET /api/invoices/bulk-download
 # ---------------------------------------------------------------------------
-@invoice_bp.route("/bulk-download", methods=["POST"])
+@invoice_bp.route("/bulk-download", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("invoices", "view")
 def bulk_download():
     """
-    Queue a Celery task to generate a ZIP of multiple invoice PDFs.
-    Body: { invoice_ids: [int] }
-    Returns a task_id; client polls a status endpoint until the ZIP is ready.
+    Download a ZIP of invoice PDFs — the landlord's "Download all" button.
+    Query: ?invoice_ids=1,2,3 (optional — defaults to every non-deleted, non-void
+    invoice for the landlord, matching the "all" in "Download all").
+    Streams the ZIP directly (same synchronous download pattern as the
+    single-invoice download), so no task-status polling is needed.
     ---
     tags: [Invoices]
     security:
       - Bearer: []
     responses:
-      202: {description: Bulk download task queued.}
+      200: {description: ZIP archive of invoice PDFs.}
+      404: {description: No matching invoices.}
     """
     landlord_id = get_current_landlord_id()
-    data        = request.get_json(silent=True) or {}
-    invoice_ids = data.get("invoice_ids", [])
+    raw_ids     = request.args.get("invoice_ids")
+    if raw_ids:
+        invoice_ids = [int(x) for x in raw_ids.split(",") if x.strip().isdigit()]
+        query = Invoice.query.filter(Invoice.id.in_(invoice_ids), Invoice.landlord_id == landlord_id)
+    else:
+        query = Invoice.query.filter_by(landlord_id=landlord_id, is_deleted=False).filter(
+            Invoice.status != InvoiceStatus.void.value
+        )
 
-    if not invoice_ids:
-        return jsonify({"error": "invoice_ids list is required."}), 400
+    invoices = query.all()
+    if not invoices:
+        return jsonify({"error": "No invoices found to download."}), 404
 
-    task = bulk_download_invoices_task.delay(landlord_id, invoice_ids)
-    return jsonify({"task_id": task.id, "message": "Bulk download queued."}), 202
+    import zipfile
+    from io import BytesIO
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for inv in invoices:
+            zf.writestr(f"{inv.invoice_number}.pdf", generate_invoice_pdf(inv))
+
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": "attachment; filename=invoices.zip"},
+    ), 200
 
 
 # ---------------------------------------------------------------------------

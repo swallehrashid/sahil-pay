@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Ban, RotateCcw, Wrench } from "lucide-react";
+import { ArrowLeft, Ban, RotateCcw, Wrench, Smartphone } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -103,6 +103,11 @@ export default function LandlordDetail() {
             <Button variant="ghost" leftIcon={<Wrench className="h-4 w-4" />} onClick={() => setIsCorrectOpen(true)}>
               Correct data
             </Button>
+            <Link to={`${ADMIN_ROUTES.copilot}?tab=landlords&landlord_id=${id}`}>
+              <Button variant="ghost" leftIcon={<Smartphone className="h-4 w-4" />}>
+                Co-pilot
+              </Button>
+            </Link>
             {data?.is_active ? (
               <Button variant="danger" leftIcon={<Ban className="h-4 w-4" />} onClick={() => setPendingStatusChange("suspend")}>
                 Suspend

@@ -5,6 +5,7 @@ import DatePicker from "@/components/ui/DatePicker";
 import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
 import { isRequired, isValidPhone, isValidEmail, isDateOnOrAfter } from "@/utils/validators";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 const EMPTY_FORM = {
   property_id: "",
@@ -65,7 +66,7 @@ export default function TenantForm({ initialValues, properties = [], units = [],
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-5" data-tour={ANCHORS.tenants.form}>
       <div className="grid grid-cols-2 gap-4">
         <Select
           label="Property"
@@ -73,14 +74,29 @@ export default function TenantForm({ initialValues, properties = [], units = [],
           onChange={update("property_id")}
           options={properties.map((p) => ({ value: p.id, label: p.name }))}
         />
-        <Select label="Unit" value={form.unit_id} onChange={update("unit_id")} options={unitOptions} error={errors.unit_id} required />
+        <Select
+          label="Unit"
+          value={form.unit_id}
+          onChange={update("unit_id")}
+          options={unitOptions}
+          error={errors.unit_id}
+          required
+          data-tour={ANCHORS.tenants.unitSelect}
+        />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Input label="First name" value={form.first_name} onChange={update("first_name")} error={errors.first_name} required />
         <Input label="Last name" value={form.last_name} onChange={update("last_name")} error={errors.last_name} required />
       </div>
       <div className="grid grid-cols-2 gap-4">
-        <Input label="Phone" value={form.phone} onChange={update("phone")} error={errors.phone} required />
+        <Input
+          label="Phone"
+          value={form.phone}
+          onChange={update("phone")}
+          error={errors.phone}
+          required
+          data-tour={ANCHORS.tenants.phoneField}
+        />
         <Input label="Secondary phone" value={form.secondary_phone} onChange={update("secondary_phone")} hint="Next of kin / other" />
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -126,7 +142,7 @@ export default function TenantForm({ initialValues, properties = [], units = [],
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" data-tour={ANCHORS.tenants.saveButton} isLoading={isSubmitting}>
           Save tenant
         </Button>
       </div>

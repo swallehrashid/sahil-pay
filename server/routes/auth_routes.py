@@ -30,6 +30,7 @@ from models import (
     ImpersonationRequest, ImpersonationStatus,
 )
 from services.audit_service import record_audit
+from services.category_service import seed_default_categories
 from services.email_service import send_verification_email, send_password_reset_email
 from services.trial_service import apply_global_trial
 from utils import active_impersonation
@@ -60,6 +61,7 @@ def register():
             company_name: {type: string}
             phone:        {type: string}
             account_type: {type: string, enum: [gated_community, property_management, landlord]}
+            referral_code: {type: string, description: "Optional affiliate referral code — silently ignored if invalid/expired."}
     responses:
       201: {description: Account created. Verification email sent.}
       400: {description: Validation error or email already registered.}
@@ -71,6 +73,7 @@ def register():
     company_name = (data.get("company_name") or "").strip()
     phone        = (data.get("phone") or "").strip() or None
     account_type = data.get("account_type", "landlord")
+    referral_code = data.get("referral_code")
 
     # ── Validation ────────────────────────────────────────────────────────────
     if not email or not password or not company_name:
@@ -125,6 +128,14 @@ def register():
     # ── Bootstrap settings ────────────────────────────────────────────────────
     db.session.add(LandlordSettings(landlord_id=landlord.id))
     db.session.add(AutomationSettings(landlord_id=landlord.id))
+
+    # ── Seed the protected default charge categories (rent, lease, utilities…) ──
+    seed_default_categories(landlord.id)
+
+    # ── Affiliate attribution (best-effort — an invalid/expired/unknown code
+    # must NEVER block registration itself; AFFILIATE_PROGRAM_SPEC.md E3) ──────
+    from services.affiliate_service import attribute_from_code
+    attribute_from_code(landlord, referral_code)
 
     db.session.commit()
 
@@ -183,11 +194,12 @@ def login():
     if not user.is_active:
         return jsonify({"error": "This account has been deactivated. Contact support."}), 403
 
-    # Landlords / PMs must confirm their email first (when enforcement is enabled).
-    # 403 + needs_verification lets the frontend offer a "resend verification" action.
+    # Landlords / PMs / affiliates must confirm their email first (when enforcement
+    # is enabled). 403 + needs_verification lets the frontend offer a "resend
+    # verification" action.
     if (
         current_app.config.get("ENFORCE_EMAIL_VERIFICATION")
-        and user.role in (UserRole.landlord.value, UserRole.property_manager.value)
+        and user.role in (UserRole.landlord.value, UserRole.property_manager.value, UserRole.affiliate.value)
         and not user.is_verified
     ):
         return jsonify({
@@ -213,6 +225,11 @@ def login():
         if tm:
             additional_claims["landlord_id"]    = tm.landlord_id
             additional_claims["team_member_id"] = tm.id
+    elif user.role == UserRole.affiliate.value:
+        af = user.affiliate_profile
+        if af:
+            additional_claims["affiliate_id"] = af.id
+            additional_claims["affiliate_status"] = af.status
 
     access_token  = create_access_token(identity=str(user.id), additional_claims=additional_claims)
     refresh_token = create_refresh_token(identity=str(user.id), additional_claims=additional_claims)
@@ -243,7 +260,7 @@ def refresh():
     identity = get_jwt_identity()
     claims   = get_jwt()
     additional_claims = {k: v for k, v in claims.items()
-                         if k in ("role", "landlord_id", "team_member_id")}
+                         if k in ("role", "landlord_id", "team_member_id", "affiliate_id", "affiliate_status")}
     new_token = create_access_token(identity=identity, additional_claims=additional_claims)
     return jsonify({"access_token": new_token}), 200
 
@@ -574,5 +591,9 @@ def me():
                 "all": tm.property_access_all,
                 "propertyIds": [pa.property_id for pa in tm.property_accesses],
             }
+    elif user.role == UserRole.affiliate.value:
+        af = user.affiliate_profile
+        if af:
+            payload["profile"] = af.to_dict()
 
     return jsonify(payload), 200

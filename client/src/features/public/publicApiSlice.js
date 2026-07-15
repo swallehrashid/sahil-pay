@@ -8,7 +8,10 @@ export const publicApiSlice = apiSlice.injectEndpoints({
       providesTags: ["Package"],
       transformResponse: (res) => res?.packages ?? [],
     }),
+    getPublicAffiliateProgram: builder.query({
+      query: () => "/public/affiliate-program",
+    }),
   }),
 });
 
-export const { useGetPublicPackagesQuery } = publicApiSlice;
+export const { useGetPublicPackagesQuery, useGetPublicAffiliateProgramQuery } = publicApiSlice;

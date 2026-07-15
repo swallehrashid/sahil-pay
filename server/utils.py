@@ -298,7 +298,9 @@ def current_landlord_id() -> int | None:
     Callers that REQUIRE a landlord scope (almost all landlord routes)
     should raise ApiError(403) when None is returned.
     """
-    # Check impersonation first (admin acting as a landlord).
+    # Check impersonation first (admin acting as a landlord). Demo mode is
+    # never applied on this path — an admin impersonating a landlord always
+    # sees that landlord's real account, regardless of any X-Demo-Mode header.
     imp = active_impersonation()
     if imp is not None:
         return imp.landlord_id
@@ -309,15 +311,55 @@ def current_landlord_id() -> int | None:
     if role in ("landlord", "property_manager"):
         if user.landlord_profile is None:
             raise ApiError("Landlord profile not found.", status=500)
-        return user.landlord_profile.id
+        return _demo_scope_or(user.landlord_profile.id)
 
     if role == "team_member":
         if user.team_member_profile is None:
             raise ApiError("Team member profile not found.", status=500)
+        # Demo mode is landlord/PM-only (v1) — a team member's X-Demo-Mode
+        # header (if ever sent) is ignored; they always see the real account.
         return user.team_member_profile.landlord_id
 
     # system_admin (non-impersonating) or tenant — no landlord scope
     return None
+
+
+def _demo_scope_or(real_landlord_id: int) -> int:
+    """
+    See DEMO_MODE_SPEC.md §3.1. If the caller sent X-Demo-Mode: 1 and a demo
+    shadow landlord exists for real_landlord_id, scope every query to the
+    shadow instead. Cached on g per request (same pattern as
+    active_impersonation()) since this is checked on every landlord-scoped
+    query in a request.
+
+    A header with no matching shadow silently falls back to the real
+    landlord — this is only a stale-localStorage safety net (the frontend
+    always calls POST /api/demo/enter, which creates the shadow, before ever
+    setting the header), never a hard error.
+    """
+    if request.headers.get("X-Demo-Mode") != "1":
+        return real_landlord_id
+
+    cache_attr = "_demo_shadow_id"
+    if hasattr(g, cache_attr):
+        cached = getattr(g, cache_attr)
+        return cached if cached is not None else real_landlord_id
+
+    from models import Landlord
+
+    shadow = Landlord.query.filter_by(demo_owner_landlord_id=real_landlord_id).first()
+    setattr(g, cache_attr, shadow.id if shadow else None)
+    return shadow.id if shadow else real_landlord_id
+
+
+def is_demo_scope() -> bool:
+    """
+    True when the current request resolved to a demo shadow landlord (i.e.
+    X-Demo-Mode was sent AND a shadow exists). Used to prefix audit
+    descriptions with "[DEMO] " as defense-in-depth (the shadow's own
+    landlord_id already isolates the row from the real account either way).
+    """
+    return getattr(g, "_demo_shadow_id", None) is not None
 
 
 # ===========================================================================
@@ -567,6 +609,11 @@ def audit(
         description = f"[Impersonating landlord #{imp.landlord_id}] {description}"
     elif imp is not None:
         description = f"[Impersonating landlord #{imp.landlord_id}]"
+
+    # Defense-in-depth: mark demo-scope writes even though the shadow
+    # landlord's own landlord_id already isolates the row (DEMO_MODE_SPEC §3.5).
+    if is_demo_scope():
+        description = f"[DEMO] {description}" if description else "[DEMO]"
 
     ip_address = None
     try:

@@ -1,5 +1,5 @@
 import { USER_ROLES } from "@/utils/constants";
-import { LANDLORD_ROUTES, TEAM_ROUTES, TENANT_ROUTES, ADMIN_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
+import { LANDLORD_ROUTES, TEAM_ROUTES, TENANT_ROUTES, ADMIN_ROUTES, AFFILIATE_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
 
 // After login (or when ProtectedRoutes blocks a role mismatch), send the user to their portal home.
 export function roleHomePath(role) {
@@ -13,6 +13,8 @@ export function roleHomePath(role) {
       return TEAM_ROUTES.dashboard;
     case USER_ROLES.TENANT:
       return TENANT_ROUTES.dashboard;
+    case USER_ROLES.AFFILIATE:
+      return AFFILIATE_ROUTES.dashboard;
     default:
       return PUBLIC_ROUTES.home;
   }

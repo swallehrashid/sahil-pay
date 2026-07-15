@@ -89,6 +89,19 @@ TEMPLATES = {
         "title": None,   # custom sends always supply their own title/body
         "body": None,
     },
+    # ---- Co-Pilot SMS forwarder (COPILOT_PLATFORM_SPEC.md §2.1) -----------
+    "copilot_payment_pending": {
+        "title": "Payment awaiting allocation",
+        "body": "Co-pilot received KES {amount} from {sender_name} for {tenant_name}. Confirm and allocate it.",
+    },
+    "copilot_payment_unmatched": {
+        "title": "Co-pilot payment needs review",
+        "body": "Co-pilot received KES {amount} via {sender_id} but couldn't match it to a tenant. Review it in M-Pesa transactions.",
+    },
+    "copilot_device_paired": {
+        "title": "New Co-pilot device paired",
+        "body": "\"{device_name}\" was just paired to your Co-pilot agent code. If this wasn't you, revoke it in Settings → Co-pilot.",
+    },
 }
 
 # #11 — the subset of TEMPLATES a landlord/team member may send, split by audience.

@@ -24,6 +24,7 @@ import { formatDateTime } from "@/utils/dateFormatter";
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function CommunicationsPage() {
   const [searchParams] = useSearchParams();
@@ -95,7 +96,7 @@ export default function CommunicationsPage() {
         subtitle="Every message sent through SahilPay"
         actions={
           tab === "log" && (
-            <Button leftIcon={<Send className="h-4 w-4" />} onClick={() => setIsComposeOpen(true)}>
+            <Button data-tour={ANCHORS.communications.composeButton} leftIcon={<Send className="h-4 w-4" />} onClick={() => setIsComposeOpen(true)}>
               Send message
             </Button>
           )
@@ -122,7 +123,7 @@ export default function CommunicationsPage() {
       <Tabs
         tabs={[
           { key: "log", label: "Log" },
-          { key: "templates", label: "Templates" },
+          { key: "templates", label: "Templates", dataTour: ANCHORS.communications.templatesTab },
         ]}
         activeKey={tab}
         onChange={setTab}
@@ -165,7 +166,7 @@ export default function CommunicationsPage() {
               <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
             </FilterPanel>
 
-            <div className="flex-1">
+            <div className="min-w-0 flex-1" data-tour={ANCHORS.communications.log}>
               <ResponsiveTable
                 columns={columns}
                 rows={logs}

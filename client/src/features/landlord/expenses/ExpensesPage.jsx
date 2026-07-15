@@ -156,7 +156,7 @@ export default function ExpensesPage() {
               <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
             </FilterPanel>
 
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <ResponsiveTable
                 columns={columns}
                 rows={expenses}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
@@ -8,6 +8,8 @@ import Checkbox from "@/components/ui/Checkbox";
 import { PAYMENT_STATUSES, RECEIPT_CHANNELS } from "@/utils/constants";
 import { isRequired, validateMoneyField } from "@/utils/validators";
 import { formatCurrency } from "@/utils/currencyFormatter";
+import { useGetTenantOutstandingItemsQuery } from "../chargeCategoryApiSlice";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 // "Jun 2026" from an issue date (handles ISO + RFC date strings the API returns).
 function monthLabel(d) {
@@ -29,9 +31,9 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
     notes: "",
     ...initialValues,
   });
-  const [allocations, setAllocations] = useState({});
+  const [allocations, setAllocations] = useState({}); // line_item_id -> amount string
   // #5 — 'auto' follows the landlord's Settings priority; 'manual' lets them split the
-  // payment across invoice items by hand.
+  // payment across individual invoice items by hand (one screen, all outstanding items).
   const [allocationMode, setAllocationMode] = useState("auto");
   const [sendReceipt, setSendReceipt] = useState(false);
   const [receiptChannels, setReceiptChannels] = useState(["email"]);
@@ -42,24 +44,25 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const tenantInvoices = useMemo(
-    () => invoices.filter((inv) => String(inv.tenant_id) === String(form.tenant_id) && inv.status !== "paid" && inv.status !== "void"),
-    [invoices, form.tenant_id]
-  );
+  // Line-level outstanding items for the selected tenant (all invoices, one screen).
+  const { data: outstanding } = useGetTenantOutstandingItemsQuery(form.tenant_id, {
+    skip: !form.tenant_id,
+  });
+  const outstandingInvoices = outstanding?.invoices ?? [];
+  const creditBalance = outstanding?.credit_balance ?? 0;
 
   const allocatedTotal = Object.values(allocations).reduce((sum, v) => sum + Number(v || 0), 0);
 
-  // #5 — "pay full" dumps the rest of the still-unallocated payment onto this invoice
-  // (capped at the invoice's own balance), so a 5,000 payment against an 11,000 invoice
-  // allocates the whole 5,000 there.
-  const payFull = (inv) => {
+  // "pay this" fills the line with the rest of the still-unallocated payment, capped at
+  // the line's own remaining balance.
+  const payLine = (line) => {
     setAllocations((prev) => {
       const others = Object.entries(prev)
-        .filter(([id]) => String(id) !== String(inv.id))
+        .filter(([id]) => String(id) !== String(line.line_item_id))
         .reduce((sum, [, v]) => sum + Number(v || 0), 0);
-      const remaining = Math.max(Number(form.amount || 0) - others, 0);
-      const take = Math.min(remaining, Number(inv.balance || 0));
-      return { ...prev, [inv.id]: take || "" };
+      const left = Math.max(Number(form.amount || 0) - others, 0);
+      const take = Math.min(left, Number(line.remaining || 0));
+      return { ...prev, [line.line_item_id]: take || "" };
     });
   };
 
@@ -75,12 +78,13 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
 
-    // Backend (POST /payments) reads `allocation_mode` + `allocations: [{ invoice_id, amount_allocated }]`.
+    // Backend (POST /payments) reads `allocation_mode` + line-level
+    // `allocations: [{ line_item_id, amount }]`.
     const allocationsPayload =
       allocationMode === "manual"
         ? Object.entries(allocations)
             .filter(([, amount]) => Number(amount) > 0)
-            .map(([invoice_id, amount_allocated]) => ({ invoice_id: Number(invoice_id), amount_allocated: Number(amount_allocated) }))
+            .map(([line_item_id, amount]) => ({ line_item_id: Number(line_item_id), amount: Number(amount) }))
         : [];
 
     onSubmit({
@@ -101,9 +105,19 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
         error={errors.tenant_id}
         options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
         required
+        data-tour={ANCHORS.payments.tenantSelect}
       />
       <div className="grid grid-cols-2 gap-4">
-        <Input label="Amount" type="number" step="0.01" value={form.amount} onChange={update("amount")} error={errors.amount} required />
+        <Input
+          label="Amount"
+          type="number"
+          step="0.01"
+          value={form.amount}
+          onChange={update("amount")}
+          error={errors.amount}
+          required
+          data-tour={ANCHORS.payments.amountField}
+        />
         <DatePicker label="Payment date" value={form.payment_date} onChange={update("payment_date")} required />
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -136,48 +150,64 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
             ))}
           </div>
 
+          {creditBalance > 0 && (
+            <p className="mb-2 text-xs text-emerald-300">
+              Tenant credit available: {formatCurrency(creditBalance)} (applied to future bills).
+            </p>
+          )}
+
           {allocationMode === "auto" ? (
             <p className="text-sm text-white/40">
               The payment will clear this tenant's charges automatically, following your
-              Settings → Payments allocation priority. Any remainder becomes an advance.
+              Settings → Payments allocation priority. Any remainder becomes tenant credit.
             </p>
           ) : (
             <>
               {errors.allocations && <p className="mb-2 text-xs text-secondary-300">{errors.allocations}</p>}
-              {tenantInvoices.length === 0 ? (
-                <p className="text-sm text-white/40">No open invoices for this tenant — the full amount becomes an advance.</p>
+              {outstandingInvoices.length === 0 ? (
+                <p className="text-sm text-white/40">No outstanding items for this tenant — the full amount becomes tenant credit.</p>
               ) : (
-                <div className="space-y-2">
-                  {tenantInvoices.map((inv) => (
-                    <div key={inv.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/5 px-3 py-2">
-                      <div className="min-w-0 text-sm">
-                        <div className="truncate text-white/80">
-                          {inv.invoice_number}
-                          {monthLabel(inv.issue_date) ? ` · ${monthLabel(inv.issue_date)}` : ""}
-                        </div>
-                        <div className="text-xs text-white/40">
-                          Invoiced {formatCurrency(inv.total_amount)} · <span className="text-secondary-300">{formatCurrency(inv.balance)} due</span>
-                        </div>
+                <div className="space-y-3">
+                  {outstandingInvoices.map((inv) => (
+                    <div key={inv.invoice_id} className="rounded-lg bg-white/5 p-3">
+                      <div className="mb-2 text-xs text-white/40">
+                        {inv.invoice_number}
+                        {monthLabel(inv.issue_date) ? ` · ${monthLabel(inv.issue_date)}` : ""}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => payFull(inv)}
-                        className="shrink-0 text-[11px] text-white/40 underline-offset-2 hover:text-secondary hover:underline"
-                      >
-                        pay full
-                      </button>
-                      <input
-                        type="number"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={allocations[inv.id] ?? ""}
-                        onChange={(e) => setAllocations((prev) => ({ ...prev, [inv.id]: e.target.value }))}
-                        className="glass-input w-28 text-right"
-                      />
+                      <div className="space-y-1.5">
+                        {inv.lines.map((line) => (
+                          <div key={line.line_item_id} className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 text-sm text-white/80">
+                              <span className="truncate">{line.label}</span>
+                              <span className="ml-2 text-xs text-white/40">{formatCurrency(line.remaining)} due</span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => payLine(line)}
+                                className="text-[11px] text-white/40 underline-offset-2 hover:text-secondary hover:underline"
+                              >
+                                pay this
+                              </button>
+                              <input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={allocations[line.line_item_id] ?? ""}
+                                onChange={(e) => setAllocations((prev) => ({ ...prev, [line.line_item_id]: e.target.value }))}
+                                className="glass-input w-28 text-right"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                   <p className="text-right text-xs text-white/40">
                     Allocated: {formatCurrency(allocatedTotal)} of {formatCurrency(form.amount || 0)}
+                    {allocatedTotal < Number(form.amount || 0) && (
+                      <> · {formatCurrency(Number(form.amount || 0) - allocatedTotal)} → credit</>
+                    )}
                   </p>
                 </div>
               )}
@@ -219,7 +249,7 @@ export default function RecordPaymentForm({ initialValues, tenants = [], invoice
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" data-tour={ANCHORS.payments.saveButton} isLoading={isSubmitting}>
           Record payment
         </Button>
       </div>

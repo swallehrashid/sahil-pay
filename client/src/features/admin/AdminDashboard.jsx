@@ -1,11 +1,13 @@
 import { useNavigate } from "react-router-dom";
-import { Building2, Users, UserCog, Layers, Home } from "lucide-react";
+import { Building2, Users, UserCog, Layers, Home, Handshake, Wallet, UserPlus } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import { useGetAdminDashboardQuery } from "./adminApiSlice";
+import { useGetAdminAffiliatesQuery, useGetAdminAffiliateWithdrawalsQuery } from "./adminAffiliateApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { formatCurrency } from "@/utils/currencyFormatter";
 import { ADMIN_ROUTES } from "@/config/routePaths";
 
 // §7 — platform overview. Every stat card and every landlord row is clickable
@@ -13,6 +15,9 @@ import { ADMIN_ROUTES } from "@/config/routePaths";
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const { data, isLoading } = useGetAdminDashboardQuery();
+  const { data: affiliateData } = useGetAdminAffiliatesQuery({ per_page: 1 });
+  const { data: pendingAffiliates } = useGetAdminAffiliatesQuery({ status: "pending", per_page: 1 });
+  const { data: pendingWithdrawals } = useGetAdminAffiliateWithdrawalsQuery({ status: "requested", per_page: 1 });
   const totals = data?.platform_totals ?? {};
   const rows = toRows(data?.landlords);
 
@@ -59,6 +64,40 @@ export default function AdminDashboard() {
           isLoading={isLoading}
           onRowClick={(row) => navigate(ADMIN_ROUTES.landlordDetailPath(row.id))}
         />
+      </div>
+
+      <div className="mt-8">
+        <h2 className="mb-4 text-lg font-light text-white">Affiliate program</h2>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => navigate(ADMIN_ROUTES.affiliates)}
+            className="rounded-2xl text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-third/60 hover:-translate-y-0.5"
+          >
+            <SummaryCard label="Affiliates" value={affiliateData?.total ?? 0} icon={<Handshake className="h-5 w-5" />} />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(ADMIN_ROUTES.affiliates)}
+            className="rounded-2xl text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-third/60 hover:-translate-y-0.5"
+          >
+            <SummaryCard label="Pending approval" value={pendingAffiliates?.total ?? 0} icon={<UserPlus className="h-5 w-5" />} accent="third" />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(ADMIN_ROUTES.affiliateWithdrawals)}
+            className="rounded-2xl text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-third/60 hover:-translate-y-0.5"
+          >
+            <SummaryCard label="Pending withdrawals" value={pendingWithdrawals?.total ?? 0} icon={<Wallet className="h-5 w-5" />} accent="third" />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(ADMIN_ROUTES.affiliates)}
+            className="rounded-2xl text-left transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-third/60 hover:-translate-y-0.5"
+          >
+            <SummaryCard label="Outstanding liability" value={formatCurrency(affiliateData?.total_outstanding_liability)} icon={<Handshake className="h-5 w-5" />} />
+          </button>
+        </div>
       </div>
     </div>
   );

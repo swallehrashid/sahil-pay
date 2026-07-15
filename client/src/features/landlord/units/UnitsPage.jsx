@@ -17,6 +17,7 @@ import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
+import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function UnitsPage() {
   const pg = usePagination();
@@ -92,7 +93,7 @@ export default function UnitsPage() {
         title="Units"
         subtitle="Every unit across your properties"
         actions={
-          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+          <Button data-tour={ANCHORS.units.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
             Add unit
           </Button>
         }

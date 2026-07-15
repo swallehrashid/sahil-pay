@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
 import { PUBLIC_ROUTES } from "@/config/routePaths";
 
 // Centered glass card shell for login/register/OTP, over the gradient bg, scaleIn reveal.
@@ -9,6 +10,9 @@ export default function AuthLayout({ children, title, subtitle }) {
       <div className="absolute -right-24 bottom-10 h-72 w-72 animate-float-blob rounded-full bg-secondary/20 blur-3xl" />
 
       <div className="glass relative z-10 w-full max-w-md animate-scale-in p-8">
+        <Link to={PUBLIC_ROUTES.home} className="mb-4 inline-flex items-center gap-1.5 text-sm text-white/50 transition-colors hover:text-white">
+          <ArrowLeft className="h-4 w-4" /> Back to home
+        </Link>
         <Link to={PUBLIC_ROUTES.home} className="mb-6 block text-center text-xl font-light tracking-wide text-white">
           Sahil<span className="text-secondary">Pay</span>
         </Link>

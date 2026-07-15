@@ -24,8 +24,13 @@ export const paymentApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["Payment", "Invoice"],
     }),
     getAllocationPreview: builder.query({
-      query: (id) => `/payments/${id}/allocation-preview`,
-      providesTags: (result, error, id) => [{ type: "Payment", id }],
+      // Accepts either a bare payment id, or { id, tenant_id } to preview
+      // allocation against a tenant other than (or in place of) the payment's own.
+      query: (arg) => {
+        const { id, tenant_id } = typeof arg === "object" ? arg : { id: arg, tenant_id: undefined };
+        return { url: `/payments/${id}/allocation-preview`, params: tenant_id ? { tenant_id } : undefined };
+      },
+      providesTags: (result, error, arg) => [{ type: "Payment", id: typeof arg === "object" ? arg.id : arg }],
     }),
     confirmPayment: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/payments/${id}/confirm`, method: "POST", body }),
@@ -57,7 +62,11 @@ export const paymentApiSlice = apiSlice.injectEndpoints({
     }),
     importBankStatementTransactions: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/payments/bank-statement/${id}/import`, method: "POST", body }),
-      invalidatesTags: ["BankStatement", "Payment"],
+      invalidatesTags: ["BankStatement", "Payment", "Invoice", "Tenant"],
+    }),
+    getTenantOutstandingItems: builder.query({
+      query: (tenantId) => `/payments/tenants/${tenantId}/outstanding-items`,
+      providesTags: (result, error, tenantId) => [{ type: "Tenant", id: tenantId }],
     }),
   }),
 });
@@ -77,4 +86,6 @@ export const {
   useUploadBankStatementMutation,
   useGetBankStatementTransactionsQuery,
   useImportBankStatementTransactionsMutation,
+  useGetTenantOutstandingItemsQuery,
+  useLazyGetTenantOutstandingItemsQuery,
 } = paymentApiSlice;

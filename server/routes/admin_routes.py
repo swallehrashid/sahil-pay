@@ -70,7 +70,10 @@ def admin_dashboard():
     page     = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    query = Landlord.query
+    # Demo shadow landlords (DEMO_MODE_SPEC.md §3.4) are internal scaffolding
+    # for the landlord "try demo mode" feature — never surfaced in admin
+    # platform views/counts.
+    query = Landlord.query.filter(Landlord.is_demo.is_(False))
     if search:
         query = query.join(User, User.id == Landlord.user_id).filter(
             db.or_(
@@ -83,12 +86,25 @@ def admin_dashboard():
         page=page, per_page=per_page, error_out=False
     )
 
+    _real_landlord_ids = db.session.query(Landlord.id).filter(Landlord.is_demo.is_(False))
     platform_totals = {
-        "total_landlords":      Landlord.query.count(),
-        "total_properties":     Property.query.filter_by(is_deleted=False).count(),
-        "total_units":          Unit.query.filter_by(is_deleted=False).count(),
-        "total_active_tenants": Tenant.query.filter_by(is_deleted=False).count(),
-        "total_team_members":   TeamMember.query.count(),
+        "total_landlords":      Landlord.query.filter(Landlord.is_demo.is_(False)).count(),
+        "total_properties":     Property.query.filter(
+                                     Property.is_deleted.is_(False),
+                                     Property.landlord_id.in_(_real_landlord_ids),
+                                 ).count(),
+        "total_units":          Unit.query.join(Property).filter(
+                                     Unit.is_deleted.is_(False),
+                                     Property.is_deleted.is_(False),
+                                     Property.landlord_id.in_(_real_landlord_ids),
+                                 ).count(),
+        "total_active_tenants": Tenant.query.filter(
+                                     Tenant.is_deleted.is_(False),
+                                     Tenant.landlord_id.in_(_real_landlord_ids),
+                                 ).count(),
+        "total_team_members":   TeamMember.query.filter(
+                                     TeamMember.landlord_id.in_(_real_landlord_ids),
+                                 ).count(),
     }
 
     items = []
@@ -143,7 +159,7 @@ def list_landlords():
     search   = request.args.get("search", "").strip()
     status   = request.args.get("status", "")
 
-    query = Landlord.query.join(User, User.id == Landlord.user_id)
+    query = Landlord.query.join(User, User.id == Landlord.user_id).filter(Landlord.is_demo.is_(False))
     if search:
         query = query.filter(
             db.or_(
