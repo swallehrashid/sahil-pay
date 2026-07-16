@@ -38,7 +38,7 @@ export default function AdminDashboard() {
 
   return (
     <div>
-      <PageHeader title="Platform Overview" subtitle="Every landlord and property manager on SahilPay — click any card to drill in" />
+      <PageHeader title="Platform Overview" subtitle="Every landlord and property manager on Sahil Pay — click any card to drill in" />
 
       {isLoading ? (
         <SkeletonStatCards count={5} />

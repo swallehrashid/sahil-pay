@@ -16,7 +16,8 @@ import { downloadFile } from "@/utils/downloadFile";
 import { ADMIN_ROUTES } from "@/config/routePaths";
 import {
   useGetAdminAffiliateWithdrawalsQuery, useProcessAffiliateWithdrawalMutation,
-  usePayAffiliateWithdrawalMutation, useRejectAffiliateWithdrawalMutation,
+  usePayAffiliateWithdrawalMutation, usePayAffiliateWithdrawalB2cMutation,
+  useRejectAffiliateWithdrawalMutation,
 } from "./adminAffiliateApiSlice";
 
 const TABS = [
@@ -58,7 +59,18 @@ export default function AffiliateWithdrawalsQueue() {
     { key: "affiliate_mpesa_number", header: "M-Pesa", render: (r) => r.affiliate_mpesa_number ?? "—" },
     { key: "gross_amount", header: "Gross", render: (r) => formatCurrency(r.gross_amount) },
     { key: "net_amount", header: "Net", render: (r) => formatCurrency(r.net_amount) },
-    { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
+    {
+      key: "status",
+      header: "Status",
+      render: (r) => (
+        <div className="flex items-center gap-2">
+          <StatusBadge status={r.status} />
+          {r.b2c_status && r.b2c_status !== "result_received" && (
+            <StatusBadge status={r.b2c_status} />
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -110,10 +122,16 @@ export default function AffiliateWithdrawalsQueue() {
 }
 
 function PayModal({ withdrawal, onClose }) {
+  const [mode, setMode] = useState("b2c"); // 'b2c' | 'manual'
   const [reference, setReference] = useState("");
-  const [pay, { isLoading }] = usePayAffiliateWithdrawalMutation();
+  const [confirmText, setConfirmText] = useState("");
+  const [pay, { isLoading: isPayingManual }] = usePayAffiliateWithdrawalMutation();
+  const [payB2c, { isLoading: isPayingB2c }] = usePayAffiliateWithdrawalB2cMutation();
 
-  const handleSubmit = async (e) => {
+  const reset = () => { setReference(""); setConfirmText(""); setMode("b2c"); };
+  const close = () => { reset(); onClose(); };
+
+  const handleManual = async (e) => {
     e.preventDefault();
     if (!reference.trim()) {
       toast("Enter the M-Pesa reference.", { type: "error" });
@@ -122,33 +140,115 @@ function PayModal({ withdrawal, onClose }) {
     try {
       await pay({ id: withdrawal.id, mpesa_reference: reference }).unwrap();
       toast("Withdrawal paid — receipt generated.", { type: "success" });
-      setReference("");
-      onClose();
+      close();
     } catch (err) {
       toast(err?.data?.error || "Could not mark as paid.", { type: "error" });
     }
   };
 
+  const handleB2c = async () => {
+    if (confirmText.trim().toUpperCase() !== "PAY") {
+      toast('Type "PAY" to confirm.', { type: "error" });
+      return;
+    }
+    try {
+      const res = await payB2c({ id: withdrawal.id }).unwrap();
+      toast(res?.simulated ? "B2C payout simulated and paid." : "B2C payout initiated — awaiting confirmation.", { type: "success" });
+      close();
+    } catch (err) {
+      toast(err?.data?.error || "Could not initiate B2C payout.", { type: "error" });
+    }
+  };
+
+  const wholeAmount = withdrawal ? Math.floor(Number(withdrawal.net_amount)) : 0;
+  const remainder = withdrawal ? Number(withdrawal.net_amount) - wholeAmount : 0;
+  const maskedNumber = withdrawal?.affiliate_mpesa_number
+    ? withdrawal.affiliate_mpesa_number.replace(/(\d{6})\d{3}(\d{2})$/, "$1***$2")
+    : "—";
+
   return (
     <Modal
       isOpen={Boolean(withdrawal)}
-      onClose={onClose}
-      title="Mark withdrawal as paid"
+      onClose={close}
+      title="Pay withdrawal"
       footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSubmit} isLoading={isLoading}>Confirm paid</Button>
-        </>
+        mode === "b2c" ? (
+          <>
+            <Button variant="ghost" onClick={close}>Cancel</Button>
+            <Button onClick={handleB2c} isLoading={isPayingB2c}>Send via M-Pesa</Button>
+          </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={close}>Cancel</Button>
+            <Button onClick={handleManual} isLoading={isPayingManual}>Confirm paid</Button>
+          </>
+        )
       }
     >
       {withdrawal && (
         <div className="space-y-4">
-          <p className="text-sm text-white/60">
-            After sending <strong className="text-white">{formatCurrency(withdrawal.net_amount)}</strong> to{" "}
-            {withdrawal.affiliate_name} via M-Pesa, enter the transaction reference below. This generates the
-            KRA-compliant receipt.
-          </p>
-          <Input label="M-Pesa reference" value={reference} onChange={(e) => setReference(e.target.value)} required />
+          <div className="flex gap-2 rounded-lg bg-white/5 p-1 text-sm">
+            <button
+              type="button"
+              onClick={() => setMode("b2c")}
+              className={`flex-1 rounded-md px-3 py-1.5 ${mode === "b2c" ? "bg-secondary text-black" : "text-white/60"}`}
+            >
+              Send via M-Pesa (B2C)
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("manual")}
+              className={`flex-1 rounded-md px-3 py-1.5 ${mode === "manual" ? "bg-secondary text-black" : "text-white/60"}`}
+            >
+              Record manual payment
+            </button>
+          </div>
+
+          {mode === "b2c" ? (
+            <div className="space-y-3">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
+                <div className="flex justify-between py-1">
+                  <span className="text-white/50">Affiliate</span>
+                  <span className="text-white">{withdrawal.affiliate_name}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-white/50">M-Pesa number</span>
+                  <span className="font-mono text-white">{maskedNumber}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-white/50">Net amount</span>
+                  <span className="text-white">{formatCurrency(withdrawal.net_amount)}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-white/50">Amount sent (whole shillings)</span>
+                  <span className="font-medium text-white">{formatCurrency(wholeAmount)}</span>
+                </div>
+                {remainder > 0 && (
+                  <p className="mt-1 text-xs text-white/40">
+                    KES {remainder.toFixed(2)} remainder stays in the program ledger — B2C only sends whole shillings.
+                  </p>
+                )}
+              </div>
+              {withdrawal.b2c_status === "failed" && withdrawal.b2c_result_desc && (
+                <p className="text-xs text-rose-400">Last attempt failed: {withdrawal.b2c_result_desc}</p>
+              )}
+              <Input
+                label='Type "PAY" to confirm'
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                placeholder="PAY"
+              />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-white/60">
+                After sending <strong className="text-white">{formatCurrency(withdrawal.net_amount)}</strong> to{" "}
+                {withdrawal.affiliate_name} via M-Pesa, enter the transaction reference below. This generates the
+                KRA-compliant receipt.
+              </p>
+              <Input label="M-Pesa reference" value={reference} onChange={(e) => setReference(e.target.value)} required />
+            </div>
+          )}
         </div>
       )}
     </Modal>

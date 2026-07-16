@@ -158,7 +158,7 @@ export default function Pricing() {
             <MessageSquare className="h-6 w-6 text-secondary" />
             <h3 className="mt-3 text-base font-medium text-white">Use our sender ID</h3>
             <p className="mt-2 text-sm leading-relaxed text-white/55">
-              Send SMS rent reminders through SahilPay's shared sender ID and simply top up credits — pay only
+              Send SMS rent reminders through Sahil Pay's shared sender ID and simply top up credits — pay only
               for the SMS you send, priced per message with no monthly commitment.
             </p>
           </Reveal>
@@ -166,7 +166,7 @@ export default function Pricing() {
             <ShieldCheck className="h-6 w-6 text-third-100" />
             <h3 className="mt-3 text-base font-medium text-white">Bring your own sender ID</h3>
             <p className="mt-2 text-sm leading-relaxed text-white/55">
-              Prefer to send under your own brand? Connect your own Africa's Talking sender ID and messages go
+              Prefer to send under your own brand? Connect your own registered sender ID and messages go
               out as your business — you're always in control of how you reach tenants.
             </p>
           </Reveal>

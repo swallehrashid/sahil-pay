@@ -4,6 +4,7 @@ import clsx from "clsx";
 import { TENANT_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
 import NotificationBell from "@/features/notifications/NotificationBell";
+import SahilPayLogo, { SahilPayMark } from "@/components/branding/SahilPayLogo";
 
 const LINKS = [
   { to: TENANT_ROUTES.dashboard, label: "Dashboard", icon: LayoutDashboard },
@@ -27,8 +28,9 @@ export default function TenantNavbar() {
 
   return (
     <header className="glass sticky top-4 z-20 mx-4 mt-4 flex items-center justify-between rounded-2xl px-4 py-3 sm:px-6">
-      <span className="text-lg font-light tracking-wide text-white">
-        Sahil<span className="text-secondary">Pay</span>
+      <span className="text-white">
+        <SahilPayLogo withSlogan={false} className="hidden h-7 sm:flex md:h-8" />
+        <SahilPayMark className="h-7 sm:hidden" />
       </span>
 
       <nav className="no-scrollbar flex items-center gap-1 overflow-x-auto">

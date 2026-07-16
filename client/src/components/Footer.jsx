@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Mail, Phone, MapPin } from "lucide-react";
+import SahilPayLogo from "@/components/branding/SahilPayLogo";
 import { PUBLIC_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 
 const COLUMNS = [
@@ -37,16 +38,14 @@ export default function Footer() {
         <div className="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)]">
           {/* Brand + contact */}
           <div>
-            <span className="text-lg font-light tracking-wide text-white/80">
-              Sahil<span className="text-secondary">Pay</span>
-            </span>
+            <SahilPayLogo className="h-10 text-white/90" />
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/45">
               The all-in-one rental management platform built for Kenya — M-Pesa rent collection, invoicing,
               a tenant portal and reporting in one place.
             </p>
             <div className="mt-4 space-y-2 text-xs text-white/45">
-              <span className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-secondary" /> hello@sahilpay.com</span>
-              <span className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-secondary" /> +254 700 000 000</span>
+              <span className="flex items-center gap-2"><Mail className="h-3.5 w-3.5 text-secondary" /> hello@sahilpay.co.ke</span>
+              <span className="flex items-center gap-2"><Phone className="h-3.5 w-3.5 text-secondary" /> 0114 129 809</span>
               <span className="flex items-center gap-2"><MapPin className="h-3.5 w-3.5 text-secondary" /> Nairobi, Kenya</span>
             </div>
           </div>
@@ -72,7 +71,7 @@ export default function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-white/40 md:flex-row">
-          <span>© {new Date().getFullYear()} SahilPay. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} Sahil Pay. All rights reserved.</span>
           <span>Made for landlords &amp; property managers across Kenya 🇰🇪</span>
         </div>
       </div>

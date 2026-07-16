@@ -3,6 +3,7 @@ import { Link, NavLink } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import clsx from "clsx";
 import Button from "@/components/ui/Button";
+import SahilPayLogo, { SahilPayMark } from "@/components/branding/SahilPayLogo";
 import { PUBLIC_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 
 const LINKS = [
@@ -31,8 +32,9 @@ export default function PublicNavbar() {
       )}
     >
       <div className="mx-auto flex max-w-6xl items-center justify-between">
-        <Link to={PUBLIC_ROUTES.home} className="text-lg font-light tracking-wide text-white">
-          Sahil<span className="text-secondary">Pay</span>
+        <Link to={PUBLIC_ROUTES.home} className="text-white">
+          <SahilPayLogo withSlogan={false} className="hidden h-8 sm:flex md:h-9" />
+          <SahilPayMark className="h-8 sm:hidden" />
         </Link>
 
         <nav className="hidden items-center gap-8 md:flex">

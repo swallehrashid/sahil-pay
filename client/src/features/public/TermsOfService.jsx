@@ -5,7 +5,7 @@ export default function TermsOfService() {
       <p className="mt-2 text-sm text-white/40">Last updated: June 2026</p>
       <div className="mt-8 space-y-6 text-sm leading-relaxed text-white/60">
         <div>
-          <h2 className="mb-2 text-base font-medium text-white">1. Using SahilPay</h2>
+          <h2 className="mb-2 text-base font-medium text-white">1. Using Sahil Pay</h2>
           <p>
             You agree to use the platform only for lawful property-management purposes and to
             keep your account credentials confidential.
@@ -22,7 +22,7 @@ export default function TermsOfService() {
           <h2 className="mb-2 text-base font-medium text-white">3. Data accuracy</h2>
           <p>
             You are responsible for the accuracy of tenant, property and financial data you
-            enter. SahilPay is a record-keeping and automation tool, not a substitute for legal
+            enter. Sahil Pay is a record-keeping and automation tool, not a substitute for legal
             or accounting advice.
           </p>
         </div>

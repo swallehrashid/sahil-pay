@@ -69,8 +69,8 @@ export default function MasterAuditLogs() {
       header: "Description",
       render: (row) => (
         <div className="flex items-center gap-2">
-          {typeof row.description === "string" && row.description.includes("[Impersonating") && (
-            <Badge color="amber">Impersonated</Badge>
+          {typeof row.description === "string" && (row.description.includes("[Client support session") || row.description.includes("[Impersonating")) && (
+            <Badge color="amber">Client support</Badge>
           )}
           <span>{row.description}</span>
         </div>
@@ -114,7 +114,7 @@ export default function MasterAuditLogs() {
           <DatePicker label="From" value={filters.start_date} onChange={(e) => setFilters((f) => ({ ...f, start_date: e.target.value }))} />
           <DatePicker label="To" value={filters.end_date} onChange={(e) => setFilters((f) => ({ ...f, end_date: e.target.value }))} />
           <Checkbox
-            label="Impersonation actions only"
+            label="Client support actions only"
             checked={filters.impersonated}
             onChange={(e) => setFilters((f) => ({ ...f, impersonated: e.target.checked }))}
           />

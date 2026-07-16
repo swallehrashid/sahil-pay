@@ -13,36 +13,39 @@ import {
   useDisconnectSmsProviderMutation,
 } from "./smsProviderApiSlice";
 
-// §9.3 — connect Africa's Talking so SMS go out under the landlord's own
-// sender ID (flat rate per SMS). Without a sender ID, SahilPay's shared sender
-// ID is used and messages are billed by length.
+// §9.3 — connect a custom SMS sender ID so messages go out under the
+// landlord's own brand (flat rate per SMS). Without a sender ID, Sahil Pay's
+// shared sender ID is used and messages are billed by length.
 export default function SmsProviderSettings() {
   const { data, isLoading } = useGetSmsProviderQuery();
   const [update, { isLoading: isSaving }] = useUpdateSmsProviderMutation();
   const [connect, { isLoading: isConnecting }] = useConnectSmsProviderMutation();
   const [disconnect, { isLoading: isDisconnecting }] = useDisconnectSmsProviderMutation();
 
-  const [form, setForm] = useState({ at_api_key: "", at_username: "", at_sender_id: "" });
+  const [form, setForm] = useState({ sms_api_key: "", sms_sender_id: "" });
   const [prev, setPrev] = useState();
   if (data && data !== prev) {
     setPrev(data);
-    // Never hydrate the secret key back into the field; keep username/sender.
-    setForm({ at_api_key: "", at_username: data.at_username ?? "", at_sender_id: data.at_sender_id ?? "" });
+    // Never hydrate the secret key back into the field; keep the sender ID.
+    setForm({ sms_api_key: "", sms_sender_id: data.sms_sender_id ?? "" });
   }
 
   if (isLoading) return <SkeletonForm fields={3} />;
 
-  const connected = Boolean(data?.at_connected);
+  const connected = Boolean(data?.sms_connected);
+  const price = data?.price_per_sms;
+  const currency = data?.currency ?? "KES";
+  const priceLabel = price != null ? `${price} ${currency} / SMS` : "—";
 
   const handleSave = async (e) => {
     e.preventDefault();
     // Only send the api key when the user actually typed a new one.
-    const body = { at_username: form.at_username, at_sender_id: form.at_sender_id };
-    if (form.at_api_key.trim()) body.at_api_key = form.at_api_key.trim();
+    const body = { sms_sender_id: form.sms_sender_id };
+    if (form.sms_api_key.trim()) body.sms_api_key = form.sms_api_key.trim();
     try {
       await update(body).unwrap();
       toast("SMS provider details saved.", { type: "success" });
-      setForm((f) => ({ ...f, at_api_key: "" }));
+      setForm((f) => ({ ...f, sms_api_key: "" }));
     } catch {
       toast("Could not save the details.", { type: "error" });
     }
@@ -51,7 +54,7 @@ export default function SmsProviderSettings() {
   const handleConnect = async () => {
     try {
       await connect().unwrap();
-      toast("Africa's Talking connected.", { type: "success" });
+      toast("Custom sender ID connected.", { type: "success" });
     } catch (err) {
       toast(err?.data?.error ?? "Could not connect. Save your details first.", { type: "error" });
     }
@@ -60,7 +63,7 @@ export default function SmsProviderSettings() {
   const handleDisconnect = async () => {
     try {
       await disconnect().unwrap();
-      toast("Disconnected. Messages now use SahilPay's shared sender ID.", { type: "success" });
+      toast("Disconnected. Messages now use Sahil Pay's shared sender ID.", { type: "success" });
     } catch {
       toast("Could not disconnect.", { type: "error" });
     }
@@ -74,46 +77,38 @@ export default function SmsProviderSettings() {
           value={connected ? <Badge color="emerald">Connected</Badge> : <Badge color="secondary">Not connected</Badge>}
           icon={<MessageSquare className="h-5 w-5" />}
         />
-        <SummaryCard label="Sender ID" value={connected ? (data?.at_sender_id ?? "—") : "SahilPay (shared)"} accent="third" />
-        <SummaryCard label="Billing" value={connected ? "1 KES / SMS" : "By length"} accent="third" />
+        <SummaryCard label="Sender ID" value={connected ? (data?.sms_sender_id ?? "—") : "Sahil Pay (shared)"} accent="third" />
+        <SummaryCard label="Billing" value={connected ? priceLabel : "By length"} accent="third" />
       </div>
 
       <div className="glass space-y-2 p-6 text-sm text-white/60">
         <p className="text-white/80 font-medium">How it works</p>
         <p>
-          Connect your Africa's Talking account and registered sender ID to send SMS under your own brand —
-          billed a flat <span className="text-white">1 KES per SMS</span>. SahilPay delivers the messages for you.
+          Connect your own registered sender ID and API key to send SMS under your own brand —
+          billed a flat <span className="text-white">{priceLabel}</span>. Sahil Pay delivers the messages for you.
         </p>
         <p>
-          No sender ID? You can still send using SahilPay's shared sender ID — those messages are
+          No sender ID? You can still send using Sahil Pay's shared sender ID — those messages are
           <span className="text-white"> billed by length</span> (longer messages use more segments and cost more).
         </p>
       </div>
 
       <form onSubmit={handleSave} className="glass space-y-4 p-6">
-        <h3 className="text-base font-medium text-white">Africa's Talking credentials</h3>
+        <h3 className="text-base font-medium text-white">Custom SMS sender credentials</h3>
         <Input
           label="API key"
           type="password"
-          placeholder={data?.at_api_key_set ? `Saved (${data.at_api_key_masked})` : "Paste your Africa's Talking API key"}
-          value={form.at_api_key}
-          onChange={(e) => setForm((f) => ({ ...f, at_api_key: e.target.value }))}
-          hint={data?.at_api_key_set ? "Leave blank to keep the saved key." : undefined}
+          placeholder={data?.sms_api_key_set ? `Saved (${data.sms_api_key_masked})` : "Paste your SMS provider API key"}
+          value={form.sms_api_key}
+          onChange={(e) => setForm((f) => ({ ...f, sms_api_key: e.target.value }))}
+          hint={data?.sms_api_key_set ? "Leave blank to keep the saved key." : undefined}
         />
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Input
-            label="Username"
-            placeholder="Your AT username"
-            value={form.at_username}
-            onChange={(e) => setForm((f) => ({ ...f, at_username: e.target.value }))}
-          />
-          <Input
-            label="Sender ID"
-            placeholder="e.g. YOURBRAND"
-            value={form.at_sender_id}
-            onChange={(e) => setForm((f) => ({ ...f, at_sender_id: e.target.value }))}
-          />
-        </div>
+        <Input
+          label="Sender ID"
+          placeholder="e.g. YOURBRAND"
+          value={form.sms_sender_id}
+          onChange={(e) => setForm((f) => ({ ...f, sms_sender_id: e.target.value }))}
+        />
         <div className="flex flex-wrap justify-end gap-3">
           <Button type="submit" variant="ghost" isLoading={isSaving}>Save details</Button>
           {connected ? (
@@ -131,7 +126,7 @@ export default function SmsProviderSettings() {
       {connected && (
         <div className="glass flex items-center gap-3 p-4 text-sm text-emerald-300">
           <CheckCircle2 className="h-5 w-5" />
-          Sending under <span className="font-medium">{data?.at_sender_id}</span> — 1 KES per SMS.
+          Sending under <span className="font-medium">{data?.sms_sender_id}</span> — {priceLabel}.
         </div>
       )}
     </div>

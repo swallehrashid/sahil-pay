@@ -33,8 +33,8 @@ export default {
       anchor: ANCHORS.sidebar.invoices,
       route: LANDLORD_ROUTES.dashboard,
       title: "Invoices & Payments",
-      body: "Each month you invoice tenants for rent and utilities, and record what they pay. SahilPay tracks every shilling per tenant, per line item.",
-      mobileBody: "Open the ☰ menu and tap Invoices. Each month you invoice tenants for rent and utilities, and record what they pay. SahilPay tracks every shilling per tenant, per line item.",
+      body: "Each month you invoice tenants for rent and utilities, and record what they pay. Sahil Pay tracks every shilling per tenant, per line item.",
+      mobileBody: "Open the ☰ menu and tap Invoices. Each month you invoice tenants for rent and utilities, and record what they pay. Sahil Pay tracks every shilling per tenant, per line item.",
     },
     {
       anchor: ANCHORS.sidebar.communications,

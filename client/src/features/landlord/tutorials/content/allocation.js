@@ -13,7 +13,7 @@ export default {
     {
       icon: ListOrdered,
       title: "The problem it solves",
-      body: "A tenant owes rent, water and a bit of last month — then pays KES 10,000. Which debt does it clear? SahilPay answers this the same way every time, using your priority order.",
+      body: "A tenant owes rent, water and a bit of last month — then pays KES 10,000. Which debt does it clear? Sahil Pay answers this the same way every time, using your priority order.",
     },
     {
       icon: ArrowDownWideNarrow,

@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 import { X } from "lucide-react";
+import SahilPayLogo from "@/components/branding/SahilPayLogo";
 
 // Renders ONLY the nav items it is given — each portal supplies its own list (already
 // filtered through buildVisibleNav() for team members, so a hidden module never renders).
@@ -17,7 +18,7 @@ export default function Sidebar({ items = [], isMobileOpen, onCloseMobile, heade
         )}
       >
         <div className="mb-6 flex items-center justify-between px-2">
-          {header ?? <span className="text-lg font-light tracking-wide text-white">SahilPay</span>}
+          {header ?? <SahilPayLogo withSlogan={false} className="h-7 text-white" />}
           <button onClick={onCloseMobile} className="rounded-lg p-1 text-white/50 hover:bg-white/10 lg:hidden">
             <X className="h-5 w-5" />
           </button>

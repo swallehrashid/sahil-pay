@@ -13,17 +13,17 @@ export default {
     {
       icon: MessageSquare,
       title: "Two channels, two costs",
-      body: "SahilPay gives you two ways to reach tenants: in-app notifications — free, unlimited, delivered inside the tenant's portal — and SMS — delivered to their phone even without internet, paid per message from your SMS credits.",
+      body: "Sahil Pay gives you two ways to reach tenants: in-app notifications — free, unlimited, delivered inside the tenant's portal — and SMS — delivered to their phone even without internet, paid per message from your SMS credits.",
     },
     {
       icon: Send,
       title: "How SMS sending works today",
-      body: "Out of the box, your SMS go out under the sender name SahilPay. Tenants see \"SahilPay\" as the sender. You don't need to set up anything — top up SMS credits (Settings → Billing) and send. Your credit balance is always visible, and every sent message is logged.",
+      body: "Out of the box, your SMS go out under the sender name Sahil Pay. Tenants see \"SahilPay\" as the sender. You don't need to set up anything — top up SMS credits (Settings → Billing) and send. Your credit balance is always visible, and every sent message is logged.",
     },
     {
       icon: Tag,
       title: "Your own sender name (optional)",
-      body: "Want messages to arrive as your brand instead of SahilPay? Register your own sender ID with Africa's Talking, then connect it under Settings → SMS Provider. From that moment your SMS carry your name and are sent through your own account — SahilPay just charges a small per-SMS service fee (often cheaper than the shared sender, too). Until you do this, the SahilPay sender works fine; most landlords start there.",
+      body: "Want messages to arrive as your brand instead of Sahil Pay? Register your own SMS sender ID with your provider, then connect it under Settings → SMS Provider. From that moment your SMS carry your name and are sent through your own account — Sahil Pay just charges a small per-SMS service fee (often cheaper than the shared sender, too). Until you do this, the Sahil Pay sender works fine; most landlords start there.",
     },
     {
       icon: ListChecks,

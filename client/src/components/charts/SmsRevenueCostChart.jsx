@@ -1,7 +1,7 @@
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { formatCompactCurrency } from "@/utils/currencyFormatter";
 
-// §9.3 — monthly SMS reselling revenue vs SahilPay's platform cost. Two measures
+// §9.3 — monthly SMS reselling revenue vs Sahil Pay's platform cost. Two measures
 // over discrete months → grouped bars; a legend distinguishes the two series.
 export default function SmsRevenueCostChart({ data = [], title = "Revenue vs cost — by month" }) {
   return (

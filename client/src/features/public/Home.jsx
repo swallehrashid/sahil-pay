@@ -20,14 +20,14 @@ const FEATURES = [
 
 const STEPS = [
   { n: "1", title: "Create your free account", text: "Sign up in minutes — no card required. Add your properties, units and tenants, or import them in bulk." },
-  { n: "2", title: "Connect M-Pesa", text: "Link your Paybill or Till and SahilPay starts matching incoming rent to tenants and invoices automatically." },
+  { n: "2", title: "Connect M-Pesa", text: "Link your Paybill or Till and Sahil Pay starts matching incoming rent to tenants and invoices automatically." },
   { n: "3", title: "Collect, remind & report", text: "Invoices and reminders go out on schedule, tenants pay and self-serve, and your books reconcile themselves." },
 ];
 
 const HOME_FAQS = [
   { q: "Is there a free trial and do I need a card?", a: "Yes — every new landlord starts with a free trial and no card is required to begin." },
-  { q: "Does SahilPay support M-Pesa Paybill and Till?", a: "Both, with automatic transaction matching to the right tenant and invoice, plus a manual match tool for edge cases." },
-  { q: "Do I need to install anything?", a: "No. SahilPay is cloud-based and mobile-first — you and your tenants only need a browser." },
+  { q: "Does Sahil Pay support M-Pesa Paybill and Till?", a: "Both, with automatic transaction matching to the right tenant and invoice, plus a manual match tool for edge cases." },
+  { q: "Do I need to install anything?", a: "No. Sahil Pay is cloud-based and mobile-first — you and your tenants only need a browser." },
   { q: "Can it replace my rent spreadsheets?", a: "Completely. Units, tenants, invoices and payments stay live and reconciled in one place." },
 ];
 
@@ -47,7 +47,7 @@ export default function Home() {
             Rent collection that feels <span className="bg-gradient-to-r from-secondary-200 to-secondary bg-clip-text text-transparent">effortless</span>.
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/60">
-            SahilPay is the all-in-one rental management platform built for Kenya — M-Pesa rent collection,
+            Sahil Pay is the all-in-one rental management platform built for Kenya — M-Pesa rent collection,
             automated invoicing, a tenant portal, maintenance and reporting, for one unit or thousands.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
@@ -81,7 +81,7 @@ export default function Home() {
         center
         eyebrow="One platform"
         title="Everything a portfolio needs"
-        lede="Stop stitching together spreadsheets, paper receipts and scattered M-Pesa messages. SahilPay puts collection, invoicing, communications, maintenance and reporting under one roof."
+        lede="Stop stitching together spreadsheets, paper receipts and scattered M-Pesa messages. Sahil Pay puts collection, invoicing, communications, maintenance and reporting under one roof."
       >
         <div className="mt-12 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f, i) => (
@@ -97,7 +97,7 @@ export default function Home() {
         <div className="mt-10 grid items-center gap-10 lg:grid-cols-2">
           <div>
             <p className="text-sm leading-relaxed text-white/60">
-              SahilPay is built around how Kenya actually pays rent. Connect your Paybill or Till and incoming
+              Sahil Pay is built around how Kenya actually pays rent. Connect your Paybill or Till and incoming
               M-Pesa payments are matched to the right tenant and invoice automatically — including partial
               payments and one payment split across several invoices. Bank-statement and cash payments reconcile
               the same way, and every tenant gets an instant receipt.

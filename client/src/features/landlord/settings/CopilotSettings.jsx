@@ -127,7 +127,7 @@ export default function CopilotSettings() {
     <div className="space-y-6">
       {data.copilot_admin_locked && (
         <div className="glass border border-secondary/40 bg-secondary/10 p-4 text-sm text-secondary-100">
-          Co-pilot has been disabled for this account by a SahilPay administrator. Contact support for details.
+          Co-pilot has been disabled for this account by a Sahil Pay administrator. Contact support for details.
         </div>
       )}
 

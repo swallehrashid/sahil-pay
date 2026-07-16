@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Wallet, TrendingUp, Coins, Percent, Gauge, Plus } from "lucide-react";
+import { Wallet, TrendingUp, Coins, Percent, Gauge, Plus, RefreshCw, MessageSquare, Link2, Unlink } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import Tabs from "@/components/ui/Tabs";
@@ -8,6 +8,8 @@ import Input from "@/components/ui/Input";
 import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
+import Modal from "@/components/ui/Modal";
+import Badge from "@/components/ui/Badge";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import SmsRevenueCostChart from "@/components/charts/SmsRevenueCostChart";
@@ -22,6 +24,9 @@ import {
   useGetSmsOverviewQuery,
   useGetSmsPoolHistoryQuery,
   useTopUpSmsPoolMutation,
+  useSyncSmsPoolMutation,
+  useGetLandlordSmsProviderQuery,
+  useUpdateLandlordSmsProviderMutation,
   useGetSmsReportQuery,
 } from "./adminSmsApiSlice";
 
@@ -32,7 +37,7 @@ const TABS = [
   { key: "report", label: "Report" },
 ];
 
-// §9.3 — the admin cockpit for SahilPay's SMS reselling business: set the price
+// §9.3 — the admin cockpit for Sahil Pay's SMS reselling business: set the price
 // per SMS for default (shared sender) and custom (own sender) users, top up and
 // monitor the shared pool, watch revenue vs cost and margin, and download the
 // SMS analytics report through the shared report engine.
@@ -61,6 +66,7 @@ export default function SmsManagement() {
 function MonitoringTab() {
   const navigate = useNavigate();
   const { data, isLoading } = useGetSmsOverviewQuery();
+  const [providerLandlord, setProviderLandlord] = useState(null); // { landlord_id, landlord }
 
   const t = data?.totals ?? {};
 
@@ -117,9 +123,102 @@ function MonitoringTab() {
           rows={data?.landlords ?? []}
           keyField="landlord_id"
           onRowClick={(r) => navigate(ADMIN_ROUTES.landlordDetailPath(r.landlord_id))}
+          rowActions={(r) => (
+            <Button
+              variant="ghost"
+              size="sm"
+              leftIcon={<MessageSquare className="h-4 w-4" />}
+              onClick={(e) => {
+                e.stopPropagation();
+                setProviderLandlord(r);
+              }}
+            >
+              SMS provider
+            </Button>
+          )}
         />
       </div>
+
+      {providerLandlord && (
+        <LandlordProviderModal
+          landlordId={providerLandlord.landlord_id}
+          landlordName={providerLandlord.landlord}
+          onClose={() => setProviderLandlord(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Admin — connect/edit a landlord's custom SMS sender on their behalf
+// ---------------------------------------------------------------------------
+function LandlordProviderModal({ landlordId, landlordName, onClose }) {
+  const { data, isLoading } = useGetLandlordSmsProviderQuery(landlordId);
+  const [update, { isLoading: isSaving }] = useUpdateLandlordSmsProviderMutation();
+  const [form, setForm] = useState({ sms_api_key: "", sms_sender_id: "" });
+  const [prev, setPrev] = useState();
+
+  if (data && data !== prev) {
+    setPrev(data);
+    setForm({ sms_api_key: "", sms_sender_id: data.sms_sender_id ?? "" });
+  }
+
+  const connected = Boolean(data?.sms_connected);
+
+  const save = async (connectFlag) => {
+    const body = { landlordId, sms_sender_id: form.sms_sender_id };
+    if (form.sms_api_key.trim()) body.sms_api_key = form.sms_api_key.trim();
+    if (connectFlag !== undefined) body.connected = connectFlag;
+    try {
+      await update(body).unwrap();
+      toast(connectFlag ? "Sender ID connected." : "Details saved.", { type: "success" });
+      if (connectFlag !== undefined) onClose();
+      else setForm((f) => ({ ...f, sms_api_key: "" }));
+    } catch (err) {
+      toast(err?.data?.error ?? "Could not save.", { type: "error" });
+    }
+  };
+
+  return (
+    <Modal isOpen title={`SMS provider — ${landlordName ?? `Landlord #${landlordId}`}`} onClose={onClose} size="md">
+      {isLoading ? (
+        <Spinner className="mx-auto my-8" />
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            {connected ? <Badge color="emerald">Connected</Badge> : <Badge color="secondary">Not connected</Badge>}
+            {connected && <span className="text-sm text-white/60">Sender ID: {data?.sms_sender_id}</span>}
+          </div>
+          <Input
+            label="API key"
+            type="password"
+            placeholder={data?.sms_api_key_set ? `Saved (${data.sms_api_key_masked})` : "Paste the landlord's SMS provider API key"}
+            value={form.sms_api_key}
+            onChange={(e) => setForm((f) => ({ ...f, sms_api_key: e.target.value }))}
+            hint={data?.sms_api_key_set ? "Leave blank to keep the saved key." : undefined}
+          />
+          <Input
+            label="Sender ID"
+            placeholder="e.g. THEIRBRAND"
+            value={form.sms_sender_id}
+            onChange={(e) => setForm((f) => ({ ...f, sms_sender_id: e.target.value }))}
+          />
+          <div className="flex flex-wrap justify-end gap-3">
+            <Button variant="ghost" isLoading={isSaving} onClick={() => save(undefined)}>Save details</Button>
+            {connected ? (
+              <Button variant="danger" leftIcon={<Unlink className="h-4 w-4" />} isLoading={isSaving} onClick={() => save(false)}>
+                Disconnect
+              </Button>
+            ) : (
+              <Button leftIcon={<Link2 className="h-4 w-4" />} isLoading={isSaving} onClick={() => save(true)}>
+                Connect
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -161,8 +260,8 @@ function PricingTab() {
       <div>
         <h3 className="text-base font-medium text-white">Price per SMS</h3>
         <p className="mt-1 text-sm text-white/50">
-          Applies to every landlord. Default users send through SahilPay&apos;s shared sender ID (out
-          of the pool); custom users have connected their own Africa&apos;s Talking sender ID and pay a
+          Applies to every landlord. Default users send through Sahil Pay&apos;s shared sender ID (out
+          of the pool); custom users have connected their own SMS sender ID and pay a
           per-SMS service fee.
         </p>
       </div>
@@ -196,11 +295,11 @@ function PricingTab() {
         />
       </div>
       <p className="text-xs text-white/40">
-        Platform cost is what SahilPay pays the provider — used only to compute your margin, it is
+        Platform cost is what Sahil Pay pays the provider — used only to compute your margin, it is
         never billed to landlords.
       </p>
       <Checkbox
-        label="Allow default users to send via the shared SahilPay sender ID"
+        label="Allow default users to send via the shared Sahil Pay sender ID"
         checked={Boolean(form.shared_sending_enabled)}
         onChange={(e) => setForm((f) => ({ ...f, shared_sending_enabled: e.target.checked }))}
       />
@@ -218,6 +317,7 @@ function PoolTab() {
   const { data: pricing } = useGetSmsPricingQuery();
   const { data: history, isLoading } = useGetSmsPoolHistoryQuery();
   const [topUp, { isLoading: isToppingUp }] = useTopUpSmsPoolMutation();
+  const [sync, { isLoading: isSyncing }] = useSyncSmsPoolMutation();
   const [form, setForm] = useState({ credits: "", note: "" });
 
   const submit = async (e) => {
@@ -236,6 +336,15 @@ function PoolTab() {
     }
   };
 
+  const handleSync = async () => {
+    try {
+      const res = await sync().unwrap();
+      toast(`Pool synced from provider — balance ${res.pool_balance.toLocaleString()} SMS.`, { type: "success" });
+    } catch (err) {
+      toast(err?.data?.error ?? "Could not reach the SMS provider.", { type: "error" });
+    }
+  };
+
   const columns = [
     { key: "created_at", header: "Date", render: (r) => formatDate(r.created_at) },
     { key: "credits_added", header: "Credits added", render: (r) => `+${(r.credits_added ?? 0).toLocaleString()}` },
@@ -246,7 +355,12 @@ function PoolTab() {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <SummaryCard label="Current pool balance" value={(pricing?.pool_balance ?? 0).toLocaleString()} icon={<Wallet className="h-5 w-5" />} accent="third" />
+        <div className="space-y-3">
+          <SummaryCard label="Current pool balance" value={(pricing?.pool_balance ?? 0).toLocaleString()} icon={<Wallet className="h-5 w-5" />} accent="third" />
+          <Button variant="ghost" className="w-full" isLoading={isSyncing} leftIcon={<RefreshCw className="h-4 w-4" />} onClick={handleSync}>
+            Sync from provider
+          </Button>
+        </div>
         <form onSubmit={submit} className="glass space-y-4 p-6 lg:col-span-2">
           <h3 className="text-base font-medium text-white">Top up the shared pool</h3>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -263,7 +377,7 @@ function PoolTab() {
                 label="Note (optional)"
                 value={form.note}
                 onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-                placeholder="e.g. Africa's Talking top-up, ref #123"
+                placeholder="e.g. provider top-up, ref #123"
               />
             </div>
           </div>

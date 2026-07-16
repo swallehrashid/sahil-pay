@@ -50,13 +50,13 @@ export default function AffiliateSignup() {
         <div className="absolute -left-32 top-0 h-96 w-96 animate-float-blob rounded-full bg-third/20 blur-3xl" />
         <div className="relative z-10 mx-auto max-w-3xl animate-fade-in-up">
           <span className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium text-white/70">
-            SahilPay Affiliate Program
+            Sahil Pay Affiliate Program
           </span>
           <h1 className="mt-6 text-4xl font-light tracking-wide text-white sm:text-5xl">
             Earn {rate}% for every landlord you refer
           </h1>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-white/60">
-            Refer a landlord to SahilPay and earn {rate}% of their subscription for their first {months} paid
+            Refer a landlord to Sahil Pay and earn {rate}% of their subscription for their first {months} paid
             months — automatically, transparently, and withdrawable straight to M-Pesa.
           </p>
         </div>

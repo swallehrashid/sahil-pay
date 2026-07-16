@@ -64,7 +64,7 @@ export default function Features() {
             <CheckItem>Branded PDF & Excel statements</CheckItem>
           </ul>
           <p className="text-sm leading-relaxed text-white/60">
-            Set rent once and SahilPay generates and sends monthly invoices automatically — including recurring
+            Set rent once and Sahil Pay generates and sends monthly invoices automatically — including recurring
             utility charges, service fees and custom line items. Turn water and electricity meter readings into
             billed line items using your per-unit rates, apply late-payment penalties on overdue invoices, and
             bulk-generate invoices for a whole property in one click. Deposits are tracked and reconciled on
@@ -82,9 +82,9 @@ export default function Features() {
       <Section eyebrow="Payments" title="M-Pesa, bank and cash — reconciled">
         <div className="mt-10 grid gap-10 lg:grid-cols-[1.1fr_1fr] lg:items-start">
           <p className="text-sm leading-relaxed text-white/60">
-            SahilPay is M-Pesa native: Paybill, Till and STK push, with incoming payments matched to the right
+            Sahil Pay is M-Pesa native: Paybill, Till and STK push, with incoming payments matched to the right
             tenant and invoice automatically. Reconcile bank-statement payments for cheque and transfer rents,
-            record cash manually with proof, and let SahilPay handle partial payments and split a single payment
+            record cash manually with proof, and let Sahil Pay handle partial payments and split a single payment
             across multiple invoices. Every payment produces an instant receipt.
           </p>
           <ul className="grid gap-3 sm:grid-cols-2">
@@ -103,7 +103,7 @@ export default function Features() {
         <div className="mt-10 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
           <FeatureCard icon={MessageSquare} title="SMS reminders" delay={0}>Send rent reminders and notices one-to-one or in bulk, with templates.</FeatureCard>
           <FeatureCard icon={Bell} title="Email & WhatsApp" accent="third" delay={80}>Reach tenants across channels with delivery tracking on each message.</FeatureCard>
-          <FeatureCard icon={Wallet} title="Your own sender ID" delay={160}>Send under your own Africa's Talking sender ID, or use ours and top up credits.</FeatureCard>
+          <FeatureCard icon={Wallet} title="Your own sender ID" delay={160}>Send under your own registered sender ID, or use ours and top up credits.</FeatureCard>
           <FeatureCard icon={Receipt} title="Automated nudges" accent="third" delay={240}>Reminders on a schedule and thank-yous on payment, sent for you.</FeatureCard>
         </div>
         <ul className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -128,7 +128,7 @@ export default function Features() {
           <p className="text-sm leading-relaxed text-white/60">
             Tenants log maintenance requests from their portal; you track them by status and category, assign
             them, and link the cost as an expense — so repairs and spending never live in separate places. Record
-            one-off and recurring expenses per property, categorise them, and SahilPay nets them against rent
+            one-off and recurring expenses per property, categorise them, and Sahil Pay nets them against rent
             collected to show real income and profitability per property and across the portfolio.
           </p>
         </div>

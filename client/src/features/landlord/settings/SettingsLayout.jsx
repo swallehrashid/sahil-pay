@@ -17,7 +17,7 @@ const SECTIONS = [
   { to: LANDLORD_ROUTES.settings.mpesa, label: "M-Pesa", dataTour: ANCHORS.settings.mpesa, accountLevel: true },
   { to: LANDLORD_ROUTES.settings.copilot, label: "Co-pilot", accountLevel: true },
   { to: LANDLORD_ROUTES.settings.audit, label: "Audit Trail" },
-  { to: LANDLORD_ROUTES.settings.impersonationRequests, label: "Impersonation", accountLevel: true },
+  { to: LANDLORD_ROUTES.settings.impersonationRequests, label: "Client Support", accountLevel: true },
 ];
 
 // Tabbed shell for every settings sub-page — the sub-pages render through <Outlet/>.
@@ -30,7 +30,7 @@ export default function SettingsLayout() {
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Configure your SahilPay account" />
+      <PageHeader title="Settings" subtitle="Configure your Sahil Pay account" />
       <div className="no-scrollbar mb-6 flex gap-1 overflow-x-auto border-b border-white/10">
         {sections.map((section) => (
           <NavLink

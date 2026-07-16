@@ -44,7 +44,7 @@ export default function ChangePassword() {
       // Clear the flag in the store immediately so the ProtectedRoutes guard doesn't
       // bounce us back here while the invalidated /me query is still refetching.
       if (user) dispatch(setCredentials({ user: { ...user, must_change_password: false } }));
-      toast("Password updated. Welcome to SahilPay!", { type: "success" });
+      toast("Password updated. Welcome to Sahil Pay!", { type: "success" });
       navigate(roleHomePath(role), { replace: true });
     } catch (err) {
       toast(err?.data?.error || "Could not update your password. Check your current password and try again.", { type: "error" });

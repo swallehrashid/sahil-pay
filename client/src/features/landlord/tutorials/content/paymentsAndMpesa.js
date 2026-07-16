@@ -13,12 +13,12 @@ export default {
     {
       icon: Smartphone,
       title: "Two phases",
-      body: "Every landlord starts in manual mode: tenants pay you the way they always have, and you record it in SahilPay. Nothing about how you receive money changes.",
+      body: "Every landlord starts in manual mode: tenants pay you the way they always have, and you record it in Sahil Pay. Nothing about how you receive money changes.",
     },
     {
       icon: Link2,
       title: "Connecting M-Pesa",
-      body: "When you're ready, contact the SahilPay team to connect your paybill or till. Once connected, every tenant payment is captured and recorded automatically, the second it lands — correct tenant, correct allocation, receipt available immediately. No more evening data entry.",
+      body: "When you're ready, contact the Sahil Pay team to connect your paybill or till. Once connected, every tenant payment is captured and recorded automatically, the second it lands — correct tenant, correct allocation, receipt available immediately. No more evening data entry.",
     },
     {
       icon: Search,
@@ -28,7 +28,7 @@ export default {
     {
       icon: Info,
       title: "Also worth knowing",
-      body: "You can also import bank statements (Payments → bank statement review) and, on Android, the SahilPay Co-pilot app can forward payment SMS automatically. Both are optional extras — manual recording always works.",
+      body: "You can also import bank statements (Payments → bank statement review) and, on Android, the Sahil Pay Co-pilot app can forward payment SMS automatically. Both are optional extras — manual recording always works.",
     },
   ],
   cta: { label: "Open M-Pesa Status", route: LANDLORD_ROUTES.settings.mpesa },

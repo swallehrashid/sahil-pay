@@ -13,7 +13,7 @@ export default {
     {
       icon: FolderTree,
       title: "Everything you charge is a category",
-      body: "Rent. Water. Electricity. Garbage. Lease fees. In SahilPay each of these is a charge category. Categories come in two kinds: utility categories (metered/recurring services, managed on the Utilities page) and invoice categories (rent and other charges, managed on the Invoices page).",
+      body: "Rent. Water. Electricity. Garbage. Lease fees. In Sahil Pay each of these is a charge category. Categories come in two kinds: utility categories (metered/recurring services, managed on the Utilities page) and invoice categories (rent and other charges, managed on the Invoices page).",
     },
     {
       icon: Layers,

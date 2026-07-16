@@ -48,7 +48,7 @@ export default function LandlordRegistration() {
   };
 
   return (
-    <AuthLayout title="Start your free trial" subtitle="Set up your SahilPay landlord account">
+    <AuthLayout title="Start your free trial" subtitle="Set up your Sahil Pay landlord account">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Company name"

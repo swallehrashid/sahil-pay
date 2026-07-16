@@ -93,7 +93,7 @@ export default function CommunicationsPage() {
     <div>
       <PageHeader
         title="Communications"
-        subtitle="Every message sent through SahilPay"
+        subtitle="Every message sent through Sahil Pay"
         actions={
           tab === "log" && (
             <Button data-tour={ANCHORS.communications.composeButton} leftIcon={<Send className="h-4 w-4" />} onClick={() => setIsComposeOpen(true)}>
@@ -111,7 +111,7 @@ export default function CommunicationsPage() {
           </span>
           <span className="text-white/60">
             Sender: <span className="text-white/90">{smsProvider.sender_id}</span>{" "}
-            <span className="text-white/40">({smsProvider.sender_mode === "custom" ? "your own sender ID" : "SahilPay shared"})</span>
+            <span className="text-white/40">({smsProvider.sender_mode === "custom" ? "your own sender ID" : "Sahil Pay shared"})</span>
           </span>
           <span className="text-white/60">
             Price per SMS: <span className="text-white/90">{formatCurrency(smsProvider.price_per_sms, smsProvider.currency)}</span>{" "}

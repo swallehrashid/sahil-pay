@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { LayoutDashboard, Users, Wallet, Banknote, UserCircle } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import SahilPayLogo from "@/components/branding/SahilPayLogo";
 import { AFFILIATE_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -27,8 +28,9 @@ export default function AffiliateSidebar({ isMobileOpen, onCloseMobile }) {
       isMobileOpen={isMobileOpen}
       onCloseMobile={onCloseMobile}
       header={
-        <span className="text-lg font-light tracking-wide text-white">
-          Sahil<span className="text-secondary">Pay</span> <span className="text-white/40">Affiliate</span>
+        <span className="flex items-center gap-2 text-white">
+          <SahilPayLogo withSlogan={false} className="h-7" />
+          <span className="text-sm font-light tracking-wide text-white/40">Affiliate</span>
         </span>
       }
       footer={

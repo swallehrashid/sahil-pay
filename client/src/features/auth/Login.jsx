@@ -63,7 +63,7 @@ export default function Login() {
   };
 
   return (
-    <AuthLayout title="Welcome back" subtitle="Log in to your SahilPay account">
+    <AuthLayout title="Welcome back" subtitle="Log in to your Sahil Pay account">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Email"

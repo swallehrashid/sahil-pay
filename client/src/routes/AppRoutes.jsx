@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { Menu } from "lucide-react";
 import ProtectedRoutes, { RouteLoader } from "@/components/ProtectedRoutes";
+import SahilPayLogo from "@/components/branding/SahilPayLogo";
 import ErrorBoundary from "@/components/feedback/ErrorBoundary";
 import NotFound from "@/components/feedback/NotFound";
 import PublicLayout from "@/components/layout/PublicLayout";
@@ -118,6 +119,7 @@ const PropertyDetail = lazy(() => import("@/features/admin/PropertyDetail"));
 const PricingPackages = lazy(() => import("@/features/admin/PricingPackages"));
 const PackageDetail = lazy(() => import("@/features/admin/PackageDetail"));
 const SmsManagement = lazy(() => import("@/features/admin/SmsManagement"));
+const AdminBilling = lazy(() => import("@/features/admin/AdminBilling"));
 const CopilotManagement = lazy(() => import("@/features/admin/CopilotManagement"));
 const TrialConfig = lazy(() => import("@/features/admin/TrialConfig"));
 const Impersonation = lazy(() => import("@/features/admin/Impersonation"));
@@ -159,7 +161,7 @@ function MobileTopBar({ onOpen }) {
       <button onClick={onOpen} className="rounded-lg p-2 text-white/70 hover:bg-white/10">
         <Menu className="h-5 w-5" />
       </button>
-      <span className="font-light tracking-wide text-white">SahilPay</span>
+      <SahilPayLogo withSlogan={false} className="h-6 text-white" />
     </header>
   );
 }
@@ -416,6 +418,7 @@ export default function AppRoutes() {
             <Route path="pricing" element={withSuspense(PricingPackages)} />
             <Route path="pricing/:id" element={withSuspense(PackageDetail)} />
             <Route path="sms" element={withSuspense(SmsManagement)} />
+            <Route path="billing" element={withSuspense(AdminBilling)} />
             <Route path="copilot" element={withSuspense(CopilotManagement)} />
             <Route path="trials" element={withSuspense(TrialConfig)} />
             <Route path="impersonation" element={withSuspense(Impersonation)} />

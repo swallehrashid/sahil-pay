@@ -14,7 +14,7 @@ export default {
       anchor: ANCHORS.reports.list,
       route: LANDLORD_ROUTES.reportsStatements,
       title: "Everything, on paper",
-      body: "Every report SahilPay produces lives here — tenant statements, payment reports, arrears, income by category and more. All of them respect your charge categories, so the numbers match what you bill.",
+      body: "Every report Sahil Pay produces lives here — tenant statements, payment reports, arrears, income by category and more. All of them respect your charge categories, so the numbers match what you bill.",
     },
     {
       anchor: null,

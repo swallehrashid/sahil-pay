@@ -73,8 +73,8 @@ export default function ImpersonationRequests() {
   return (
     <div>
       <PageHeader
-        title="Impersonation requests"
-        subtitle="SahilPay support can only access your account after you explicitly grant a request — never silently."
+        title="Client support requests"
+        subtitle="Sahil Pay support can only access your account after you explicitly grant a request — never silently."
       />
       <ResponsiveTable
         columns={columns}

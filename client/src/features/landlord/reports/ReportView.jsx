@@ -3,6 +3,7 @@ import { Columns3, FileText, FileSpreadsheet } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
+import { SahilPayMark } from "@/components/branding/SahilPayLogo";
 import { downloadFile } from "@/utils/downloadFile";
 import { toast } from "@/components/ui/Toast";
 import { formatCurrency } from "@/utils/currencyFormatter";
@@ -246,13 +247,18 @@ export default function ReportView({ document: doc, endpoint, params = {}, filen
       </div>
 
       {/* Download controls */}
-      <div className="flex flex-wrap gap-3">
-        <Button variant="primary" size="sm" leftIcon={<FileText className="h-4 w-4" />} isLoading={downloading === "pdf"} onClick={() => handleDownload("pdf")}>
-          Download PDF
-        </Button>
-        <Button variant="ghost" size="sm" leftIcon={<FileSpreadsheet className="h-4 w-4" />} isLoading={downloading === "excel"} onClick={() => handleDownload("excel")}>
-          Download Excel
-        </Button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-3">
+          <Button variant="primary" size="sm" leftIcon={<FileText className="h-4 w-4" />} isLoading={downloading === "pdf"} onClick={() => handleDownload("pdf")}>
+            Download PDF
+          </Button>
+          <Button variant="ghost" size="sm" leftIcon={<FileSpreadsheet className="h-4 w-4" />} isLoading={downloading === "excel"} onClick={() => handleDownload("excel")}>
+            Download Excel
+          </Button>
+        </div>
+        <span className="flex items-center gap-1.5 text-xs text-white/30">
+          <SahilPayMark className="h-4 w-4" /> Sahil Pay
+        </span>
       </div>
 
       {/* Sections */}

@@ -5,6 +5,7 @@ import { AUTH_ROUTES } from "@/config/routePaths";
 import { roleHomePath } from "@/routes/roleRedirect";
 import { getImpersonationTarget } from "@/utils/impersonationStorage";
 import { USER_ROLES } from "@/utils/constants";
+import { SahilPayMark } from "@/components/branding/SahilPayLogo";
 
 // The spine of the four-portal separation. Checks auth + ROLE + PERMISSION, not merely
 // "is logged in" — a team member without `invoices` access must never reach
@@ -49,7 +50,7 @@ export default function ProtectedRoutes({ allowedRoles, requiredPermission }) {
   return <Outlet />;
 }
 
-// Centered glassmorphic SahilPay mark shown during route transitions, lazy chunks, and
+// Centered glassmorphic Sahil Pay mark shown during route transitions, lazy chunks, and
 // while auth is hydrating — so the user is never shown a flash of unauthenticated content.
 export function RouteLoader() {
   return (
@@ -57,7 +58,7 @@ export function RouteLoader() {
       <div className="relative flex h-20 w-20 items-center justify-center">
         <span className="absolute inset-0 animate-pulse-glow rounded-full bg-secondary/40 blur-xl" />
         <span className="glass relative flex h-16 w-16 animate-spin-slow items-center justify-center rounded-full">
-          <span className="text-sm font-light tracking-widest text-white">SP</span>
+          <SahilPayMark className="h-7 w-7 text-white" />
         </span>
       </div>
     </div>

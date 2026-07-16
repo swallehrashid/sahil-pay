@@ -48,7 +48,7 @@ export default function AffiliateDashboard() {
       )}
       {isRejected && (
         <div className="glass border border-secondary/30 bg-secondary/10 p-5 text-sm text-secondary-100">
-          Your affiliate application was not approved. Contact SahilPay support for details.
+          Your affiliate application was not approved. Contact Sahil Pay support for details.
         </div>
       )}
       {isSuspended && (

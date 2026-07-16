@@ -1,6 +1,6 @@
 import { apiSlice } from "@/store/apiSlice";
 
-// §9.3 — mirrors the /api/settings/sms-provider endpoints (Africa's Talking reselling).
+// §9.3 — mirrors the /api/settings/sms-provider endpoints (custom SMS sender reselling).
 export const smsProviderApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getSmsProvider: builder.query({

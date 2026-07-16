@@ -22,13 +22,13 @@ export default {
       anchor: ANCHORS.payments.tenantSelect,
       route: LANDLORD_ROUTES.payments,
       title: "Pick the tenant",
-      body: "SahilPay shows what they owe as you pick them.",
+      body: "Sahil Pay shows what they owe as you pick them.",
     },
     {
       anchor: ANCHORS.payments.amountField,
       route: LANDLORD_ROUTES.payments,
       title: "Enter the amount",
-      body: "Enter exactly what they paid — even if it's not the full amount. Partial payments are normal; SahilPay spreads the money across what they owe in your priority order, and any extra becomes credit for next month. (There's a short \"How allocation works\" guide in Help & Tutorials.)",
+      body: "Enter exactly what they paid — even if it's not the full amount. Partial payments are normal; Sahil Pay spreads the money across what they owe in your priority order, and any extra becomes credit for next month. (There's a short \"How allocation works\" guide in Help & Tutorials.)",
     },
     {
       anchor: ANCHORS.payments.saveButton,
@@ -40,7 +40,7 @@ export default {
       anchor: null,
       route: LANDLORD_ROUTES.payments,
       title: "Manual today, automatic soon",
-      body: "Right now you record payments yourself. Once your M-Pesa paybill or till is connected to SahilPay, tenant payments will record themselves the moment they land — see \"Getting paid via M-Pesa\" in Help & Tutorials for how that works.",
+      body: "Right now you record payments yourself. Once your M-Pesa paybill or till is connected to Sahil Pay, tenant payments will record themselves the moment they land — see \"Getting paid via M-Pesa\" in Help & Tutorials for how that works.",
     },
   ],
 };

@@ -9,7 +9,7 @@ export default function ImpersonationBanner() {
   return (
     <div className="mb-6 flex items-center gap-3 rounded-2xl border border-secondary/40 bg-secondary/15 px-4 py-3 text-sm text-secondary-100 animate-fade-in-up">
       <ShieldAlert className="h-4 w-4 flex-shrink-0" />
-      A SahilPay admin is currently assisting your account in an impersonation session.
+      A Sahil Pay admin is currently assisting your account in a client support session.
     </div>
   );
 }

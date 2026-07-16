@@ -2,6 +2,7 @@ import { Sparkles } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
+import SahilPayLogo from "@/components/branding/SahilPayLogo";
 import { useOnboardingState } from "./useOnboardingState";
 import { useTour } from "./TourProvider";
 import { TUTORIALS, SECTIONS } from "./content";
@@ -35,9 +36,10 @@ export default function TutorialsPage() {
 
   return (
     <div>
+      <SahilPayLogo withSlogan={false} className="mb-4 h-8 text-white/90" />
       <PageHeader
         title="Help & Tutorials"
-        subtitle="Step-by-step guides to everything in SahilPay. Run any of them as many times as you like."
+        subtitle="Step-by-step guides to everything in Sahil Pay. Run any of them as many times as you like."
       />
 
       <div className="glass mb-8 flex flex-wrap items-center justify-between gap-4 p-5">

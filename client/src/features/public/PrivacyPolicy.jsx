@@ -5,7 +5,7 @@ export default function PrivacyPolicy() {
       <p className="mt-2 text-sm text-white/40">Last updated: June 2026</p>
       <div className="mt-8 space-y-6 text-sm leading-relaxed text-white/60">
         <p>
-          SahilPay ("we", "us") provides property management and rent-collection software to
+          Sahil Pay ("we", "us") provides property management and rent-collection software to
           landlords, property managers and their tenants. This policy explains what data we
           collect and how it is used.
         </p>

@@ -23,6 +23,22 @@ export const adminSmsApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/admin/sms/pool/top-up", method: "POST", body }),
       invalidatesTags: ["SmsPricing", "SmsOverview"],
     }),
+    syncSmsPool: builder.mutation({
+      query: () => ({ url: "/admin/sms/pool/sync", method: "POST" }),
+      invalidatesTags: ["SmsPricing", "SmsOverview"],
+    }),
+    getLandlordSmsProvider: builder.query({
+      query: (landlordId) => `/admin/sms/landlords/${landlordId}/provider`,
+      providesTags: ["SmsOverview"],
+    }),
+    updateLandlordSmsProvider: builder.mutation({
+      query: ({ landlordId, ...body }) => ({
+        url: `/admin/sms/landlords/${landlordId}/provider`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["SmsOverview"],
+    }),
     // Preview JSON for the report (downloads go through downloadFile in ReportView).
     getSmsReport: builder.query({
       query: (params) => ({ url: "/admin/sms/report", params }),
@@ -37,5 +53,8 @@ export const {
   useGetSmsOverviewQuery,
   useGetSmsPoolHistoryQuery,
   useTopUpSmsPoolMutation,
+  useSyncSmsPoolMutation,
+  useGetLandlordSmsProviderQuery,
+  useUpdateLandlordSmsProviderMutation,
   useGetSmsReportQuery,
 } = adminSmsApiSlice;

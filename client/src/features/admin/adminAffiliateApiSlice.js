@@ -63,6 +63,10 @@ export const adminAffiliateApiSlice = apiSlice.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/admin/affiliates/withdrawals/${id}/pay`, method: "POST", body }),
       invalidatesTags: ["AdminAffiliateWithdrawal", "AdminAffiliate"],
     }),
+    payAffiliateWithdrawalB2c: builder.mutation({
+      query: ({ id }) => ({ url: `/admin/affiliates/withdrawals/${id}/pay-b2c`, method: "POST" }),
+      invalidatesTags: ["AdminAffiliateWithdrawal", "AdminAffiliate"],
+    }),
     rejectAffiliateWithdrawal: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/admin/affiliates/withdrawals/${id}/reject`, method: "POST", body }),
       invalidatesTags: ["AdminAffiliateWithdrawal", "AdminAffiliate"],
@@ -89,6 +93,7 @@ export const {
   useGetAdminAffiliateWithdrawalsQuery,
   useProcessAffiliateWithdrawalMutation,
   usePayAffiliateWithdrawalMutation,
+  usePayAffiliateWithdrawalB2cMutation,
   useRejectAffiliateWithdrawalMutation,
   useGetAffiliateAnalyticsQuery,
 } = adminAffiliateApiSlice;

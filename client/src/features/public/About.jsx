@@ -23,7 +23,7 @@ export default function About() {
         <div className="absolute -left-32 top-0 h-96 w-96 animate-float-blob rounded-full bg-third/25 blur-3xl" />
         <div className="relative z-10 mx-auto max-w-3xl animate-fade-in-up">
           <span className="glass inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium text-white/70">Our story</span>
-          <h1 className="mt-6 text-4xl font-light tracking-wide text-white sm:text-5xl">About SahilPay</h1>
+          <h1 className="mt-6 text-4xl font-light tracking-wide text-white sm:text-5xl">About Sahil Pay</h1>
           <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-white/60">
             We're on a mission to give every Kenyan landlord, property manager and caretaker one premium place to
             collect rent, run their properties and delight their tenants.
@@ -35,7 +35,7 @@ export default function About() {
       <Section eyebrow="Why we exist" title="Rent management shouldn't live in a spreadsheet">
         <div className="mt-8 grid gap-8 lg:grid-cols-2 lg:items-center">
           <p className="text-sm leading-relaxed text-white/60">
-            SahilPay was built for landlords and property managers across Kenya who are tired of juggling
+            Sahil Pay was built for landlords and property managers across Kenya who are tired of juggling
             rent-tracking spreadsheets, paper receipts and scattered M-Pesa messages across several phones. That
             way of working loses money to missed payments, unbilled utilities and hours of manual reconciliation.
             We bring the entire rent-collection workflow — invoicing, payments, communications, maintenance and
@@ -60,7 +60,7 @@ export default function About() {
             <CheckItem>SMS-first tenant communication</CheckItem>
           </ul>
           <p className="text-sm leading-relaxed text-white/60">
-            SahilPay is built around M-Pesa, the shilling and the way tenants here expect to be reached. Rent comes
+            Sahil Pay is built around M-Pesa, the shilling and the way tenants here expect to be reached. Rent comes
             in over Paybill and Till and reconciles automatically; reminders and receipts go out by SMS. It isn't a
             foreign product with M-Pesa bolted on — it's designed from the ground up for how Kenyan landlords and
             tenants actually transact.
@@ -121,7 +121,7 @@ export default function About() {
         <Reveal className="glass mx-auto max-w-4xl p-10 text-center sm:p-14">
           <Lock className="mx-auto h-6 w-6 text-secondary" />
           <h2 className="mt-4 text-2xl font-light tracking-wide text-white sm:text-3xl">Join the landlords going paperless</h2>
-          <p className="mx-auto mt-3 max-w-lg text-sm text-white/60">Start your free trial today — no card required — and see why SahilPay is built different.</p>
+          <p className="mx-auto mt-3 max-w-lg text-sm text-white/60">Start your free trial today — no card required — and see why Sahil Pay is built different.</p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-4">
             <Link to={AUTH_ROUTES.register}><Button size="lg" rightIcon={<ArrowRight className="h-4 w-4" />}>Start free trial</Button></Link>
             <Link to={PUBLIC_ROUTES.contact}><Button variant="ghost" size="lg">Get in touch</Button></Link>

@@ -14,7 +14,7 @@ import { FeatureCard, CheckItem } from "./components/pieces";
 const CONTACT_FAQS = [
   { q: "Is there a free trial and do I need a card?", a: "Yes — start free, no card required. You only pay once your trial ends and you choose a plan." },
   { q: "Can you help me import my existing tenants?", a: "Yes. Our team offers consent-based onboarding help to get your properties, units and tenants set up quickly." },
-  { q: "Does SahilPay support M-Pesa?", a: "Yes — Paybill, Till and STK push, with automatic reconciliation to tenants and invoices." },
+  { q: "Does Sahil Pay support M-Pesa?", a: "Yes — Paybill, Till and STK push, with automatic reconciliation to tenants and invoices." },
   { q: "Is my data secure and private?", a: "Yes. Data is encrypted, permission-controlled, fully audited and never sold — and you can export it any time." },
 ];
 
@@ -63,7 +63,7 @@ export default function Contact() {
           <Reveal className="space-y-5">
             <div className="glass row-hover flex items-center gap-3 p-4">
               <Mail className="h-5 w-5 text-secondary" />
-              <span className="text-sm text-white/70">hello@sahilpay.com</span>
+              <span className="text-sm text-white/70">hello@sahilpay.co.ke</span>
             </div>
             <div className="glass row-hover flex items-center gap-3 p-4">
               <Phone className="h-5 w-5 text-secondary" />
@@ -148,7 +148,7 @@ export default function Contact() {
       <Section eyebrow="Where we work" title="Kenya-wide, one platform">
         <Reveal className="glass mt-8 p-8">
           <p className="text-sm leading-relaxed text-white/60">
-            SahilPay serves landlords and property managers across Kenya — from single apartments in Nairobi to
+            Sahil Pay serves landlords and property managers across Kenya — from single apartments in Nairobi to
             estates and mixed-use portfolios up-country. Because it's cloud-based, you and your caretakers can
             manage properties from anywhere, on any device, and your tenants can pay and self-serve wherever they
             are. All you need is a browser.

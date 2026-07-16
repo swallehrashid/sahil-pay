@@ -129,6 +129,7 @@ export const ADMIN_ROUTES = {
   packageDetail: "/admin/pricing/:id",
   packageDetailPath: (id) => `/admin/pricing/${id}`,
   sms: "/admin/sms",
+  billing: "/admin/billing",
   trials: "/admin/trials",
   impersonation: "/admin/impersonation",
   audit: "/admin/audit",

@@ -68,7 +68,7 @@ export default function Impersonation() {
   return (
     <div>
       <PageHeader
-        title="Impersonation"
+        title="Client Support"
         subtitle="Request consent-based access to assist a landlord"
         actions={
           <Button leftIcon={<Send className="h-4 w-4" />} onClick={() => setIsRequestOpen(true)}>
@@ -100,7 +100,7 @@ export default function Impersonation() {
         }
       />
 
-      <Modal isOpen={isRequestOpen} onClose={() => setIsRequestOpen(false)} title="Request impersonation access">
+      <Modal isOpen={isRequestOpen} onClose={() => setIsRequestOpen(false)} title="Request client support access">
         <form onSubmit={handleRequest} className="space-y-4">
           <Select
             label="Landlord"

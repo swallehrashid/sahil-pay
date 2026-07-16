@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Home, Layers, Users, UserCog, Tags, MessageSquare, Clock, ShieldCheck, FileSearch, Bell, LogOut, Handshake, Smartphone } from "lucide-react";
+import { LayoutDashboard, Building2, Home, Layers, Users, UserCog, Tags, MessageSquare, Clock, ShieldCheck, FileSearch, Bell, LogOut, Handshake, Smartphone, Receipt } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import SahilPayLogo from "@/components/branding/SahilPayLogo";
 import { ADMIN_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -14,9 +15,10 @@ const NAV_ITEMS = [
   { to: ADMIN_ROUTES.pricing, label: "Pricing", icon: <Tags className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.affiliates, label: "Affiliates", icon: <Handshake className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.sms, label: "SMS", icon: <MessageSquare className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.billing, label: "Billing", icon: <Receipt className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.copilot, label: "Co-pilot", icon: <Smartphone className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.trials, label: "Trials", icon: <Clock className="h-4 w-4" /> },
-  { to: ADMIN_ROUTES.impersonation, label: "Impersonation", icon: <ShieldCheck className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.impersonation, label: "Client Support", icon: <ShieldCheck className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.audit, label: "Master Audit", icon: <FileSearch className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" /> },
 ];
@@ -37,8 +39,9 @@ export default function AdminSidebar({ isMobileOpen, onCloseMobile }) {
       isMobileOpen={isMobileOpen}
       onCloseMobile={onCloseMobile}
       header={
-        <span className="text-lg font-light tracking-wide text-white">
-          SahilPay <span className="text-secondary">Admin</span>
+        <span className="flex items-center gap-2 text-white">
+          <SahilPayLogo withSlogan={false} className="h-7" />
+          <span className="text-sm font-light tracking-wide text-secondary">Admin</span>
         </span>
       }
       footer={

@@ -138,6 +138,8 @@ export const apiSlice = createApi({
     "CopilotSettings",
     "AdminCopilot",
     "Demo",
+    "AdminBillingTransaction",
+    "AdminC2bPayment",
   ],
   endpoints: () => ({}),
 });
