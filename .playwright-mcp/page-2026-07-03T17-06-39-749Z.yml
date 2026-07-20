@@ -1,0 +1,107 @@
+- generic [ref=f14e41]:
+  - complementary [ref=f14e42]:
+    - generic [ref=f14e44]: SahilPay
+    - navigation [ref=f14e45]:
+      - link "Dashboard" [ref=f14e46] [cursor=pointer]:
+        - /url: /team/dashboard
+        - img [ref=f14e48]
+        - generic [ref=f14e53]: Dashboard
+      - link "Invoices" [ref=f14e54] [cursor=pointer]:
+        - /url: /team/invoices
+        - img [ref=f14e56]
+        - generic [ref=f14e59]: Invoices
+      - link "Payments" [ref=f14e60] [cursor=pointer]:
+        - /url: /team/payments
+        - img [ref=f14e62]
+        - generic [ref=f14e65]: Payments
+      - link "Expenses" [ref=f14e66] [cursor=pointer]:
+        - /url: /team/expenses
+        - img [ref=f14e68]
+        - generic [ref=f14e71]: Expenses
+      - link "Tenants" [ref=f14e72] [cursor=pointer]:
+        - /url: /team/tenants
+        - img [ref=f14e74]
+        - generic [ref=f14e79]: Tenants
+      - link "Properties" [ref=f14e80] [cursor=pointer]:
+        - /url: /team/properties
+        - img [ref=f14e82]
+        - generic [ref=f14e86]: Properties
+      - link "Units" [ref=f14e87] [cursor=pointer]:
+        - /url: /team/units
+        - img [ref=f14e89]
+        - generic [ref=f14e92]: Units
+      - link "Utilities" [ref=f14e93] [cursor=pointer]:
+        - /url: /team/utilities
+        - img [ref=f14e95]
+        - generic [ref=f14e98]: Utilities
+      - link "Maintenance" [ref=f14e99] [cursor=pointer]:
+        - /url: /team/maintenance
+        - img [ref=f14e101]
+        - generic [ref=f14e103]: Maintenance
+      - link "Property Groups" [ref=f14e104] [cursor=pointer]:
+        - /url: /team/groups
+        - img [ref=f14e106]
+        - generic [ref=f14e111]: Property Groups
+      - link "Reports" [ref=f14e112] [cursor=pointer]:
+        - /url: /team/reports/statements
+        - img [ref=f14e114]
+        - generic [ref=f14e116]: Reports
+      - link "Communications" [ref=f14e117] [cursor=pointer]:
+        - /url: /team/communications
+        - img [ref=f14e119]
+        - generic [ref=f14e121]: Communications
+      - link "Tenant Messages" [ref=f14e122] [cursor=pointer]:
+        - /url: /team/messages
+        - img [ref=f14e124]
+        - generic [ref=f14e127]: Tenant Messages
+      - link "Notifications" [ref=f14e128] [cursor=pointer]:
+        - /url: /team/notifications
+        - img [ref=f14e130]
+        - generic [ref=f14e133]: Notifications
+    - generic [ref=f14e135]:
+      - paragraph [ref=f14e136]: caretaker@sahilpay.test
+      - button "Log out" [ref=f14e137]:
+        - img [ref=f14e138]
+        - text: Log out
+  - generic [ref=f14e141]:
+    - generic [ref=f14e142]:
+      - button "2" [ref=f14e144]:
+        - img [ref=f14e145]
+        - generic [ref=f14e148]: "2"
+      - generic [ref=f14e149]:
+        - generic [ref=f14e150]: T
+        - generic [ref=f14e151]: caretaker@sahilpay.test
+    - main [ref=f14e152]:
+      - generic [ref=f14e153]:
+        - generic [ref=f14e155]:
+          - heading "Welcome," [level=1] [ref=f14e156]
+          - paragraph [ref=f14e157]: Here's what you have access to
+        - generic [ref=f14e158]:
+          - link "Invoices Open invoices" [ref=f14e159] [cursor=pointer]:
+            - /url: /team/invoices
+            - text: Invoices
+            - paragraph [ref=f14e160]: Open invoices
+          - link "Payments Open payments" [ref=f14e161] [cursor=pointer]:
+            - /url: /team/payments
+            - text: Payments
+            - paragraph [ref=f14e162]: Open payments
+          - link "Tenants Open tenants" [ref=f14e163] [cursor=pointer]:
+            - /url: /team/tenants
+            - text: Tenants
+            - paragraph [ref=f14e164]: Open tenants
+          - link "Properties Open properties" [ref=f14e165] [cursor=pointer]:
+            - /url: /team/properties
+            - text: Properties
+            - paragraph [ref=f14e166]: Open properties
+          - link "Units Open units" [ref=f14e167] [cursor=pointer]:
+            - /url: /team/units
+            - text: Units
+            - paragraph [ref=f14e168]: Open units
+          - link "Utilities Open utilities" [ref=f14e169] [cursor=pointer]:
+            - /url: /team/utilities
+            - text: Utilities
+            - paragraph [ref=f14e170]: Open utilities
+          - link "Communications Open communications" [ref=f14e171] [cursor=pointer]:
+            - /url: /team/communications
+            - text: Communications
+            - paragraph [ref=f14e172]: Open communications

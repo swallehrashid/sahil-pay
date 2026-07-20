@@ -4,3 +4,5 @@ __pycache__/
 .env
 *.sqlite3
 instance/
+uploads/
+migrations/versions/*.pyc

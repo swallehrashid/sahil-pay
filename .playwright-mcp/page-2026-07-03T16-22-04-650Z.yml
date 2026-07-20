@@ -1,0 +1,45 @@
+- generic [ref=f7e8]:
+  - banner [ref=f7e9]:
+    - generic [ref=f7e10]: SahilPay
+    - navigation [ref=f7e11]:
+      - link "Dashboard" [ref=f7e12] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f7e13]
+        - generic [ref=f7e18]: Dashboard
+      - link "Pay" [ref=f7e19] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f7e20]
+        - generic [ref=f7e23]: Pay
+      - link "Statement" [ref=f7e24] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f7e25]
+        - generic [ref=f7e28]: Statement
+      - link "Maintenance" [ref=f7e29] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f7e30]
+        - generic [ref=f7e32]: Maintenance
+      - link "Profile" [ref=f7e33] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f7e34]
+        - generic [ref=f7e37]: Profile
+    - generic [ref=f7e38]:
+      - button [ref=f7e40]:
+        - img [ref=f7e41]
+      - button [ref=f7e44]:
+        - img [ref=f7e45]
+  - main [ref=f7e48]:
+    - generic [ref=f7e99]:
+      - generic [ref=f7e100]:
+        - generic [ref=f7e101]:
+          - heading "Notifications" [level=1] [ref=f7e102]
+          - paragraph [ref=f7e103]: Everything sent to your account
+        - button "Mark all read" [ref=f7e105]:
+          - img [ref=f7e106]
+          - generic [ref=f7e109]: Mark all read
+      - button "Rent reminder (QA-NOTIF-778) 03 Jul 2026, 16:21 Hi James, this is a test notification from your landlord confirming your July payment was received. Thank you!" [ref=f7e111]:
+        - generic [ref=f7e113]:
+          - generic [ref=f7e114]:
+            - paragraph [ref=f7e115]: Rent reminder (QA-NOTIF-778)
+            - paragraph [ref=f7e116]: 03 Jul 2026, 16:21
+          - paragraph [ref=f7e117]: Hi James, this is a test notification from your landlord confirming your July payment was received. Thank you!
+      - generic [ref=f7e120]: Showing 1–1 of 1

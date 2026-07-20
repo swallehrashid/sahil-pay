@@ -1,0 +1,64 @@
+- generic [ref=f10e37]:
+  - banner [ref=f10e38]:
+    - generic [ref=f10e39]: SahilPay
+    - navigation [ref=f10e40]:
+      - link "Dashboard" [ref=f10e41] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f10e42]
+        - generic [ref=f10e47]: Dashboard
+      - link "Pay" [ref=f10e48] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f10e49]
+        - generic [ref=f10e52]: Pay
+      - link "Statement" [ref=f10e53] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f10e54]
+        - generic [ref=f10e57]: Statement
+      - link "Maintenance" [ref=f10e58] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f10e59]
+        - generic [ref=f10e61]: Maintenance
+      - link "Messages" [ref=f10e62] [cursor=pointer]:
+        - /url: /portal/messages
+        - img [ref=f10e63]
+        - generic [ref=f10e65]: Messages
+      - link "Profile" [ref=f10e66] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f10e67]
+        - generic [ref=f10e70]: Profile
+    - generic [ref=f10e71]:
+      - button "2" [ref=f10e73]:
+        - img [ref=f10e74]
+        - generic [ref=f10e77]: "2"
+      - button [ref=f10e78]:
+        - img [ref=f10e79]
+  - main [ref=f10e82]:
+    - generic [ref=f10e83]:
+      - generic [ref=f10e84]:
+        - generic [ref=f10e85]:
+          - heading "Welcome back, James Mwangi" [level=1] [ref=f10e86]
+          - paragraph [ref=f10e87]: Here's your current balance breakdown.
+        - link "Pay now" [ref=f10e88] [cursor=pointer]:
+          - /url: /portal/pay
+          - button "Pay now" [ref=f10e89]:
+            - img [ref=f10e90]
+            - generic [ref=f10e93]: Pay now
+      - generic [ref=f10e94]:
+        - generic [ref=f10e95]:
+          - generic [ref=f10e96]:
+            - paragraph [ref=f10e97]: Rent due
+            - img [ref=f10e99]
+          - paragraph [ref=f10e102]: KES 0.00
+        - generic [ref=f10e103]:
+          - generic [ref=f10e104]:
+            - paragraph [ref=f10e105]: Utilities due
+            - img [ref=f10e107]
+          - paragraph [ref=f10e110]: KES 0.00
+        - generic [ref=f10e111]:
+          - generic [ref=f10e112]:
+            - paragraph [ref=f10e113]: Previous balance
+            - img [ref=f10e115]
+          - paragraph [ref=f10e119]: KES 0.00
+      - generic [ref=f10e120]:
+        - heading "Open invoices" [level=3] [ref=f10e121]
+        - paragraph [ref=f10e122]: No open invoices — you're all caught up.

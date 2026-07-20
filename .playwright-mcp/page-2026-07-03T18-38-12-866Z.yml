@@ -1,0 +1,82 @@
+- generic [ref=f18e32]:
+  - banner [ref=f18e33]:
+    - generic [ref=f18e34]: SahilPay
+    - navigation [ref=f18e35]:
+      - link "Dashboard" [ref=f18e36] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f18e37]
+        - generic [ref=f18e42]: Dashboard
+      - link "Pay" [ref=f18e43] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f18e44]
+        - generic [ref=f18e47]: Pay
+      - link "Statement" [ref=f18e48] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f18e49]
+        - generic [ref=f18e52]: Statement
+      - link "Maintenance" [ref=f18e53] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f18e54]
+        - generic [ref=f18e56]: Maintenance
+      - link "Messages" [ref=f18e57] [cursor=pointer]:
+        - /url: /portal/messages
+        - img [ref=f18e58]
+        - generic [ref=f18e60]: Messages
+      - link "Profile" [ref=f18e61] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f18e62]
+        - generic [ref=f18e65]: Profile
+    - generic [ref=f18e66]:
+      - button "2" [ref=f18e68]:
+        - img [ref=f18e69]
+        - generic [ref=f18e72]: "2"
+      - button [ref=f18e73]:
+        - img [ref=f18e74]
+  - main [ref=f18e77]:
+    - generic [ref=f18e135]:
+      - generic [ref=f18e136]:
+        - button "Back" [ref=f18e137]:
+          - img [ref=f18e138]
+          - generic [ref=f18e140]: Back
+        - heading "How to pay" [level=1] [ref=f18e169]
+      - generic [ref=f18e142]:
+        - generic [ref=f18e170]:
+          - img [ref=f18e171]
+          - text: Pay KES 10,000.00 to your landlord
+        - generic [ref=f18e175]:
+          - generic [ref=f18e176]:
+            - term [ref=f18e177]: Paybill number
+            - definition [ref=f18e178]: "400200"
+          - generic [ref=f18e179]:
+            - term [ref=f18e180]: Account number
+            - definition [ref=f18e181]: ACME-T001
+          - generic [ref=f18e182]:
+            - term [ref=f18e183]: Expected name
+            - definition [ref=f18e184]: Acme Properties Ltd
+          - generic [ref=f18e185]:
+            - term [ref=f18e186]: Amount
+            - definition [ref=f18e187]: KES 10,000.00
+        - generic [ref=f18e188]:
+          - paragraph [ref=f18e189]: Instructions from your landlord
+          - paragraph [ref=f18e190]: Pay via M-Pesa Paybill. Use your unit number as the account. Send proof after paying.
+      - generic [ref=f18e158]:
+        - paragraph [ref=f18e191]: After paying, submit the details below. Your landlord will verify and confirm it — it will then appear in your history with a downloadable receipt.
+        - generic [ref=f18e192]:
+          - generic [ref=f18e193]: M-Pesa / transaction code
+          - textbox "e.g. QGH7XY12ZZ" [ref=f18e195]
+          - paragraph [ref=f18e196]: The code from your payment confirmation SMS
+        - generic [ref=f18e197]:
+          - paragraph [ref=f18e198]: Proof of payment
+          - generic [ref=f18e199] [cursor=pointer]:
+            - img [ref=f18e200]
+            - paragraph [ref=f18e203]: Drag & drop, or browse
+            - paragraph [ref=f18e204]: Screenshot or PDF of your M-Pesa / bank confirmation
+        - generic [ref=f18e205]:
+          - generic [ref=f18e206]: Note to landlord
+          - textbox [ref=f18e207]
+          - paragraph [ref=f18e208]: Optional
+        - generic [ref=f18e209]:
+          - button "Back" [ref=f18e210]:
+            - generic [ref=f18e211]: Back
+          - button "Submit for confirmation" [ref=f18e212]:
+            - generic [ref=f18e213]: Submit for confirmation

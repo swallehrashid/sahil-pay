@@ -1,0 +1,152 @@
+- generic [active] [ref=f5e1]:
+  - generic [ref=f5e8]:
+    - complementary [ref=f5e9]:
+      - generic [ref=f5e11]: SahilPay
+      - navigation [ref=f5e12]:
+        - link "Dashboard" [ref=f5e13] [cursor=pointer]:
+          - /url: /landlord/dashboard
+          - img [ref=f5e15]
+          - generic [ref=f5e20]: Dashboard
+        - link "Invoices" [ref=f5e21] [cursor=pointer]:
+          - /url: /landlord/invoices
+          - img [ref=f5e23]
+          - generic [ref=f5e26]: Invoices
+        - link "Payments" [ref=f5e27] [cursor=pointer]:
+          - /url: /landlord/payments
+          - img [ref=f5e29]
+          - generic [ref=f5e32]: Payments
+        - link "Expenses" [ref=f5e33] [cursor=pointer]:
+          - /url: /landlord/expenses
+          - img [ref=f5e35]
+          - generic [ref=f5e37]: Expenses
+        - link "Tenants" [ref=f5e38] [cursor=pointer]:
+          - /url: /landlord/tenants
+          - img [ref=f5e40]
+          - generic [ref=f5e45]: Tenants
+        - link "Properties" [ref=f5e46] [cursor=pointer]:
+          - /url: /landlord/properties
+          - img [ref=f5e48]
+          - generic [ref=f5e52]: Properties
+        - link "Units" [ref=f5e53] [cursor=pointer]:
+          - /url: /landlord/units
+          - img [ref=f5e55]
+          - generic [ref=f5e58]: Units
+        - link "Utilities" [ref=f5e59] [cursor=pointer]:
+          - /url: /landlord/utilities
+          - img [ref=f5e61]
+          - generic [ref=f5e64]: Utilities
+        - link "Maintenance" [ref=f5e65] [cursor=pointer]:
+          - /url: /landlord/maintenance
+          - img [ref=f5e67]
+          - generic [ref=f5e69]: Maintenance
+        - link "Property Groups" [ref=f5e70] [cursor=pointer]:
+          - /url: /landlord/groups
+          - img [ref=f5e72]
+          - generic [ref=f5e77]: Property Groups
+        - link "Reports" [ref=f5e78] [cursor=pointer]:
+          - /url: /landlord/reports/statements
+          - img [ref=f5e80]
+          - generic [ref=f5e82]: Reports
+        - link "Communications" [ref=f5e83] [cursor=pointer]:
+          - /url: /landlord/communications
+          - img [ref=f5e85]
+          - generic [ref=f5e87]: Communications
+        - link "Tenant Messages" [ref=f5e88] [cursor=pointer]:
+          - /url: /landlord/messages
+          - img [ref=f5e90]
+          - generic [ref=f5e93]: Tenant Messages
+        - link "Notifications" [ref=f5e94] [cursor=pointer]:
+          - /url: /landlord/notifications
+          - img [ref=f5e96]
+          - generic [ref=f5e99]: Notifications
+        - link "Settings" [ref=f5e100] [cursor=pointer]:
+          - /url: /landlord/settings
+          - img [ref=f5e102]
+          - generic [ref=f5e105]: Settings
+      - generic [ref=f5e107]:
+        - paragraph [ref=f5e108]: sunrise@sahilpay.test
+        - button "Log out" [ref=f5e109]:
+          - img [ref=f5e110]
+          - text: Log out
+    - generic [ref=f5e113]:
+      - generic [ref=f5e114]:
+        - link "0 SMS left" [ref=f5e115] [cursor=pointer]:
+          - /url: /landlord/settings/billing
+          - img [ref=f5e116]
+          - text: 0 SMS left
+        - button "3" [ref=f5e119]:
+          - img [ref=f5e120]
+          - generic [ref=f5e123]: "3"
+        - generic [ref=f5e124]:
+          - generic [ref=f5e125]: S
+          - generic [ref=f5e126]: sunrise@sahilpay.test
+      - main [ref=f5e127]:
+        - generic [ref=f5e128]:
+          - generic [ref=f5e130]:
+            - heading "Settings" [level=1] [ref=f5e131]
+            - paragraph [ref=f5e132]: Configure your SahilPay account
+          - generic [ref=f5e133]:
+            - link "General" [ref=f5e134] [cursor=pointer]:
+              - /url: /landlord/settings/general
+            - link "Account" [ref=f5e135] [cursor=pointer]:
+              - /url: /landlord/settings/account
+            - link "Alerts" [ref=f5e136] [cursor=pointer]:
+              - /url: /landlord/settings/alerts
+            - link "Backup" [ref=f5e137] [cursor=pointer]:
+              - /url: /landlord/settings/backup
+            - link "Documents" [ref=f5e138] [cursor=pointer]:
+              - /url: /landlord/settings/documents
+            - link "Team" [ref=f5e139] [cursor=pointer]:
+              - /url: /landlord/settings/team
+            - link "Billing" [ref=f5e140] [cursor=pointer]:
+              - /url: /landlord/settings/billing
+            - link "SMS Provider" [ref=f5e141] [cursor=pointer]:
+              - /url: /landlord/settings/sms-provider
+            - link "M-Pesa" [ref=f5e142] [cursor=pointer]:
+              - /url: /landlord/settings/mpesa
+            - link "Audit Trail" [ref=f5e143] [cursor=pointer]:
+              - /url: /landlord/settings/audit
+            - link "Impersonation" [ref=f5e144] [cursor=pointer]:
+              - /url: /landlord/settings/impersonation-requests
+          - generic [ref=f5e145]:
+            - generic [ref=f5e146]:
+              - generic [ref=f5e147]:
+                - generic [ref=f5e148]:
+                  - paragraph [ref=f5e149]: Connection
+                  - img [ref=f5e151]
+                - paragraph [ref=f5e153]:
+                  - generic [ref=f5e154]: Not connected
+              - generic [ref=f5e155]:
+                - paragraph [ref=f5e157]: Sender ID
+                - paragraph [ref=f5e158]: SahilPay (shared)
+              - generic [ref=f5e159]:
+                - paragraph [ref=f5e161]: Billing
+                - paragraph [ref=f5e162]: By length
+            - generic [ref=f5e163]:
+              - paragraph [ref=f5e164]: How it works
+              - paragraph [ref=f5e165]: Connect your Africa's Talking account and registered sender ID to send SMS under your own brand — billed a flat 1 KES per SMS. SahilPay delivers the messages for you.
+              - paragraph [ref=f5e166]: No sender ID? You can still send using SahilPay's shared sender ID — those messages are billed by length (longer messages use more segments and cost more).
+            - generic [ref=f5e167]:
+              - heading "Africa's Talking credentials" [level=3] [ref=f5e168]
+              - generic [ref=f5e169]:
+                - generic [ref=f5e170]: API key
+                - textbox "Saved (••••9988)" [ref=f5e190]
+                - paragraph [ref=f5e191]: Leave blank to keep the saved key.
+              - generic [ref=f5e173]:
+                - generic [ref=f5e174]:
+                  - generic [ref=f5e175]: Username
+                  - textbox "Your AT username" [ref=f5e177]: sunrise_at
+                - generic [ref=f5e178]:
+                  - generic [ref=f5e179]: Sender ID
+                  - textbox "e.g. YOURBRAND" [ref=f5e181]: SUNRISE
+              - generic [ref=f5e182]:
+                - button "Save details" [ref=f5e183]:
+                  - generic [ref=f5e184]: Save details
+                - button "Connect" [ref=f5e185]:
+                  - img [ref=f5e186]
+                  - generic [ref=f5e189]: Connect
+  - generic [ref=f5e193]:
+    - img [ref=f5e194]
+    - paragraph [ref=f5e197]: SMS provider details saved.
+    - button [ref=f5e198]:
+      - img [ref=f5e199]

@@ -1,0 +1,174 @@
+- generic [ref=f1e558]:
+  - complementary [ref=f1e559]:
+    - generic [ref=f1e561]: SahilPay
+    - navigation [ref=f1e562]:
+      - link "Dashboard" [ref=f1e563] [cursor=pointer]:
+        - /url: /team/dashboard
+        - img [ref=f1e565]
+        - generic [ref=f1e570]: Dashboard
+      - link "Tenants" [active] [ref=f1e571] [cursor=pointer]:
+        - /url: /team/tenants
+        - img [ref=f1e573]
+        - generic [ref=f1e578]: Tenants
+      - link "Maintenance" [ref=f1e579] [cursor=pointer]:
+        - /url: /team/maintenance
+        - img [ref=f1e581]
+        - generic [ref=f1e583]: Maintenance
+      - link "Reports" [ref=f1e584] [cursor=pointer]:
+        - /url: /team/reports/statements
+        - img [ref=f1e586]
+        - generic [ref=f1e588]: Reports
+      - link "Notifications" [ref=f1e589] [cursor=pointer]:
+        - /url: /team/notifications
+        - img [ref=f1e591]
+        - generic [ref=f1e594]: Notifications
+    - generic [ref=f1e596]:
+      - paragraph [ref=f1e597]: browser.qa@sahilpay.test
+      - button "Log out" [ref=f1e598]:
+        - img [ref=f1e599]
+        - text: Log out
+  - generic [ref=f1e602]:
+    - generic [ref=f1e603]:
+      - button "1" [ref=f1e605]:
+        - img [ref=f1e606]
+        - generic [ref=f1e609]: "1"
+      - generic [ref=f1e610]:
+        - generic [ref=f1e611]: T
+        - generic [ref=f1e612]: browser.qa@sahilpay.test
+    - main [ref=f1e613]:
+      - generic [ref=f1e631]:
+        - generic [ref=f1e632]:
+          - generic [ref=f1e633]:
+            - heading "Tenants" [level=1] [ref=f1e634]
+            - paragraph [ref=f1e635]: Everyone occupying a unit across your portfolio
+          - generic [ref=f1e636]:
+            - button "Download PDF" [ref=f1e637]:
+              - img [ref=f1e638]
+              - generic [ref=f1e641]: Download PDF
+            - button "Add tenant" [ref=f1e642]:
+              - img [ref=f1e643]
+              - generic [ref=f1e644]: Add tenant
+        - generic [ref=f1e645]:
+          - generic [ref=f1e646]:
+            - generic [ref=f1e647]:
+              - paragraph [ref=f1e648]: Total tenants
+              - img [ref=f1e650]
+            - paragraph [ref=f1e655]: "6"
+          - generic [ref=f1e656]:
+            - generic [ref=f1e657]:
+              - paragraph [ref=f1e658]: Total arrears
+              - img [ref=f1e660]
+            - paragraph [ref=f1e662]: KES 47,950.00
+          - generic [ref=f1e663]:
+            - generic [ref=f1e664]:
+              - paragraph [ref=f1e665]: Leases expiring soon
+              - img [ref=f1e667]
+            - paragraph [ref=f1e671]: "0"
+        - generic [ref=f1e672]:
+          - table [ref=f1e674]:
+            - rowgroup [ref=f1e675]:
+              - 'row "Tenant Property Unit Phone Balance Account #" [ref=f1e676]':
+                - columnheader [ref=f1e677]
+                - columnheader "Tenant" [ref=f1e678]
+                - columnheader "Property" [ref=f1e679]
+                - columnheader "Unit" [ref=f1e680]
+                - columnheader "Phone" [ref=f1e681]
+                - columnheader "Balance" [ref=f1e682]
+                - 'columnheader "Account #" [ref=f1e683]'
+                - columnheader [ref=f1e684]
+            - rowgroup [ref=f1e685]:
+              - row "Diana Achieng Park View Towers B3 +254711000005 KES -17,650.00 ACME-T005" [ref=f1e686]:
+                - cell [ref=f1e687]:
+                  - generic [ref=f1e689] [cursor=pointer]:
+                    - checkbox [ref=f1e690]
+                    - img [ref=f1e692]
+                - cell "Diana Achieng" [ref=f1e694]
+                - cell "Park View Towers" [ref=f1e695]
+                - cell "B3" [ref=f1e696]
+                - cell "+254711000005" [ref=f1e697]
+                - cell "KES -17,650.00" [ref=f1e698]
+                - cell "ACME-T005" [ref=f1e699]
+                - cell [ref=f1e700]:
+                  - button [ref=f1e702]:
+                    - img [ref=f1e703]
+              - row "Amina Hassan Riverside Apartments A2 +254711000002 KES -30,300.00 ACME-T002" [ref=f1e707]:
+                - cell [ref=f1e708]:
+                  - generic [ref=f1e710] [cursor=pointer]:
+                    - checkbox [ref=f1e711]
+                    - img [ref=f1e713]
+                - cell "Amina Hassan" [ref=f1e715]
+                - cell "Riverside Apartments" [ref=f1e716]
+                - cell "A2" [ref=f1e717]
+                - cell "+254711000002" [ref=f1e718]
+                - cell "KES -30,300.00" [ref=f1e719]
+                - cell "ACME-T002" [ref=f1e720]
+                - cell [ref=f1e721]:
+                  - button [ref=f1e723]:
+                    - img [ref=f1e724]
+              - row "Brian Kiprotich Riverside Apartments A3 +254711000003 KES 8,400.00 ACME-T003" [ref=f1e728]:
+                - cell [ref=f1e729]:
+                  - generic [ref=f1e731] [cursor=pointer]:
+                    - checkbox [ref=f1e732]
+                    - img [ref=f1e734]
+                - cell "Brian Kiprotich" [ref=f1e736]
+                - cell "Riverside Apartments" [ref=f1e737]
+                - cell "A3" [ref=f1e738]
+                - cell "+254711000003" [ref=f1e739]
+                - cell "KES 8,400.00" [ref=f1e740]
+                - cell "ACME-T003" [ref=f1e741]
+                - cell [ref=f1e742]:
+                  - button [ref=f1e744]:
+                    - img [ref=f1e745]
+              - row "James Mwangi Riverside Apartments A1 +254711000001 KES 0.00 ACME-T001" [ref=f1e749]:
+                - cell [ref=f1e750]:
+                  - generic [ref=f1e752] [cursor=pointer]:
+                    - checkbox [ref=f1e753]
+                    - img [ref=f1e755]
+                - cell "James Mwangi" [ref=f1e757]
+                - cell "Riverside Apartments" [ref=f1e758]
+                - cell "A1" [ref=f1e759]
+                - cell "+254711000001" [ref=f1e760]
+                - cell "KES 0.00" [ref=f1e761]
+                - cell "ACME-T001" [ref=f1e762]
+                - cell [ref=f1e763]:
+                  - button [ref=f1e765]:
+                    - img [ref=f1e766]
+              - row "Kevin Omondi Park View Towers B2 +254711000006 KES 0.00 ACME-T006" [ref=f1e770]:
+                - cell [ref=f1e771]:
+                  - generic [ref=f1e773] [cursor=pointer]:
+                    - checkbox [ref=f1e774]
+                    - img [ref=f1e776]
+                - cell "Kevin Omondi" [ref=f1e778]
+                - cell "Park View Towers" [ref=f1e779]
+                - cell "B2" [ref=f1e780]
+                - cell "+254711000006" [ref=f1e781]
+                - cell "KES 0.00" [ref=f1e782]
+                - cell "ACME-T006" [ref=f1e783]
+                - cell [ref=f1e784]:
+                  - button [ref=f1e786]:
+                    - img [ref=f1e787]
+              - row "Grace Wambui Park View Towers B1 +254711000004 KES 0.00 ACME-T004" [ref=f1e791]:
+                - cell [ref=f1e792]:
+                  - generic [ref=f1e794] [cursor=pointer]:
+                    - checkbox [ref=f1e795]
+                    - img [ref=f1e797]
+                - cell "Grace Wambui" [ref=f1e799]
+                - cell "Park View Towers" [ref=f1e800]
+                - cell "B1" [ref=f1e801]
+                - cell "+254711000004" [ref=f1e802]
+                - cell "KES 0.00" [ref=f1e803]
+                - cell "ACME-T004" [ref=f1e804]
+                - cell [ref=f1e805]:
+                  - button [ref=f1e807]:
+                    - img [ref=f1e808]
+          - generic [ref=f1e813]:
+            - generic [ref=f1e814]: Showing 1–6 of 6
+            - generic [ref=f1e815]:
+              - generic [ref=f1e816]: "Rows:"
+              - combobox "Rows:" [ref=f1e817]:
+                - option "25" [selected]
+                - option "50"
+                - option "100"
+                - option "200"
+                - option "500"
+                - option "1000"

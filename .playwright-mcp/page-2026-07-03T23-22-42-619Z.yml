@@ -1,0 +1,65 @@
+- generic [ref=e41]:
+  - complementary [ref=e42]:
+    - generic [ref=e44]: SahilPay Admin
+    - navigation [ref=e45]:
+      - link "Dashboard" [ref=e46] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=e48]
+        - generic [ref=e53]: Dashboard
+      - link "Landlords" [ref=e54] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=e56]
+        - generic [ref=e60]: Landlords
+      - link "Properties" [ref=e61] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=e63]
+        - generic [ref=e66]: Properties
+      - link "Units" [ref=e67] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=e69]
+        - generic [ref=e73]: Units
+      - link "Tenants" [ref=e74] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=e76]
+        - generic [ref=e81]: Tenants
+      - link "Team members" [ref=e82] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=e84]
+        - generic [ref=e96]: Team members
+      - link "Pricing" [ref=e97] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=e99]
+        - generic [ref=e103]: Pricing
+      - link "Trials" [ref=e104] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=e106]
+        - generic [ref=e109]: Trials
+      - link "Impersonation" [ref=e110] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=e112]
+        - generic [ref=e115]: Impersonation
+      - link "Master Audit" [ref=e116] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=e118]
+        - generic [ref=e123]: Master Audit
+      - link "Notifications" [ref=e124] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=e126]
+        - generic [ref=e129]: Notifications
+    - generic [ref=e131]:
+      - paragraph [ref=e132]: admin@sahilpay.test
+      - button "Log out" [ref=e133]:
+        - img [ref=e134]
+        - text: Log out
+  - generic [ref=e137]:
+    - generic [ref=e138]:
+      - button "2" [ref=e140]:
+        - img [ref=e141]
+        - generic [ref=e144]: "2"
+      - generic [ref=e145]:
+        - generic [ref=e146]: A
+        - generic [ref=e147]: admin@sahilpay.test
+    - main [ref=e148]:
+      - generic [ref=e151]:
+        - heading "Platform Overview" [level=1] [ref=e152]
+        - paragraph [ref=e153]: Every landlord and property manager on SahilPay — click any card to drill in

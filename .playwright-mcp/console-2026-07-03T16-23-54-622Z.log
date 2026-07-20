@@ -1,0 +1,10 @@
+[     925ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=d199db43:14336
+[ 1428250ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/api/notifications/unread-count:0
+[ 1460064ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/api/notifications/unread-count:0
+[ 1491806ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/api/notifications/unread-count:0
+[ 1523570ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/api/notifications/unread-count:0
+[ 1555385ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:5000/api/notifications/unread-count:0
+[ 1714410ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=d199db43:14336
+[ 1949756ms] [ERROR] [vite] ReferenceError: MessagesSquare is not defined
+    at http://localhost:5173/src/features/landlord/components/LandlordSidebar.jsx?t=1783097784093:122:33 @ http://localhost:5173/@vite/client:928
+[ 1949772ms] [ERROR] [vite] Failed to reload /src/features/landlord/components/LandlordSidebar.jsx. This could be due to syntax errors or importing non-existent modules. (see errors above) @ http://localhost:5173/@vite/client:928

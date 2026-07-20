@@ -1,0 +1,83 @@
+- generic [ref=f2e8]:
+  - banner [ref=f2e9]:
+    - generic [ref=f2e10]: SahilPay
+    - navigation [ref=f2e11]:
+      - link "Dashboard" [ref=f2e12] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f2e13]
+        - generic [ref=f2e18]: Dashboard
+      - link "Pay" [ref=f2e19] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f2e20]
+        - generic [ref=f2e23]: Pay
+      - link "Statement" [ref=f2e24] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f2e25]
+        - generic [ref=f2e28]: Statement
+      - link "Maintenance" [ref=f2e29] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f2e30]
+        - generic [ref=f2e32]: Maintenance
+      - link "Profile" [ref=f2e33] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f2e34]
+        - generic [ref=f2e37]: Profile
+    - generic [ref=f2e38]:
+      - button [ref=f2e40]:
+        - img [ref=f2e41]
+      - button [ref=f2e44]:
+        - img [ref=f2e45]
+  - main [ref=f2e48]:
+    - generic [ref=f2e49]:
+      - heading "Make a payment" [level=1] [ref=f2e50]
+      - generic [ref=f2e51]:
+        - generic [ref=f2e52]:
+          - generic [ref=f2e53]: Amount *
+          - spinbutton [ref=f2e55]
+        - generic [ref=f2e56]:
+          - generic [ref=f2e57]: Payment method
+          - generic [ref=f2e58]:
+            - combobox [ref=f2e59]:
+              - option "M-Pesa" [selected]
+            - img
+        - button "Pay now" [ref=f2e60]:
+          - img [ref=f2e61]
+          - generic [ref=f2e64]: Pay now
+      - generic [ref=f2e65]:
+        - heading "Payment history" [level=3] [ref=f2e66]
+        - table [ref=f2e68]:
+          - rowgroup [ref=f2e69]:
+            - row "Date Amount Status Receipt" [ref=f2e70]:
+              - columnheader "Date" [ref=f2e71]
+              - columnheader "Amount" [ref=f2e72]
+              - columnheader "Status" [ref=f2e73]
+              - columnheader "Receipt" [ref=f2e74]
+          - rowgroup [ref=f2e75]:
+            - row "01 May 2026 KES 30,100.00 Confirmed Download" [ref=f2e76]:
+              - cell "01 May 2026" [ref=f2e77]
+              - cell "KES 30,100.00" [ref=f2e78]
+              - cell "Confirmed" [ref=f2e79]:
+                - generic [ref=f2e80]: Confirmed
+              - cell "Download" [ref=f2e82]:
+                - button "Download" [active] [ref=f2e83]:
+                  - img [ref=f2e84]
+                  - text: Download
+            - row "01 Jun 2026 KES 29,950.00 Confirmed Download" [ref=f2e87]:
+              - cell "01 Jun 2026" [ref=f2e88]
+              - cell "KES 29,950.00" [ref=f2e89]
+              - cell "Confirmed" [ref=f2e90]:
+                - generic [ref=f2e91]: Confirmed
+              - cell "Download" [ref=f2e93]:
+                - button "Download" [ref=f2e94]:
+                  - img [ref=f2e95]
+                  - text: Download
+            - row "01 Jul 2026 KES 29,800.00 Confirmed Download" [ref=f2e98]:
+              - cell "01 Jul 2026" [ref=f2e99]
+              - cell "KES 29,800.00" [ref=f2e100]
+              - cell "Confirmed" [ref=f2e101]:
+                - generic [ref=f2e102]: Confirmed
+              - cell "Download" [ref=f2e104]:
+                - button "Download" [ref=f2e105]:
+                  - img [ref=f2e106]
+                  - text: Download
+      - paragraph [ref=f2e109]: Downloading a receipt also emails you a copy automatically.

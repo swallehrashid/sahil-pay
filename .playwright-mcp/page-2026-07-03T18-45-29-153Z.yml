@@ -1,0 +1,279 @@
+- generic [active] [ref=f21e1]:
+  - generic [ref=f21e225]:
+    - complementary [ref=f21e226]:
+      - generic [ref=f21e228]: SahilPay
+      - navigation [ref=f21e229]:
+        - link "Dashboard" [ref=f21e230] [cursor=pointer]:
+          - /url: /landlord/dashboard
+          - img [ref=f21e232]
+          - generic [ref=f21e237]: Dashboard
+        - link "Invoices" [ref=f21e238] [cursor=pointer]:
+          - /url: /landlord/invoices
+          - img [ref=f21e240]
+          - generic [ref=f21e243]: Invoices
+        - link "Payments" [ref=f21e244] [cursor=pointer]:
+          - /url: /landlord/payments
+          - img [ref=f21e246]
+          - generic [ref=f21e249]: Payments
+        - link "Expenses" [ref=f21e250] [cursor=pointer]:
+          - /url: /landlord/expenses
+          - img [ref=f21e252]
+          - generic [ref=f21e254]: Expenses
+        - link "Tenants" [ref=f21e255] [cursor=pointer]:
+          - /url: /landlord/tenants
+          - img [ref=f21e257]
+          - generic [ref=f21e262]: Tenants
+        - link "Properties" [ref=f21e263] [cursor=pointer]:
+          - /url: /landlord/properties
+          - img [ref=f21e265]
+          - generic [ref=f21e269]: Properties
+        - link "Units" [ref=f21e270] [cursor=pointer]:
+          - /url: /landlord/units
+          - img [ref=f21e272]
+          - generic [ref=f21e275]: Units
+        - link "Utilities" [ref=f21e276] [cursor=pointer]:
+          - /url: /landlord/utilities
+          - img [ref=f21e278]
+          - generic [ref=f21e281]: Utilities
+        - link "Maintenance" [ref=f21e282] [cursor=pointer]:
+          - /url: /landlord/maintenance
+          - img [ref=f21e284]
+          - generic [ref=f21e286]: Maintenance
+        - link "Property Groups" [ref=f21e287] [cursor=pointer]:
+          - /url: /landlord/groups
+          - img [ref=f21e289]
+          - generic [ref=f21e294]: Property Groups
+        - link "Reports" [ref=f21e295] [cursor=pointer]:
+          - /url: /landlord/reports/statements
+          - img [ref=f21e297]
+          - generic [ref=f21e299]: Reports
+        - link "Communications" [ref=f21e300] [cursor=pointer]:
+          - /url: /landlord/communications
+          - img [ref=f21e302]
+          - generic [ref=f21e304]: Communications
+        - link "Tenant Messages" [ref=f21e305] [cursor=pointer]:
+          - /url: /landlord/messages
+          - img [ref=f21e307]
+          - generic [ref=f21e310]: Tenant Messages
+        - link "Notifications" [ref=f21e311] [cursor=pointer]:
+          - /url: /landlord/notifications
+          - img [ref=f21e313]
+          - generic [ref=f21e316]: Notifications
+        - link "Settings" [ref=f21e317] [cursor=pointer]:
+          - /url: /landlord/settings
+          - img [ref=f21e319]
+          - generic [ref=f21e322]: Settings
+      - generic [ref=f21e324]:
+        - paragraph [ref=f21e325]: landlord@sahilpay.test
+        - button "Log out" [ref=f21e326]:
+          - img [ref=f21e327]
+          - text: Log out
+    - generic [ref=f21e330]:
+      - generic [ref=f21e331]:
+        - link "0 SMS left" [ref=f21e332] [cursor=pointer]:
+          - /url: /landlord/settings/billing
+          - img [ref=f21e333]
+          - text: 0 SMS left
+        - button "7" [ref=f21e336]:
+          - img [ref=f21e337]
+          - generic [ref=f21e340]: "7"
+        - generic [ref=f21e341]:
+          - generic [ref=f21e342]: L
+          - generic [ref=f21e343]: landlord@sahilpay.test
+      - main [ref=f21e8]:
+        - generic [ref=f21e9]:
+          - generic [ref=f21e11]:
+            - heading "Settings" [level=1] [ref=f21e12]
+            - paragraph [ref=f21e13]: Configure your SahilPay account
+          - generic [ref=f21e14]:
+            - link "General" [ref=f21e15] [cursor=pointer]:
+              - /url: /landlord/settings/general
+            - link "Account" [ref=f21e16] [cursor=pointer]:
+              - /url: /landlord/settings/account
+            - link "Alerts" [ref=f21e17] [cursor=pointer]:
+              - /url: /landlord/settings/alerts
+            - link "Backup" [ref=f21e18] [cursor=pointer]:
+              - /url: /landlord/settings/backup
+            - link "Documents" [ref=f21e19] [cursor=pointer]:
+              - /url: /landlord/settings/documents
+            - link "Team" [ref=f21e20] [cursor=pointer]:
+              - /url: /landlord/settings/team
+            - link "Billing" [ref=f21e21] [cursor=pointer]:
+              - /url: /landlord/settings/billing
+            - link "M-Pesa" [ref=f21e22] [cursor=pointer]:
+              - /url: /landlord/settings/mpesa
+            - link "Audit Trail" [ref=f21e23] [cursor=pointer]:
+              - /url: /landlord/settings/audit
+            - link "Impersonation" [ref=f21e24] [cursor=pointer]:
+              - /url: /landlord/settings/impersonation-requests
+          - generic [ref=f21e25]:
+            - generic [ref=f21e26]:
+              - heading "Company" [level=3] [ref=f21e27]
+              - generic [ref=f21e28]:
+                - generic [ref=f21e29]:
+                  - generic [ref=f21e30]: Company name *
+                  - textbox [ref=f21e32]: Acme Properties Ltd
+                - generic [ref=f21e33]:
+                  - generic [ref=f21e34]: Abbreviated name
+                  - textbox [ref=f21e36]: Acme
+              - generic [ref=f21e37]:
+                - generic [ref=f21e38]: Company address
+                - textbox [ref=f21e40]
+              - generic [ref=f21e41]:
+                - paragraph [ref=f21e42]: Logo
+                - generic [ref=f21e43] [cursor=pointer]:
+                  - img [ref=f21e44]
+                  - paragraph [ref=f21e47]: Drag & drop, or browse
+                  - paragraph [ref=f21e48]: Appears on statements and receipts
+              - generic [ref=f21e49]:
+                - generic [ref=f21e50]:
+                  - generic [ref=f21e51]: Invoice title
+                  - textbox [ref=f21e53]
+                - generic [ref=f21e54]:
+                  - generic [ref=f21e55]: Account type
+                  - generic [ref=f21e56]:
+                    - combobox [ref=f21e57]:
+                      - option "gated_community"
+                      - option "property_management"
+                      - option "landlord" [selected]
+                    - img
+            - generic [ref=f21e58]:
+              - heading "Locale & M-Pesa" [level=3] [ref=f21e59]
+              - generic [ref=f21e60]:
+                - generic [ref=f21e61]:
+                  - generic [ref=f21e62]: Currency
+                  - textbox [ref=f21e64]: KES
+                - generic [ref=f21e65]:
+                  - generic [ref=f21e66]: Timezone
+                  - textbox [ref=f21e68]: Africa/Nairobi
+              - generic [ref=f21e69]:
+                - generic [ref=f21e70]:
+                  - generic [ref=f21e71]: M-Pesa type
+                  - generic [ref=f21e72]:
+                    - combobox [ref=f21e73]:
+                      - option "paybill" [selected]
+                      - option "till"
+                    - img
+                - generic [ref=f21e74]:
+                  - generic [ref=f21e75]: Paybill/till number
+                  - textbox [ref=f21e77]: "400200"
+              - generic [ref=f21e78]:
+                - generic [ref=f21e79]: Default account number
+                - textbox [ref=f21e81]: RIVERSIDE-A1
+            - generic [ref=f21e82]:
+              - generic [ref=f21e83]:
+                - heading "Payments" [level=3] [ref=f21e84]
+                - paragraph [ref=f21e85]: What tenants see on the pay page, and how confirmed payments are auto-allocated.
+              - generic [ref=f21e86]:
+                - generic [ref=f21e87]: Payment instructions for tenants
+                - textbox [ref=f21e88]: Pay via M-Pesa Paybill. Use your unit number as the account. Send proof after paying.
+                - paragraph [ref=f21e89]: Shown to tenants when they go to pay — e.g. how to use the paybill, what account number to enter, to send proof, etc.
+              - generic [ref=f21e90]:
+                - paragraph [ref=f21e91]: Auto-allocation priority
+                - paragraph [ref=f21e92]: When you auto-allocate a confirmed payment, it clears these in order — top first.
+                - list [ref=f21e93]:
+                  - listitem [ref=f21e94]:
+                    - generic [ref=f21e95]: "1"
+                    - generic [ref=f21e96]: Utilities — balance carried forward
+                    - generic [ref=f21e97]:
+                      - button [disabled] [ref=f21e98]:
+                        - img [ref=f21e99]
+                      - button [ref=f21e101]:
+                        - img [ref=f21e102]
+                  - listitem [ref=f21e114]:
+                    - generic [ref=f21e115]: "2"
+                    - generic [ref=f21e116]: Rent — balance carried forward
+                    - generic [ref=f21e117]:
+                      - button [ref=f21e118]:
+                        - img [ref=f21e119]
+                      - button [ref=f21e121]:
+                        - img [ref=f21e122]
+                  - listitem [ref=f21e104]:
+                    - generic [ref=f21e105]: "3"
+                    - generic [ref=f21e106]: Utilities — current month
+                    - generic [ref=f21e107]:
+                      - button [ref=f21e108]:
+                        - img [ref=f21e109]
+                      - button [ref=f21e111]:
+                        - img [ref=f21e112]
+                  - listitem [ref=f21e124]:
+                    - generic [ref=f21e125]: "4"
+                    - generic [ref=f21e126]: Rent — current month
+                    - generic [ref=f21e127]:
+                      - button [ref=f21e128]:
+                        - img [ref=f21e129]
+                      - button [ref=f21e131]:
+                        - img [ref=f21e132]
+                  - listitem [ref=f21e134]:
+                    - generic [ref=f21e135]: "5"
+                    - generic [ref=f21e136]: Other charges (penalties, custom)
+                    - generic [ref=f21e137]:
+                      - button [ref=f21e138]:
+                        - img [ref=f21e139]
+                      - button [disabled] [ref=f21e141]:
+                        - img [ref=f21e142]
+            - generic [ref=f21e144]:
+              - generic [ref=f21e145]:
+                - heading "Automated tasks" [level=3] [ref=f21e146]
+                - button "Run scheduled automations now" [ref=f21e147]:
+                  - generic [ref=f21e148]: Run scheduled automations now
+              - generic [ref=f21e149] [cursor=pointer]:
+                - generic [ref=f21e150]:
+                  - checkbox "Automatically generate recurring rent invoices" [checked] [ref=f21e151]
+                  - img [ref=f21e153]
+                - generic [ref=f21e155]: Automatically generate recurring rent invoices
+              - generic [ref=f21e156] [cursor=pointer]:
+                - generic [ref=f21e157]:
+                  - checkbox "Automatically generate other recurring bills" [checked] [ref=f21e158]
+                  - img [ref=f21e160]
+                - generic [ref=f21e162]: Automatically generate other recurring bills
+              - generic [ref=f21e163] [cursor=pointer]:
+                - generic [ref=f21e164]:
+                  - checkbox "Alert me when a new tenant is added" [checked] [ref=f21e165]
+                  - img [ref=f21e167]
+                - generic [ref=f21e169]: Alert me when a new tenant is added
+              - generic [ref=f21e170] [cursor=pointer]:
+                - generic [ref=f21e171]:
+                  - checkbox "Automatically send payment acknowledgments" [checked] [ref=f21e172]
+                  - img [ref=f21e174]
+                - generic [ref=f21e176]: Automatically send payment acknowledgments
+              - generic [ref=f21e177] [cursor=pointer]:
+                - generic [ref=f21e178]:
+                  - checkbox "Send monthly payment reminders" [checked] [ref=f21e179]
+                  - img [ref=f21e181]
+                - generic [ref=f21e183]: Send monthly payment reminders
+              - generic [ref=f21e184]:
+                - generic [ref=f21e185]: Reminder day of month
+                - spinbutton [ref=f21e187]: "1"
+              - generic [ref=f21e188] [cursor=pointer]:
+                - generic [ref=f21e189]:
+                  - checkbox "Send lease-expiry notifications" [checked] [ref=f21e190]
+                  - img [ref=f21e192]
+                - generic [ref=f21e194]: Send lease-expiry notifications
+              - generic [ref=f21e195]:
+                - generic [ref=f21e196]: Notify within (days)
+                - spinbutton [ref=f21e198]: "30"
+            - generic [ref=f21e199]:
+              - heading "Communication channels" [level=3] [ref=f21e200]
+              - generic [ref=f21e201] [cursor=pointer]:
+                - generic [ref=f21e202]:
+                  - checkbox "SMS" [checked] [ref=f21e203]
+                  - img [ref=f21e205]
+                - generic [ref=f21e207]: SMS
+              - generic [ref=f21e208] [cursor=pointer]:
+                - generic [ref=f21e209]:
+                  - checkbox "WhatsApp" [ref=f21e210]
+                  - img [ref=f21e212]
+                - generic [ref=f21e214]: WhatsApp
+              - generic [ref=f21e215] [cursor=pointer]:
+                - generic [ref=f21e216]:
+                  - checkbox "Email" [checked] [ref=f21e217]
+                  - img [ref=f21e219]
+                - generic [ref=f21e221]: Email
+            - button "Save changes" [ref=f21e223]:
+              - generic [ref=f21e224]: Save changes
+  - generic [ref=f21e345]:
+    - img [ref=f21e346]
+    - paragraph [ref=f21e349]: Settings saved.
+    - button [ref=f21e350]:
+      - img [ref=f21e351]

@@ -1,0 +1,115 @@
+- generic [ref=f16e41]:
+  - complementary [ref=f16e42]:
+    - generic [ref=f16e43]:
+      - generic [ref=f16e44]: SahilPay Admin
+      - button [ref=f16e45]:
+        - img [ref=f16e46]
+    - navigation [ref=f16e49]:
+      - link "Dashboard" [ref=f16e50] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=f16e52]
+        - generic [ref=f16e57]: Dashboard
+      - link "Landlords" [ref=f16e58] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=f16e60]
+        - generic [ref=f16e64]: Landlords
+      - link "Properties" [ref=f16e65] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=f16e67]
+        - generic [ref=f16e70]: Properties
+      - link "Units" [ref=f16e71] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=f16e73]
+        - generic [ref=f16e77]: Units
+      - link "Tenants" [ref=f16e78] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=f16e80]
+        - generic [ref=f16e85]: Tenants
+      - link "Team members" [ref=f16e86] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=f16e88]
+        - generic [ref=f16e100]: Team members
+      - link "Pricing" [ref=f16e101] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=f16e103]
+        - generic [ref=f16e107]: Pricing
+      - link "SMS" [ref=f16e108] [cursor=pointer]:
+        - /url: /admin/sms
+        - img [ref=f16e110]
+        - generic [ref=f16e112]: SMS
+      - link "Trials" [ref=f16e113] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=f16e115]
+        - generic [ref=f16e118]: Trials
+      - link "Impersonation" [ref=f16e119] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=f16e121]
+        - generic [ref=f16e124]: Impersonation
+      - link "Master Audit" [ref=f16e125] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=f16e127]
+        - generic [ref=f16e132]: Master Audit
+      - link "Notifications" [ref=f16e133] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=f16e135]
+        - generic [ref=f16e138]: Notifications
+    - generic [ref=f16e140]:
+      - paragraph [ref=f16e141]: admin@sahilpay.test
+      - button "Log out" [ref=f16e142]:
+        - img [ref=f16e143]
+        - text: Log out
+  - generic [ref=f16e146]:
+    - banner [ref=f16e147]:
+      - button [ref=f16e148]:
+        - img [ref=f16e149]
+      - generic [ref=f16e150]: SahilPay
+    - main [ref=f16e151]:
+      - generic [ref=f16e152]:
+        - generic [ref=f16e154]:
+          - navigation [ref=f16e155]:
+            - link "Admin" [ref=f16e157] [cursor=pointer]:
+              - /url: /admin/dashboard
+            - generic [ref=f16e158]:
+              - img [ref=f16e159]
+              - generic [ref=f16e161]: SMS
+          - heading "SMS management" [level=1] [ref=f16e162]
+          - paragraph [ref=f16e163]: Pricing, shared pool, monitoring and reselling analytics
+        - generic [ref=f16e164]:
+          - button "Monitoring" [ref=f16e165]: Monitoring
+          - button "Pricing" [ref=f16e167]
+          - button "SMS pool" [ref=f16e168]
+          - button "Report" [ref=f16e169]
+        - generic [ref=f16e170]:
+          - generic [ref=f16e202]:
+            - generic [ref=f16e203]:
+              - paragraph [ref=f16e204]: SMS sold (all-time)
+              - paragraph [ref=f16e205]: "0"
+              - paragraph [ref=f16e206]: Avg rate KES 0.00 / SMS
+            - generic [ref=f16e207]:
+              - paragraph [ref=f16e208]: SMS spent by landlords
+              - paragraph [ref=f16e209]: "0"
+              - paragraph [ref=f16e210]: 0 shared · 0 own sender
+            - generic [ref=f16e211]:
+              - paragraph [ref=f16e212]: Shared sending
+              - paragraph [ref=f16e213]: Disabled
+              - paragraph [ref=f16e214]: 0 credits topped up to date
+          - generic [ref=f16e215]:
+            - heading "Revenue vs cost — by month" [level=3] [ref=f16e216]
+            - generic [ref=f16e218]:
+              - list [ref=f16e220]:
+                - listitem [ref=f16e221]:
+                  - img "Margin legend icon" [ref=f16e222]
+                  - text: Margin
+                - listitem [ref=f16e224]:
+                  - img "Platform cost legend icon" [ref=f16e225]
+                  - text: Platform cost
+                - listitem [ref=f16e227]:
+                  - img "Revenue legend icon" [ref=f16e228]
+                  - text: Revenue
+              - application [ref=f16e230]
+          - generic [ref=f16e235]:
+            - heading "Per-landlord SMS activity" [level=3] [ref=f16e236]
+            - generic [ref=f16e237]:
+              - img [ref=f16e239]
+              - heading "No records found" [level=3] [ref=f16e242]
+              - paragraph [ref=f16e243]: Try adjusting your filters.

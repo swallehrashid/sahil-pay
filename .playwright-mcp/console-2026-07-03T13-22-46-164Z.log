@@ -1,0 +1,4 @@
+[     424ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=d199db43:14336
+[    1377ms] [ERROR] Failed to load resource: the server responded with a status of 403 (FORBIDDEN) @ http://localhost:5000/api/properties:0
+[    1383ms] [ERROR] Failed to load resource: the server responded with a status of 403 (FORBIDDEN) @ http://localhost:5000/api/property-groups:0
+[   14307ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5173/login:0

@@ -1,0 +1,67 @@
+- generic [ref=f3e3]:
+  - complementary [ref=f3e4]:
+    - generic [ref=f3e5]:
+      - generic [ref=f3e6]: SahilPay Admin
+      - button [ref=f3e7]:
+        - img [ref=f3e8]
+    - navigation [ref=f3e11]:
+      - link "Dashboard" [ref=f3e12] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=f3e14]
+        - generic [ref=f3e19]: Dashboard
+      - link "Landlords" [ref=f3e20] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=f3e22]
+        - generic [ref=f3e26]: Landlords
+      - link "Properties" [ref=f3e27] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=f3e29]
+        - generic [ref=f3e32]: Properties
+      - link "Units" [ref=f3e33] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=f3e35]
+        - generic [ref=f3e39]: Units
+      - link "Tenants" [ref=f3e40] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=f3e42]
+        - generic [ref=f3e47]: Tenants
+      - link "Team members" [ref=f3e48] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=f3e50]
+        - generic [ref=f3e62]: Team members
+      - link "Pricing" [ref=f3e63] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=f3e65]
+        - generic [ref=f3e69]: Pricing
+      - link "SMS" [ref=f3e70] [cursor=pointer]:
+        - /url: /admin/sms
+        - img [ref=f3e72]
+        - generic [ref=f3e74]: SMS
+      - link "Trials" [ref=f3e75] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=f3e77]
+        - generic [ref=f3e80]: Trials
+      - link "Impersonation" [ref=f3e81] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=f3e83]
+        - generic [ref=f3e86]: Impersonation
+      - link "Master Audit" [ref=f3e87] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=f3e89]
+        - generic [ref=f3e94]: Master Audit
+      - link "Notifications" [ref=f3e95] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=f3e97]
+        - generic [ref=f3e100]: Notifications
+    - generic [ref=f3e102]:
+      - paragraph [ref=f3e103]: admin@sahilpay.test
+      - button "Log out" [ref=f3e104]:
+        - img [ref=f3e105]
+        - text: Log out
+  - generic [ref=f3e108]:
+    - banner [ref=f3e109]:
+      - button [ref=f3e110]:
+        - img [ref=f3e111]
+      - generic [ref=f3e112]: SahilPay
+    - main [ref=f3e113]:
+      - generic [ref=f3e118]: SP
