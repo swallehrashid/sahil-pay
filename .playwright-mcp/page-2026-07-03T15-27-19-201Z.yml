@@ -1,0 +1,58 @@
+- generic [active] [ref=f7e1]:
+  - generic [ref=f7e8]:
+    - banner [ref=f7e9]:
+      - generic [ref=f7e10]: SahilPay
+      - navigation [ref=f7e11]:
+        - link "Dashboard" [ref=f7e12] [cursor=pointer]:
+          - /url: /portal/dashboard
+          - img [ref=f7e13]
+          - generic [ref=f7e18]: Dashboard
+        - link "Pay" [ref=f7e19] [cursor=pointer]:
+          - /url: /portal/pay
+          - img [ref=f7e20]
+          - generic [ref=f7e23]: Pay
+        - link "Statement" [ref=f7e24] [cursor=pointer]:
+          - /url: /portal/statement
+          - img [ref=f7e25]
+          - generic [ref=f7e28]: Statement
+        - link "Maintenance" [ref=f7e29] [cursor=pointer]:
+          - /url: /portal/maintenance
+          - img [ref=f7e30]
+          - generic [ref=f7e32]: Maintenance
+        - link "Profile" [ref=f7e33] [cursor=pointer]:
+          - /url: /portal/profile
+          - img [ref=f7e34]
+          - generic [ref=f7e37]: Profile
+      - generic [ref=f7e38]:
+        - button [ref=f7e40]:
+          - img [ref=f7e41]
+        - button [ref=f7e44]:
+          - img [ref=f7e45]
+    - main [ref=f7e48]:
+      - generic [ref=f7e49]:
+        - heading "Profile" [level=1] [ref=f7e50]
+        - paragraph [ref=f7e51]: Changes here sync straight to your landlord's records.
+        - generic [ref=f7e52]:
+          - generic [ref=f7e53]:
+            - generic [ref=f7e54]: First name
+            - textbox [ref=f7e56]: James
+          - generic [ref=f7e57]:
+            - generic [ref=f7e58]: Last name
+            - textbox [ref=f7e60]: Mwangi
+        - generic [ref=f7e61]:
+          - generic [ref=f7e62]:
+            - generic [ref=f7e63]: Phone
+            - textbox [ref=f7e65]: "+254711000001"
+          - generic [ref=f7e66]:
+            - generic [ref=f7e67]: Email
+            - textbox [ref=f7e69]: james.mwangi@tenant.test
+        - generic [ref=f7e70]:
+          - generic [ref=f7e71]: Secondary phone
+          - textbox [ref=f7e73]: "+254799888777"
+        - button "Save changes" [ref=f7e75]:
+          - generic [ref=f7e76]: Save changes
+  - generic [ref=f7e78]:
+    - img [ref=f7e79]
+    - paragraph [ref=f7e82]: Profile updated.
+    - button [ref=f7e83]:
+      - img [ref=f7e84]

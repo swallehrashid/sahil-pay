@@ -1,0 +1,168 @@
+- generic [active] [ref=f20e1]:
+  - generic [ref=f20e8]:
+    - complementary [ref=f20e9]:
+      - generic [ref=f20e11]: SahilPay
+      - navigation [ref=f20e12]:
+        - link "Dashboard" [ref=f20e13] [cursor=pointer]:
+          - /url: /landlord/dashboard
+          - img [ref=f20e15]
+          - generic [ref=f20e20]: Dashboard
+        - link "Invoices" [ref=f20e21] [cursor=pointer]:
+          - /url: /landlord/invoices
+          - img [ref=f20e23]
+          - generic [ref=f20e26]: Invoices
+        - link "Payments" [ref=f20e27] [cursor=pointer]:
+          - /url: /landlord/payments
+          - img [ref=f20e29]
+          - generic [ref=f20e32]: Payments
+        - link "Expenses" [ref=f20e33] [cursor=pointer]:
+          - /url: /landlord/expenses
+          - img [ref=f20e35]
+          - generic [ref=f20e37]: Expenses
+        - link "Tenants" [ref=f20e38] [cursor=pointer]:
+          - /url: /landlord/tenants
+          - img [ref=f20e40]
+          - generic [ref=f20e45]: Tenants
+        - link "Properties" [ref=f20e46] [cursor=pointer]:
+          - /url: /landlord/properties
+          - img [ref=f20e48]
+          - generic [ref=f20e52]: Properties
+        - link "Units" [ref=f20e53] [cursor=pointer]:
+          - /url: /landlord/units
+          - img [ref=f20e55]
+          - generic [ref=f20e58]: Units
+        - link "Utilities" [ref=f20e59] [cursor=pointer]:
+          - /url: /landlord/utilities
+          - img [ref=f20e61]
+          - generic [ref=f20e64]: Utilities
+        - link "Maintenance" [ref=f20e65] [cursor=pointer]:
+          - /url: /landlord/maintenance
+          - img [ref=f20e67]
+          - generic [ref=f20e69]: Maintenance
+        - link "Property Groups" [ref=f20e70] [cursor=pointer]:
+          - /url: /landlord/groups
+          - img [ref=f20e72]
+          - generic [ref=f20e77]: Property Groups
+        - link "Reports" [ref=f20e78] [cursor=pointer]:
+          - /url: /landlord/reports/statements
+          - img [ref=f20e80]
+          - generic [ref=f20e82]: Reports
+        - link "Communications" [ref=f20e83] [cursor=pointer]:
+          - /url: /landlord/communications
+          - img [ref=f20e85]
+          - generic [ref=f20e87]: Communications
+        - link "Tenant Messages" [ref=f20e88] [cursor=pointer]:
+          - /url: /landlord/messages
+          - img [ref=f20e90]
+          - generic [ref=f20e93]: Tenant Messages
+        - link "Notifications" [ref=f20e94] [cursor=pointer]:
+          - /url: /landlord/notifications
+          - img [ref=f20e96]
+          - generic [ref=f20e99]: Notifications
+        - link "Settings" [ref=f20e100] [cursor=pointer]:
+          - /url: /landlord/settings
+          - img [ref=f20e102]
+          - generic [ref=f20e105]: Settings
+      - generic [ref=f20e107]:
+        - paragraph [ref=f20e108]: landlord@sahilpay.test
+        - button "Log out" [ref=f20e109]:
+          - img [ref=f20e110]
+          - text: Log out
+    - generic [ref=f20e113]:
+      - generic [ref=f20e114]:
+        - link "0 SMS left" [ref=f20e115] [cursor=pointer]:
+          - /url: /landlord/settings/billing
+          - img [ref=f20e116]
+          - text: 0 SMS left
+        - button "6" [ref=f20e119]:
+          - img [ref=f20e120]
+          - generic [ref=f20e123]: "6"
+        - generic [ref=f20e124]:
+          - generic [ref=f20e125]: L
+          - generic [ref=f20e126]: landlord@sahilpay.test
+      - main [ref=f20e127]:
+        - generic [ref=f20e128]:
+          - generic [ref=f20e129]:
+            - generic [ref=f20e130]:
+              - heading "Payments" [level=1] [ref=f20e131]
+              - paragraph [ref=f20e132]: Every payment recorded against your tenants
+            - generic [ref=f20e133]:
+              - button "Report" [ref=f20e134]:
+                - img [ref=f20e135]
+                - generic [ref=f20e138]: Report
+              - button "Upload statement" [ref=f20e139]:
+                - img [ref=f20e140]
+                - generic [ref=f20e143]: Upload statement
+              - button "Record payment" [ref=f20e144]:
+                - img [ref=f20e145]
+                - generic [ref=f20e146]: Record payment
+          - generic [ref=f20e147]:
+            - generic [ref=f20e148]:
+              - generic [ref=f20e149]:
+                - paragraph [ref=f20e150]: Total payments
+                - img [ref=f20e152]
+              - paragraph [ref=f20e155]: "0"
+            - generic [ref=f20e156]:
+              - generic [ref=f20e157]:
+                - paragraph [ref=f20e158]: Total received
+                - img [ref=f20e160]
+              - paragraph [ref=f20e163]: KES 0.00
+          - generic [ref=f20e164]:
+            - complementary [ref=f20e165]:
+              - heading "Filters" [level=3] [ref=f20e166]:
+                - img [ref=f20e167]
+                - text: Filters
+              - generic [ref=f20e168]:
+                - generic [ref=f20e169]:
+                  - generic [ref=f20e170]: From
+                  - generic [ref=f20e171]:
+                    - textbox [ref=f20e172]
+                    - img
+                - generic [ref=f20e173]:
+                  - generic [ref=f20e174]: To
+                  - generic [ref=f20e175]:
+                    - textbox [ref=f20e176]
+                    - img
+                - generic [ref=f20e177]:
+                  - generic [ref=f20e178]: Status
+                  - generic [ref=f20e179]:
+                    - combobox [ref=f20e180]:
+                      - option "confirmed"
+                      - option "pending" [selected]
+                      - option "declined"
+                    - img
+                - generic [ref=f20e181]:
+                  - generic [ref=f20e182]: Source
+                  - generic [ref=f20e183]:
+                    - combobox [ref=f20e184]:
+                      - option "mpesa"
+                      - option "co_pilot"
+                      - option "bank_statement"
+                      - option "manual"
+                    - img
+                - generic [ref=f20e185]:
+                  - button "Apply" [ref=f20e186]:
+                    - generic [ref=f20e187]: Apply
+                  - button "Reset" [ref=f20e188]:
+                    - generic [ref=f20e189]: Reset
+            - generic [ref=f20e190]:
+              - generic [ref=f20e283]:
+                - img [ref=f20e285]
+                - heading "No records found" [level=3] [ref=f20e288]
+                - paragraph [ref=f20e289]: Try adjusting your filters.
+              - generic [ref=f20e222]:
+                - generic [ref=f20e223]: Showing 0–0 of 0
+                - generic [ref=f20e224]:
+                  - generic [ref=f20e225]: "Rows:"
+                  - combobox "Rows:" [ref=f20e226]:
+                    - option "25" [selected]
+                    - option "50"
+                    - option "100"
+                    - option "200"
+                    - option "500"
+                    - option "1000"
+  - generic [ref=f20e291]:
+    - img [ref=f20e292]
+    - paragraph [ref=f20e295]: Payment confirmed.
+    - button [ref=f20e296]:
+      - img [ref=f20e297]

@@ -1,0 +1,117 @@
+- generic [active] [ref=f3e1]:
+  - generic [ref=f3e55]:
+    - complementary [ref=f3e56]:
+      - generic [ref=f3e58]: SahilPay Admin
+      - navigation [ref=f3e59]:
+        - link "Dashboard" [ref=f3e60] [cursor=pointer]:
+          - /url: /admin/dashboard
+          - img [ref=f3e62]
+          - generic [ref=f3e67]: Dashboard
+        - link "Landlords" [ref=f3e68] [cursor=pointer]:
+          - /url: /admin/landlords
+          - img [ref=f3e70]
+          - generic [ref=f3e74]: Landlords
+        - link "Properties" [ref=f3e75] [cursor=pointer]:
+          - /url: /admin/properties
+          - img [ref=f3e77]
+          - generic [ref=f3e80]: Properties
+        - link "Units" [ref=f3e81] [cursor=pointer]:
+          - /url: /admin/units
+          - img [ref=f3e83]
+          - generic [ref=f3e87]: Units
+        - link "Tenants" [ref=f3e88] [cursor=pointer]:
+          - /url: /admin/tenants
+          - img [ref=f3e90]
+          - generic [ref=f3e95]: Tenants
+        - link "Team members" [ref=f3e96] [cursor=pointer]:
+          - /url: /admin/team-members
+          - img [ref=f3e98]
+          - generic [ref=f3e110]: Team members
+        - link "Pricing" [ref=f3e111] [cursor=pointer]:
+          - /url: /admin/pricing
+          - img [ref=f3e113]
+          - generic [ref=f3e117]: Pricing
+        - link "Trials" [ref=f3e118] [cursor=pointer]:
+          - /url: /admin/trials
+          - img [ref=f3e120]
+          - generic [ref=f3e123]: Trials
+        - link "Impersonation" [ref=f3e124] [cursor=pointer]:
+          - /url: /admin/impersonation
+          - img [ref=f3e126]
+          - generic [ref=f3e129]: Impersonation
+        - link "Master Audit" [ref=f3e130] [cursor=pointer]:
+          - /url: /admin/audit
+          - img [ref=f3e132]
+          - generic [ref=f3e137]: Master Audit
+        - link "Notifications" [ref=f3e138] [cursor=pointer]:
+          - /url: /admin/notifications
+          - img [ref=f3e140]
+          - generic [ref=f3e143]: Notifications
+      - generic [ref=f3e145]:
+        - paragraph [ref=f3e146]: admin@sahilpay.test
+        - button "Log out" [ref=f3e147]:
+          - img [ref=f3e148]
+          - text: Log out
+    - generic [ref=f3e151]:
+      - generic [ref=f3e152]:
+        - button "2" [ref=f3e154]:
+          - img [ref=f3e155]
+          - generic [ref=f3e158]: "2"
+        - generic [ref=f3e159]:
+          - generic [ref=f3e160]: A
+          - generic [ref=f3e161]: admin@sahilpay.test
+      - main [ref=f3e8]:
+        - generic [ref=f3e9]:
+          - generic [ref=f3e10]:
+            - heading "Global default trial" [level=3] [ref=f3e11]
+            - generic [ref=f3e12]:
+              - generic [ref=f3e13]:
+                - generic [ref=f3e14]: Duration (days) *
+                - spinbutton [ref=f3e16]: "30"
+              - generic [ref=f3e18] [cursor=pointer]:
+                - generic [ref=f3e19]:
+                  - checkbox "Active" [checked] [ref=f3e20]
+                  - img [ref=f3e22]
+                - generic [ref=f3e24]: Active
+            - button "Save global config" [ref=f3e26]:
+              - generic [ref=f3e27]: Save global config
+          - generic [ref=f3e28]:
+            - generic [ref=f3e29]:
+              - heading "Trial expiry sweep" [level=3] [ref=f3e30]
+              - paragraph [ref=f3e31]: Ends every trial whose date has passed — moves the account to active billing, notifies the landlord, and logs it. Runs automatically every day; use this to force the check now.
+            - button "Run expiry check" [ref=f3e32]:
+              - generic [ref=f3e33]: Run expiry check
+          - generic [ref=f3e34]:
+            - heading "Per-landlord override" [level=3] [ref=f3e35]
+            - generic [ref=f3e36]:
+              - generic [ref=f3e37]:
+                - generic [ref=f3e38]: Landlord *
+                - generic [ref=f3e39]:
+                  - combobox [ref=f3e40]:
+                    - option "Acme Properties Ltd"
+                    - option "Coastal Rentals"
+                    - option "Pioneer Housing Group"
+                    - option "Sunrise Estates"
+                  - img
+              - generic [ref=f3e41]:
+                - generic [ref=f3e42]: Action
+                - generic [ref=f3e43]:
+                  - combobox [ref=f3e44]:
+                    - option "Extend" [selected]
+                    - option "Reduce"
+                    - option "Revoke"
+                    - option "Activate"
+                  - img
+              - generic [ref=f3e45]:
+                - generic [ref=f3e46]: Duration (days)
+                - spinbutton [ref=f3e48]
+            - generic [ref=f3e49]:
+              - generic [ref=f3e50]: Reason *
+              - textbox [ref=f3e51]
+            - button "Apply" [ref=f3e53]:
+              - generic [ref=f3e54]: Apply
+  - generic [ref=f3e163]:
+    - img [ref=f3e164]
+    - paragraph [ref=f3e167]: No trials were due to expire.
+    - button [ref=f3e168]:
+      - img [ref=f3e169]

@@ -1,0 +1,187 @@
+- generic [ref=e41]:
+  - complementary [ref=e42]:
+    - generic [ref=e44]: SahilPay Admin
+    - navigation [ref=e45]:
+      - link "Dashboard" [ref=e46] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=e48]
+        - generic [ref=e53]: Dashboard
+      - link "Landlords" [ref=e54] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=e56]
+        - generic [ref=e60]: Landlords
+      - link "Properties" [ref=e61] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=e63]
+        - generic [ref=e66]: Properties
+      - link "Units" [ref=e67] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=e69]
+        - generic [ref=e73]: Units
+      - link "Tenants" [ref=e74] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=e76]
+        - generic [ref=e81]: Tenants
+      - link "Team members" [ref=e82] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=e84]
+        - generic [ref=e96]: Team members
+      - link "Pricing" [ref=e97] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=e99]
+        - generic [ref=e103]: Pricing
+      - link "Trials" [ref=e104] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=e106]
+        - generic [ref=e109]: Trials
+      - link "Impersonation" [ref=e110] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=e112]
+        - generic [ref=e115]: Impersonation
+      - link "Master Audit" [ref=e116] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=e118]
+        - generic [ref=e123]: Master Audit
+      - link "Notifications" [ref=e124] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=e126]
+        - generic [ref=e129]: Notifications
+    - generic [ref=e131]:
+      - paragraph [ref=e132]: admin@sahilpay.test
+      - button "Log out" [ref=e133]:
+        - img [ref=e134]
+        - text: Log out
+  - generic [ref=e137]:
+    - generic [ref=e138]:
+      - button "2" [ref=e140]:
+        - img [ref=e141]
+        - generic [ref=e144]: "2"
+      - generic [ref=e145]:
+        - generic [ref=e146]: A
+        - generic [ref=e147]: admin@sahilpay.test
+    - main [ref=e148]:
+      - generic [ref=e525]:
+        - generic [ref=e526]:
+          - generic [ref=e527]:
+            - navigation [ref=e528]:
+              - link "Units" [ref=e530] [cursor=pointer]:
+                - /url: /admin/units
+              - generic [ref=e531]:
+                - img [ref=e532]
+                - generic [ref=e534]: Detail
+            - heading "V1" [level=1] [ref=e535]
+            - paragraph [ref=e536]: Unit detail
+          - link "Back" [ref=e538] [cursor=pointer]:
+            - /url: /admin/units
+            - button "Back" [ref=e539]:
+              - img [ref=e540]
+              - generic [ref=e542]: Back
+        - generic [ref=e543]:
+          - generic [ref=e544]:
+            - paragraph [ref=e546]: Rent
+            - paragraph [ref=e547]: KES 40,000.00
+          - generic [ref=e548]:
+            - paragraph [ref=e550]: Occupancy
+            - paragraph [ref=e551]:
+              - generic [ref=e552]: Occupied
+          - generic [ref=e553]:
+            - paragraph [ref=e555]: Occupant
+            - paragraph [ref=e556]: John Baraka
+          - generic [ref=e557]:
+            - paragraph [ref=e559]: Occupant balance
+            - paragraph [ref=e560]: KES 12,000.00
+        - generic [ref=e561]:
+          - heading "Unit" [level=3] [ref=e562]
+          - generic [ref=e563]:
+            - generic [ref=e564]:
+              - term [ref=e565]: Name
+              - definition [ref=e566]: V1
+            - generic [ref=e567]:
+              - term [ref=e568]: Rent
+              - definition [ref=e569]: KES 40,000.00
+        - generic [ref=e570]:
+          - heading "Property & landlord" [level=3] [ref=e571]
+          - generic [ref=e572]:
+            - generic [ref=e573]:
+              - term [ref=e574]: Property
+              - definition [ref=e575]: Beachside Villas
+            - generic [ref=e576]:
+              - term [ref=e577]: City
+              - definition [ref=e578]: Mombasa
+            - generic [ref=e579]:
+              - term [ref=e580]: Landlord
+              - definition [ref=e581]:
+                - link "Sunrise Estates" [ref=e582] [cursor=pointer]:
+                  - /url: /admin/landlords/2
+            - generic [ref=e583]:
+              - term [ref=e584]: Landlord email
+              - definition [ref=e585]: sunrise@sahilpay.test
+        - generic [ref=e586]:
+          - heading "Current occupant" [level=3] [ref=e587]
+          - generic [ref=e588]:
+            - generic [ref=e589]:
+              - term [ref=e590]: Name
+              - definition [ref=e591]: John Baraka
+            - generic [ref=e592]:
+              - term [ref=e593]: Phone
+              - definition [ref=e594]: "+254712000003"
+            - generic [ref=e595]:
+              - term [ref=e596]: Email
+              - definition [ref=e597]: john.baraka@tenant.test
+            - generic [ref=e598]:
+              - term [ref=e599]: Balance
+              - definition [ref=e600]: KES 12,000.00
+            - generic [ref=e601]:
+              - term [ref=e602]: Lease start
+              - definition [ref=e603]: 03 Mar 2026
+            - generic [ref=e604]:
+              - term [ref=e605]: Lease expiry
+              - definition [ref=e606]: 03 Mar 2027
+        - generic [ref=e607]:
+          - heading "Occupancy history" [level=3] [ref=e608]
+          - table [ref=e610]:
+            - rowgroup [ref=e611]:
+              - row "Tenant Phone Moved in Moved out Status" [ref=e612]:
+                - columnheader "Tenant" [ref=e613]
+                - columnheader "Phone" [ref=e614]
+                - columnheader "Moved in" [ref=e615]
+                - columnheader "Moved out" [ref=e616]
+                - columnheader "Status" [ref=e617]
+            - rowgroup [ref=e618]:
+              - row "John Baraka +254712000003 03 Mar 2026 — Active" [ref=e619]:
+                - cell "John Baraka" [ref=e620]
+                - cell "+254712000003" [ref=e621]
+                - cell "03 Mar 2026" [ref=e622]
+                - cell "—" [ref=e623]
+                - cell "Active" [ref=e624]:
+                  - generic [ref=e625]: Active
+        - generic [ref=e626]:
+          - heading "Recent payments" [level=3] [ref=e627]
+          - table [ref=e629]:
+            - rowgroup [ref=e630]:
+              - row "Date Amount Source Status" [ref=e631]:
+                - columnheader "Date" [ref=e632]
+                - columnheader "Amount" [ref=e633]
+                - columnheader "Source" [ref=e634]
+                - columnheader "Status" [ref=e635]
+            - rowgroup [ref=e636]:
+              - row "03 Jul 2026, 12:51 KES 12,000.00 manual confirmed" [ref=e637]:
+                - cell "03 Jul 2026, 12:51" [ref=e638]
+                - cell "KES 12,000.00" [ref=e639]
+                - cell "manual" [ref=e640]
+                - cell "confirmed" [ref=e641]
+              - row "03 Jul 2026, 12:51 KES 44,800.00 mpesa confirmed" [ref=e642]:
+                - cell "03 Jul 2026, 12:51" [ref=e643]
+                - cell "KES 44,800.00" [ref=e644]
+                - cell "mpesa" [ref=e645]
+                - cell "confirmed" [ref=e646]
+              - row "03 Jul 2026, 12:51 KES 44,950.00 mpesa confirmed" [ref=e647]:
+                - cell "03 Jul 2026, 12:51" [ref=e648]
+                - cell "KES 44,950.00" [ref=e649]
+                - cell "mpesa" [ref=e650]
+                - cell "confirmed" [ref=e651]
+              - row "03 Jul 2026, 12:51 KES 45,100.00 mpesa confirmed" [ref=e652]:
+                - cell "03 Jul 2026, 12:51" [ref=e653]
+                - cell "KES 45,100.00" [ref=e654]
+                - cell "mpesa" [ref=e655]
+                - cell "confirmed" [ref=e656]

@@ -1,0 +1,214 @@
+- generic [ref=f4e114]:
+  - complementary [ref=f4e115]:
+    - generic [ref=f4e117]: SahilPay Admin
+    - navigation [ref=f4e118]:
+      - link "Dashboard" [ref=f4e119] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=f4e121]
+        - generic [ref=f4e126]: Dashboard
+      - link "Landlords" [ref=f4e127] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=f4e129]
+        - generic [ref=f4e133]: Landlords
+      - link "Properties" [ref=f4e134] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=f4e136]
+        - generic [ref=f4e139]: Properties
+      - link "Units" [ref=f4e140] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=f4e142]
+        - generic [ref=f4e146]: Units
+      - link "Tenants" [ref=f4e147] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=f4e149]
+        - generic [ref=f4e154]: Tenants
+      - link "Team members" [ref=f4e155] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=f4e157]
+        - generic [ref=f4e169]: Team members
+      - link "Pricing" [ref=f4e170] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=f4e172]
+        - generic [ref=f4e176]: Pricing
+      - link "Trials" [ref=f4e177] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=f4e179]
+        - generic [ref=f4e182]: Trials
+      - link "Impersonation" [ref=f4e183] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=f4e185]
+        - generic [ref=f4e188]: Impersonation
+      - link "Master Audit" [ref=f4e189] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=f4e191]
+        - generic [ref=f4e196]: Master Audit
+      - link "Notifications" [ref=f4e197] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=f4e199]
+        - generic [ref=f4e202]: Notifications
+    - generic [ref=f4e204]:
+      - paragraph [ref=f4e205]: admin@sahilpay.test
+      - button "Log out" [ref=f4e206]:
+        - img [ref=f4e207]
+        - text: Log out
+  - generic [ref=f4e210]:
+    - generic [ref=f4e211]:
+      - button "2" [ref=f4e213]:
+        - img [ref=f4e214]
+        - generic [ref=f4e217]: "2"
+      - generic [ref=f4e218]:
+        - generic [ref=f4e219]: A
+        - generic [ref=f4e220]: admin@sahilpay.test
+    - main [ref=f4e8]:
+      - generic [ref=f4e221]:
+        - generic [ref=f4e222]:
+          - generic [ref=f4e223]:
+            - navigation [ref=f4e224]:
+              - link "Team members" [ref=f4e226] [cursor=pointer]:
+                - /url: /admin/team-members
+              - generic [ref=f4e227]:
+                - img [ref=f4e228]
+                - generic [ref=f4e230]: Detail
+            - heading "David Otieno" [level=1] [ref=f4e231]
+            - paragraph [ref=f4e232]: Belongs to Acme Properties Ltd
+          - link "Back" [ref=f4e234] [cursor=pointer]:
+            - /url: /admin/team-members
+            - button "Back" [ref=f4e235]:
+              - img [ref=f4e236]
+              - generic [ref=f4e238]: Back
+        - generic [ref=f4e239]:
+          - generic [ref=f4e240]:
+            - paragraph [ref=f4e242]: Status
+            - paragraph [ref=f4e243]:
+              - generic [ref=f4e244]: Active
+          - generic [ref=f4e245]:
+            - paragraph [ref=f4e247]: Role
+            - paragraph [ref=f4e248]: editor
+          - generic [ref=f4e249]:
+            - paragraph [ref=f4e251]: Modules granted
+            - paragraph [ref=f4e252]: "12"
+          - generic [ref=f4e253]:
+            - paragraph [ref=f4e255]: Recent actions
+            - paragraph [ref=f4e256]: "1"
+        - generic [ref=f4e257]:
+          - heading "Profile" [level=3] [ref=f4e258]
+          - generic [ref=f4e259]:
+            - generic [ref=f4e260]:
+              - term [ref=f4e261]: Username
+              - definition [ref=f4e262]: caretaker1
+            - generic [ref=f4e263]:
+              - term [ref=f4e264]: Name
+              - definition [ref=f4e265]: David Otieno
+            - generic [ref=f4e266]:
+              - term [ref=f4e267]: Email
+              - definition [ref=f4e268]: caretaker@sahilpay.test
+            - generic [ref=f4e269]:
+              - term [ref=f4e270]: Phone
+              - definition [ref=f4e271]: "+254722000001"
+            - generic [ref=f4e272]:
+              - term [ref=f4e273]: Role
+              - definition [ref=f4e274]: editor
+            - generic [ref=f4e275]:
+              - term [ref=f4e276]: Belongs to
+              - definition [ref=f4e277]:
+                - link "Acme Properties Ltd" [ref=f4e278] [cursor=pointer]:
+                  - /url: /admin/landlords/1
+        - generic [ref=f4e279]:
+          - heading "Permissions — what they can do" [level=3] [ref=f4e280]
+          - table [ref=f4e282]:
+            - rowgroup [ref=f4e283]:
+              - row "Module View Edit" [ref=f4e284]:
+                - columnheader "Module" [ref=f4e285]
+                - columnheader "View" [ref=f4e286]
+                - columnheader "Edit" [ref=f4e287]
+            - rowgroup [ref=f4e288]:
+              - row "expenses" [ref=f4e289]:
+                - cell "expenses" [ref=f4e290]
+                - cell [ref=f4e291]:
+                  - img [ref=f4e292]
+                - cell [ref=f4e294]:
+                  - img [ref=f4e295]
+              - row "groups" [ref=f4e297]:
+                - cell "groups" [ref=f4e298]
+                - cell [ref=f4e299]:
+                  - img [ref=f4e300]
+                - cell [ref=f4e302]:
+                  - img [ref=f4e303]
+              - row "invoices" [ref=f4e305]:
+                - cell "invoices" [ref=f4e306]
+                - cell [ref=f4e307]:
+                  - img [ref=f4e308]
+                - cell [ref=f4e310]:
+                  - img [ref=f4e311]
+              - row "maintenance" [ref=f4e313]:
+                - cell "maintenance" [ref=f4e314]
+                - cell [ref=f4e315]:
+                  - img [ref=f4e316]
+                - cell [ref=f4e318]:
+                  - img [ref=f4e319]
+              - row "messages" [ref=f4e321]:
+                - cell "messages" [ref=f4e322]
+                - cell [ref=f4e323]:
+                  - img [ref=f4e324]
+                - cell [ref=f4e326]:
+                  - img [ref=f4e327]
+              - row "payments" [ref=f4e329]:
+                - cell "payments" [ref=f4e330]
+                - cell [ref=f4e331]:
+                  - img [ref=f4e332]
+                - cell [ref=f4e334]:
+                  - img [ref=f4e335]
+              - row "properties" [ref=f4e337]:
+                - cell "properties" [ref=f4e338]
+                - cell [ref=f4e339]:
+                  - img [ref=f4e340]
+                - cell [ref=f4e342]:
+                  - img [ref=f4e343]
+              - row "reports" [ref=f4e346]:
+                - cell "reports" [ref=f4e347]
+                - cell [ref=f4e348]:
+                  - img [ref=f4e349]
+                - cell [ref=f4e351]:
+                  - img [ref=f4e352]
+              - row "tenants" [ref=f4e355]:
+                - cell "tenants" [ref=f4e356]
+                - cell [ref=f4e357]:
+                  - img [ref=f4e358]
+                - cell [ref=f4e360]:
+                  - img [ref=f4e361]
+              - row "unit_utilities" [ref=f4e363]:
+                - cell "unit_utilities" [ref=f4e364]
+                - cell [ref=f4e365]:
+                  - img [ref=f4e366]
+                - cell [ref=f4e368]:
+                  - img [ref=f4e369]
+              - row "units" [ref=f4e371]:
+                - cell "units" [ref=f4e372]
+                - cell [ref=f4e373]:
+                  - img [ref=f4e374]
+                - cell [ref=f4e376]:
+                  - img [ref=f4e377]
+              - row "utilities" [ref=f4e380]:
+                - cell "utilities" [ref=f4e381]
+                - cell [ref=f4e382]:
+                  - img [ref=f4e383]
+                - cell [ref=f4e385]:
+                  - img [ref=f4e386]
+        - generic [ref=f4e388]:
+          - heading "Property access" [level=3] [ref=f4e389]
+          - generic [ref=f4e391]: Riverside Apartments · Nairobi
+        - generic [ref=f4e392]:
+          - heading "Recent activity — what they've been doing" [level=3] [ref=f4e393]
+          - table [ref=f4e395]:
+            - rowgroup [ref=f4e396]:
+              - row "When Action Entity Description" [ref=f4e397]:
+                - columnheader "When" [ref=f4e398]
+                - columnheader "Action" [ref=f4e399]
+                - columnheader "Entity" [ref=f4e400]
+                - columnheader "Description" [ref=f4e401]
+            - rowgroup [ref=f4e402]:
+              - row "03 Jul 2026, 17:09 view page Viewed Maintenance" [ref=f4e403]:
+                - cell "03 Jul 2026, 17:09" [ref=f4e404]
+                - cell "view" [ref=f4e405]
+                - cell "page" [ref=f4e406]
+                - cell "Viewed Maintenance" [ref=f4e407]

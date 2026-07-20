@@ -1,0 +1,138 @@
+- generic [ref=f18e1]:
+  - generic [ref=f18e8]:
+    - complementary [ref=f18e9]:
+      - generic [ref=f18e11]: SahilPay Admin
+      - navigation [ref=f18e12]:
+        - link "Dashboard" [ref=f18e13] [cursor=pointer]:
+          - /url: /admin/dashboard
+          - img [ref=f18e15]
+          - generic [ref=f18e20]: Dashboard
+        - link "Landlords" [ref=f18e21] [cursor=pointer]:
+          - /url: /admin/landlords
+          - img [ref=f18e23]
+          - generic [ref=f18e27]: Landlords
+        - link "Properties" [ref=f18e28] [cursor=pointer]:
+          - /url: /admin/properties
+          - img [ref=f18e30]
+          - generic [ref=f18e33]: Properties
+        - link "Units" [ref=f18e34] [cursor=pointer]:
+          - /url: /admin/units
+          - img [ref=f18e36]
+          - generic [ref=f18e40]: Units
+        - link "Tenants" [ref=f18e41] [cursor=pointer]:
+          - /url: /admin/tenants
+          - img [ref=f18e43]
+          - generic [ref=f18e48]: Tenants
+        - link "Team members" [ref=f18e49] [cursor=pointer]:
+          - /url: /admin/team-members
+          - img [ref=f18e51]
+          - generic [ref=f18e63]: Team members
+        - link "Pricing" [ref=f18e64] [cursor=pointer]:
+          - /url: /admin/pricing
+          - img [ref=f18e66]
+          - generic [ref=f18e70]: Pricing
+        - link "SMS" [ref=f18e71] [cursor=pointer]:
+          - /url: /admin/sms
+          - img [ref=f18e73]
+          - generic [ref=f18e75]: SMS
+        - link "Trials" [ref=f18e76] [cursor=pointer]:
+          - /url: /admin/trials
+          - img [ref=f18e78]
+          - generic [ref=f18e81]: Trials
+        - link "Impersonation" [ref=f18e82] [cursor=pointer]:
+          - /url: /admin/impersonation
+          - img [ref=f18e84]
+          - generic [ref=f18e87]: Impersonation
+        - link "Master Audit" [ref=f18e88] [cursor=pointer]:
+          - /url: /admin/audit
+          - img [ref=f18e90]
+          - generic [ref=f18e95]: Master Audit
+        - link "Notifications" [ref=f18e96] [cursor=pointer]:
+          - /url: /admin/notifications
+          - img [ref=f18e98]
+          - generic [ref=f18e101]: Notifications
+      - generic [ref=f18e103]:
+        - paragraph [ref=f18e104]: admin@sahilpay.test
+        - button "Log out" [ref=f18e105]:
+          - img [ref=f18e106]
+          - text: Log out
+    - generic [ref=f18e109]:
+      - generic [ref=f18e110]:
+        - button "2" [ref=f18e112]:
+          - img [ref=f18e113]
+          - generic [ref=f18e116]: "2"
+        - generic [ref=f18e117]:
+          - generic [ref=f18e118]: A
+          - generic [ref=f18e119]: admin@sahilpay.test
+      - main [ref=f18e120]:
+        - generic [ref=f18e121]:
+          - generic [ref=f18e122]:
+            - generic [ref=f18e123]:
+              - heading "Pricing Packages" [level=1] [ref=f18e124]
+              - paragraph [ref=f18e125]: Tiered unit-band pricing landlords subscribe into
+            - generic [ref=f18e126]:
+              - button "Override landlord price" [ref=f18e127]:
+                - generic [ref=f18e128]: Override landlord price
+              - button "Add package" [ref=f18e129]:
+                - img [ref=f18e130]
+                - generic [ref=f18e131]: Add package
+          - table [ref=f18e133]:
+            - rowgroup [ref=f18e134]:
+              - row "Package Unit band Price Status Public" [ref=f18e135]:
+                - columnheader "Package" [ref=f18e136]
+                - columnheader "Unit band" [ref=f18e137]
+                - columnheader "Price" [ref=f18e138]
+                - columnheader "Status" [ref=f18e139]
+                - columnheader "Public" [ref=f18e140]
+                - columnheader [ref=f18e141]
+            - rowgroup [ref=f18e142]:
+              - row "Starter 1 – 20 KES 50.00 / unit Active Featured Recommended" [ref=f18e143] [cursor=pointer]:
+                - cell "Starter" [ref=f18e144]
+                - cell "1 – 20" [ref=f18e145]
+                - cell "KES 50.00 / unit" [ref=f18e146]
+                - cell "Active" [ref=f18e147]:
+                  - generic [ref=f18e148]: Active
+                - cell "Featured Recommended" [ref=f18e149]:
+                  - generic [ref=f18e150]:
+                    - generic [ref=f18e151]: Featured
+                    - generic [ref=f18e152]: Recommended
+                - cell [ref=f18e153]:
+                  - button [ref=f18e154]:
+                    - img [ref=f18e155]
+              - row "Growth 21 – 70 KES 40.00 / unit Active Featured Recommended Popular" [ref=f18e159] [cursor=pointer]:
+                - cell "Growth" [ref=f18e160]
+                - cell "21 – 70" [ref=f18e161]
+                - cell "KES 40.00 / unit" [ref=f18e162]
+                - cell "Active" [ref=f18e163]:
+                  - generic [ref=f18e164]: Active
+                - cell "Featured Recommended Popular" [ref=f18e165]:
+                  - generic [ref=f18e166]:
+                    - generic [ref=f18e167]: Featured
+                    - generic [ref=f18e168]: Recommended
+                    - generic [ref=f18e169]: Popular
+                - cell [ref=f18e170]:
+                  - button [ref=f18e171]:
+                    - img [ref=f18e172]
+              - row "Scale 71 – ∞ KES 30.00 / unit Active Featured Popular" [ref=f18e176] [cursor=pointer]:
+                - cell "Scale" [ref=f18e177]
+                - cell "71 – ∞" [ref=f18e178]
+                - cell "KES 30.00 / unit" [ref=f18e179]
+                - cell "Active" [ref=f18e180]:
+                  - generic [ref=f18e181]: Active
+                - cell "Featured Popular" [ref=f18e182]:
+                  - generic [ref=f18e183]:
+                    - generic [ref=f18e184]: Featured
+                    - generic [ref=f18e185]: Popular
+                - cell [ref=f18e186]:
+                  - button [expanded] [active] [ref=f18e187]:
+                    - img [ref=f18e188]
+  - menu [ref=f18e284]:
+    - menuitem "View details" [ref=f18e285]:
+      - img [ref=f18e287]
+      - text: View details
+    - menuitem "Edit" [ref=f18e289]:
+      - img [ref=f18e291]
+      - text: Edit
+    - menuitem "Deactivate" [ref=f18e294]:
+      - img [ref=f18e296]
+      - text: Deactivate

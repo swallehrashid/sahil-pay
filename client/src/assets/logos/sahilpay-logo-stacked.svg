@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 320" fill="none" role="img" aria-label="Sahil Pay — Smart Rent Collection">
+  <!-- Mark, centred -->
+  <g transform="translate(148,6) scale(1.05)">
+    <path d="M47 8 L86 50 C80 68 60 73 46 81 C33 88.5 25.5 97 24 112 L18 62 L6 62 Z"
+          stroke="currentColor" stroke-width="4" stroke-linejoin="miter" fill="none"/>
+    <rect x="37" y="30" width="11" height="11" fill="currentColor"/>
+    <rect x="51" y="30" width="11" height="11" fill="currentColor"/>
+    <rect x="37" y="44" width="11" height="11" fill="currentColor"/>
+    <rect x="51" y="44" width="11" height="11" fill="currentColor"/>
+  </g>
+  <!-- Wordmark -->
+  <text x="210" y="230" text-anchor="middle" fill="currentColor"
+        font-family="Cinzel, 'Playfair Display', Georgia, 'Times New Roman', serif"
+        font-size="52" font-weight="500" letter-spacing="6">SAHIL PAY</text>
+  <!-- Slogan -->
+  <text x="210" y="264" text-anchor="middle" fill="currentColor"
+        font-family="Montserrat, Inter, Helvetica, Arial, sans-serif"
+        font-size="14" font-weight="400" letter-spacing="7.5">SMART RENT COLLECTION</text>
+</svg>

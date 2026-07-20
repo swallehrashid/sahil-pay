@@ -1,0 +1,123 @@
+- generic [ref=f13e8]:
+  - complementary [ref=f13e9]:
+    - generic [ref=f13e11]: SahilPay
+    - navigation [ref=f13e12]:
+      - link "Dashboard" [ref=f13e13] [cursor=pointer]:
+        - /url: /landlord/dashboard
+        - img [ref=f13e15]
+        - generic [ref=f13e20]: Dashboard
+      - link "Invoices" [ref=f13e21] [cursor=pointer]:
+        - /url: /landlord/invoices
+        - img [ref=f13e23]
+        - generic [ref=f13e26]: Invoices
+      - link "Payments" [ref=f13e27] [cursor=pointer]:
+        - /url: /landlord/payments
+        - img [ref=f13e29]
+        - generic [ref=f13e32]: Payments
+      - link "Expenses" [ref=f13e33] [cursor=pointer]:
+        - /url: /landlord/expenses
+        - img [ref=f13e35]
+        - generic [ref=f13e37]: Expenses
+      - link "Tenants" [ref=f13e38] [cursor=pointer]:
+        - /url: /landlord/tenants
+        - img [ref=f13e40]
+        - generic [ref=f13e45]: Tenants
+      - link "Properties" [ref=f13e46] [cursor=pointer]:
+        - /url: /landlord/properties
+        - img [ref=f13e48]
+        - generic [ref=f13e52]: Properties
+      - link "Units" [ref=f13e53] [cursor=pointer]:
+        - /url: /landlord/units
+        - img [ref=f13e55]
+        - generic [ref=f13e58]: Units
+      - link "Utilities" [ref=f13e59] [cursor=pointer]:
+        - /url: /landlord/utilities
+        - img [ref=f13e61]
+        - generic [ref=f13e64]: Utilities
+      - link "Maintenance" [ref=f13e65] [cursor=pointer]:
+        - /url: /landlord/maintenance
+        - img [ref=f13e67]
+        - generic [ref=f13e69]: Maintenance
+      - link "Property Groups" [ref=f13e70] [cursor=pointer]:
+        - /url: /landlord/groups
+        - img [ref=f13e72]
+        - generic [ref=f13e77]: Property Groups
+      - link "Reports" [ref=f13e78] [cursor=pointer]:
+        - /url: /landlord/reports/statements
+        - img [ref=f13e80]
+        - generic [ref=f13e82]: Reports
+      - link "Communications" [ref=f13e83] [cursor=pointer]:
+        - /url: /landlord/communications
+        - img [ref=f13e85]
+        - generic [ref=f13e87]: Communications
+      - link "Tenant Messages" [ref=f13e88] [cursor=pointer]:
+        - /url: /landlord/messages
+        - img [ref=f13e90]
+        - generic [ref=f13e93]: Tenant Messages
+      - link "Notifications" [ref=f13e94] [cursor=pointer]:
+        - /url: /landlord/notifications
+        - img [ref=f13e96]
+        - generic [ref=f13e99]: Notifications
+      - link "Settings" [ref=f13e100] [cursor=pointer]:
+        - /url: /landlord/settings
+        - img [ref=f13e102]
+        - generic [ref=f13e105]: Settings
+    - generic [ref=f13e107]:
+      - paragraph [ref=f13e108]: landlord@sahilpay.test
+      - button "Log out" [ref=f13e109]:
+        - img [ref=f13e110]
+        - text: Log out
+  - generic [ref=f13e113]:
+    - generic [ref=f13e114]:
+      - link "0 SMS left" [ref=f13e115] [cursor=pointer]:
+        - /url: /landlord/settings/billing
+        - img [ref=f13e116]
+        - text: 0 SMS left
+      - button "4" [ref=f13e119]:
+        - img [ref=f13e120]
+        - generic [ref=f13e123]: "4"
+      - generic [ref=f13e124]:
+        - generic [ref=f13e125]: L
+        - generic [ref=f13e126]: landlord@sahilpay.test
+    - main [ref=f13e127]:
+      - generic [ref=f13e128]:
+        - generic [ref=f13e129]:
+          - heading "Tenant messages" [level=1] [ref=f13e130]
+          - paragraph [ref=f13e131]: Conversations raised by your tenants.
+        - generic [ref=f13e132]:
+          - button "James Mwangi A1 · Yes James, your July rent of KES 29,800 is received and fully allocated. I've emailed your receipt. (LL-REPLY-999)" [ref=f13e174]:
+            - generic [ref=f13e136]: James Mwangi
+            - paragraph [ref=f13e138]: A1 · Yes James, your July rent of KES 29,800 is received and fully allocated. I've emailed your receipt. (LL-REPLY-999)
+          - generic [ref=f13e139]:
+            - generic [ref=f13e140]:
+              - paragraph [ref=f13e141]: James Mwangi
+              - paragraph [ref=f13e142]: A1 · Riverside Apartments
+            - generic [ref=f13e143]:
+              - generic [ref=f13e145]:
+                - generic [ref=f13e146]:
+                  - generic [ref=f13e147]: James Mwangi
+                  - generic [ref=f13e148]: repairs
+                  - generic [ref=f13e149]: Jul 03, 04:50 PM
+                - paragraph [ref=f13e150]: Hello, my kitchen sink is still leaking after the last repair. Can someone come this week? (MSG-TEST-001)
+              - generic [ref=f13e152]:
+                - generic [ref=f13e153]:
+                  - generic [ref=f13e154]: Acme Properties Ltd
+                  - generic [ref=f13e155]: Jul 03, 04:50 PM
+                - paragraph [ref=f13e156]: Hi James, sorry to hear that. I will send the plumber Thursday morning. (REPLY-TEST-001)
+              - generic [ref=f13e158]:
+                - generic [ref=f13e159]:
+                  - generic [ref=f13e160]: James Mwangi
+                  - generic [ref=f13e161]: rent
+                  - generic [ref=f13e162]: Jul 03, 05:03 PM
+                - paragraph [ref=f13e163]: Hi, I'd like to confirm my July rent was received in full. Also, can I get a receipt emailed? (MSG-LIVE-777)
+              - generic [ref=f13e176]:
+                - generic [ref=f13e177]:
+                  - generic [ref=f13e178]: Acme Properties Ltd
+                  - generic [ref=f13e179]: Jul 03, 05:05 PM
+                - paragraph [ref=f13e180]: Yes James, your July rent of KES 29,800 is received and fully allocated. I've emailed your receipt. (LL-REPLY-999)
+            - generic [ref=f13e164]:
+              - textbox "Type your reply…" [ref=f13e166]
+              - generic [ref=f13e167]:
+                - button "Reply" [disabled]:
+                  - img
+                  - generic: Reply

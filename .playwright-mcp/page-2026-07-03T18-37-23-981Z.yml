@@ -1,0 +1,79 @@
+- generic [ref=f18e32]:
+  - banner [ref=f18e33]:
+    - generic [ref=f18e34]: SahilPay
+    - navigation [ref=f18e35]:
+      - link "Dashboard" [ref=f18e36] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=f18e37]
+        - generic [ref=f18e42]: Dashboard
+      - link "Pay" [ref=f18e43] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=f18e44]
+        - generic [ref=f18e47]: Pay
+      - link "Statement" [ref=f18e48] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=f18e49]
+        - generic [ref=f18e52]: Statement
+      - link "Maintenance" [ref=f18e53] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=f18e54]
+        - generic [ref=f18e56]: Maintenance
+      - link "Messages" [ref=f18e57] [cursor=pointer]:
+        - /url: /portal/messages
+        - img [ref=f18e58]
+        - generic [ref=f18e60]: Messages
+      - link "Profile" [ref=f18e61] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=f18e62]
+        - generic [ref=f18e65]: Profile
+    - generic [ref=f18e66]:
+      - button "2" [ref=f18e68]:
+        - img [ref=f18e69]
+        - generic [ref=f18e72]: "2"
+      - button [ref=f18e73]:
+        - img [ref=f18e74]
+  - main [ref=f18e77]:
+    - generic [ref=f18e78]:
+      - generic [ref=f18e79]:
+        - generic [ref=f18e80]:
+          - heading "Welcome back, James Mwangi" [level=1] [ref=f18e81]
+          - paragraph [ref=f18e82]: Here's your current balance breakdown.
+        - link "Pay now" [ref=f18e83] [cursor=pointer]:
+          - /url: /portal/pay?start=1
+          - button "Pay now" [ref=f18e84]:
+            - img [ref=f18e85]
+            - generic [ref=f18e88]: Pay now
+      - generic [ref=f18e89]:
+        - generic [ref=f18e90]:
+          - generic [ref=f18e91]:
+            - paragraph [ref=f18e92]: Rent due
+            - img [ref=f18e94]
+          - paragraph [ref=f18e97]: KES 22,700.00
+        - generic [ref=f18e98]:
+          - generic [ref=f18e99]:
+            - paragraph [ref=f18e100]: Utilities due
+            - img [ref=f18e102]
+          - paragraph [ref=f18e105]: KES 0.00
+        - generic [ref=f18e106]:
+          - generic [ref=f18e107]:
+            - paragraph [ref=f18e108]: Previous balance
+            - img [ref=f18e110]
+          - paragraph [ref=f18e114]: KES -26,200.00
+      - generic [ref=f18e115]:
+        - heading "Open invoices" [level=3] [ref=f18e116]
+        - table [ref=f18e118]:
+          - rowgroup [ref=f18e119]:
+            - row "Invoice Type Due Balance Status" [ref=f18e120]:
+              - columnheader "Invoice" [ref=f18e121]
+              - columnheader "Type" [ref=f18e122]
+              - columnheader "Due" [ref=f18e123]
+              - columnheader "Balance" [ref=f18e124]
+              - columnheader "Status" [ref=f18e125]
+          - rowgroup [ref=f18e126]:
+            - row "QA-INV-RENT-JUL rent 01 Jul 2026 KES 22,700.00 Partial" [ref=f18e127]:
+              - cell "QA-INV-RENT-JUL" [ref=f18e128]
+              - cell "rent" [ref=f18e129]
+              - cell "01 Jul 2026" [ref=f18e130]
+              - cell "KES 22,700.00" [ref=f18e131]
+              - cell "Partial" [ref=f18e132]:
+                - generic [ref=f18e133]: Partial

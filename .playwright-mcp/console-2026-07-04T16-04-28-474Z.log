@@ -1,0 +1,36 @@
+[     502ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=f017383b:14336
+[    1026ms] [VERBOSE] [DOM] Input elements should have autocomplete attributes (suggested: "current-password"): (More info: https://goo.gl/9p2vKq) %o @ http://localhost:5173/login:0
+[   37011ms] [ERROR] In HTML, %s cannot be a descendant of <%s>.
+This will cause a hydration error.%s <button> button 
+
+  ...
+    <div className="flex min-h...">
+      <MobileTopBar>
+      <LandlordNavbar>
+      <main className="flex-1 p-4...">
+        <AdminImpersonationBanner>
+        <Outlet>
+          <RenderedRoute match={{params:{}, ...}} routeContext={{outlet:null, ...}}>
+            <Suspense fallback={<RouteLoader>}>
+              <InvoicesPage>
+                <div>
+                  <PageHeader title="Invoices" subtitle={"Every in..."} actions={<Fragment>}>
+                    <div className="mb-6 flex ...">
+                      <div>
+                      <div className="flex flex-...">
+                        <Dropdown align="right" trigger={<ForwardRef(Button)>} items={[...]}>
+                          <div className="relative i..." ref={{current:null}}>
+>                           <button
+>                             type="button"
+>                             onClick={function onClick}
+>                             className="rounded-lg p-1.5 text-white/50 transition-colors duration-200 hover:bg-white/..."
+>                             aria-haspopup="menu"
+>                             aria-expanded={false}
+>                           >
+                              <Button variant="ghost" leftIcon={<Layers>}>
+>                               <button ref={null} type="button" disabled={false} className="btn-ghost">
+                        ...
+                  ...
+ @ http://localhost:5173/@vite/client:524
+[   37012ms] [ERROR] <%s> cannot contain a nested %s.
+See this log for the ancestor stack trace. button <button> @ http://localhost:5173/@vite/client:524

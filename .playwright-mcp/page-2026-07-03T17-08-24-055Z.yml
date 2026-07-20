@@ -1,0 +1,120 @@
+- generic [ref=f15e8]:
+  - complementary [ref=f15e9]:
+    - generic [ref=f15e11]: SahilPay
+    - navigation [ref=f15e12]:
+      - link "Dashboard" [ref=f15e13] [cursor=pointer]:
+        - /url: /team/dashboard
+        - img [ref=f15e15]
+        - generic [ref=f15e20]: Dashboard
+      - link "Invoices" [ref=f15e21] [cursor=pointer]:
+        - /url: /team/invoices
+        - img [ref=f15e23]
+        - generic [ref=f15e26]: Invoices
+      - link "Payments" [ref=f15e27] [cursor=pointer]:
+        - /url: /team/payments
+        - img [ref=f15e29]
+        - generic [ref=f15e32]: Payments
+      - link "Expenses" [ref=f15e33] [cursor=pointer]:
+        - /url: /team/expenses
+        - img [ref=f15e35]
+        - generic [ref=f15e38]: Expenses
+      - link "Tenants" [ref=f15e39] [cursor=pointer]:
+        - /url: /team/tenants
+        - img [ref=f15e41]
+        - generic [ref=f15e46]: Tenants
+      - link "Properties" [ref=f15e47] [cursor=pointer]:
+        - /url: /team/properties
+        - img [ref=f15e49]
+        - generic [ref=f15e53]: Properties
+      - link "Units" [ref=f15e54] [cursor=pointer]:
+        - /url: /team/units
+        - img [ref=f15e56]
+        - generic [ref=f15e59]: Units
+      - link "Utilities" [ref=f15e60] [cursor=pointer]:
+        - /url: /team/utilities
+        - img [ref=f15e62]
+        - generic [ref=f15e65]: Utilities
+      - link "Maintenance" [ref=f15e66] [cursor=pointer]:
+        - /url: /team/maintenance
+        - img [ref=f15e68]
+        - generic [ref=f15e70]: Maintenance
+      - link "Property Groups" [ref=f15e71] [cursor=pointer]:
+        - /url: /team/groups
+        - img [ref=f15e73]
+        - generic [ref=f15e78]: Property Groups
+      - link "Reports" [ref=f15e79] [cursor=pointer]:
+        - /url: /team/reports/statements
+        - img [ref=f15e81]
+        - generic [ref=f15e83]: Reports
+      - link "Communications" [ref=f15e84] [cursor=pointer]:
+        - /url: /team/communications
+        - img [ref=f15e86]
+        - generic [ref=f15e88]: Communications
+      - link "Tenant Messages" [ref=f15e89] [cursor=pointer]:
+        - /url: /team/messages
+        - img [ref=f15e91]
+        - generic [ref=f15e94]: Tenant Messages
+      - link "Notifications" [ref=f15e95] [cursor=pointer]:
+        - /url: /team/notifications
+        - img [ref=f15e97]
+        - generic [ref=f15e100]: Notifications
+    - generic [ref=f15e102]:
+      - paragraph [ref=f15e103]: caretaker@sahilpay.test
+      - button "Log out" [ref=f15e104]:
+        - img [ref=f15e105]
+        - text: Log out
+  - generic [ref=f15e108]:
+    - generic [ref=f15e109]:
+      - button "2" [ref=f15e111]:
+        - img [ref=f15e112]
+        - generic [ref=f15e115]: "2"
+      - generic [ref=f15e116]:
+        - generic [ref=f15e117]: T
+        - generic [ref=f15e118]: caretaker@sahilpay.test
+    - main [ref=f15e119]:
+      - generic [ref=f15e120]:
+        - generic [ref=f15e121]:
+          - heading "Tenant messages" [level=1] [ref=f15e122]
+          - paragraph [ref=f15e123]: Conversations raised by your tenants.
+        - generic [ref=f15e124]:
+          - button "James Mwangi A1 · Hi James, caretaker here — I'll also stop by to check the sink personally on Thursday. (TEAM-REPLY-555)" [ref=f15e170]:
+            - generic [ref=f15e128]: James Mwangi
+            - paragraph [ref=f15e129]: A1 · Hi James, caretaker here — I'll also stop by to check the sink personally on Thursday. (TEAM-REPLY-555)
+          - generic [ref=f15e130]:
+            - generic [ref=f15e131]:
+              - paragraph [ref=f15e132]: James Mwangi
+              - paragraph [ref=f15e133]: A1 · Riverside Apartments
+            - generic [ref=f15e134]:
+              - generic [ref=f15e136]:
+                - generic [ref=f15e137]:
+                  - generic [ref=f15e138]: James Mwangi
+                  - generic [ref=f15e139]: repairs
+                  - generic [ref=f15e140]: Jul 03, 04:50 PM
+                - paragraph [ref=f15e141]: Hello, my kitchen sink is still leaking after the last repair. Can someone come this week? (MSG-TEST-001)
+              - generic [ref=f15e143]:
+                - generic [ref=f15e144]:
+                  - generic [ref=f15e145]: Acme Properties Ltd
+                  - generic [ref=f15e146]: Jul 03, 04:50 PM
+                - paragraph [ref=f15e147]: Hi James, sorry to hear that. I will send the plumber Thursday morning. (REPLY-TEST-001)
+              - generic [ref=f15e149]:
+                - generic [ref=f15e150]:
+                  - generic [ref=f15e151]: James Mwangi
+                  - generic [ref=f15e152]: rent
+                  - generic [ref=f15e153]: Jul 03, 05:03 PM
+                - paragraph [ref=f15e154]: Hi, I'd like to confirm my July rent was received in full. Also, can I get a receipt emailed? (MSG-LIVE-777)
+              - generic [ref=f15e156]:
+                - generic [ref=f15e157]:
+                  - generic [ref=f15e158]: Acme Properties Ltd
+                  - generic [ref=f15e159]: Jul 03, 05:05 PM
+                - paragraph [ref=f15e160]: Yes James, your July rent of KES 29,800 is received and fully allocated. I've emailed your receipt. (LL-REPLY-999)
+              - generic [ref=f15e172]:
+                - generic [ref=f15e173]:
+                  - generic [ref=f15e174]: David Otieno
+                  - generic [ref=f15e175]: Jul 03, 05:08 PM
+                - paragraph [ref=f15e176]: Hi James, caretaker here — I'll also stop by to check the sink personally on Thursday. (TEAM-REPLY-555)
+            - generic [ref=f15e161]:
+              - textbox "Type your reply…" [ref=f15e163]
+              - generic [ref=f15e164]:
+                - button "Reply" [disabled]:
+                  - img
+                  - generic: Reply

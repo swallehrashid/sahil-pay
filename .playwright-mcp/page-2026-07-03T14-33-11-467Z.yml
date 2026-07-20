@@ -1,0 +1,59 @@
+- generic [ref=e37]:
+  - banner [ref=e38]:
+    - generic [ref=e39]: SahilPay
+    - navigation [ref=e40]:
+      - link "Dashboard" [ref=e41] [cursor=pointer]:
+        - /url: /portal/dashboard
+        - img [ref=e42]
+        - generic [ref=e47]: Dashboard
+      - link "Pay" [ref=e48] [cursor=pointer]:
+        - /url: /portal/pay
+        - img [ref=e49]
+        - generic [ref=e52]: Pay
+      - link "Statement" [ref=e53] [cursor=pointer]:
+        - /url: /portal/statement
+        - img [ref=e54]
+        - generic [ref=e57]: Statement
+      - link "Maintenance" [ref=e58] [cursor=pointer]:
+        - /url: /portal/maintenance
+        - img [ref=e59]
+        - generic [ref=e61]: Maintenance
+      - link "Profile" [ref=e62] [cursor=pointer]:
+        - /url: /portal/profile
+        - img [ref=e63]
+        - generic [ref=e66]: Profile
+    - generic [ref=e67]:
+      - button [ref=e69]:
+        - img [ref=e70]
+      - button [ref=e73]:
+        - img [ref=e74]
+  - main [ref=e77]:
+    - generic [ref=e78]:
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - heading "Welcome back, James Mwangi" [level=1] [ref=e81]
+          - paragraph [ref=e82]: Here's your current balance breakdown.
+        - link "Pay now" [ref=e83] [cursor=pointer]:
+          - /url: /portal/pay
+          - button "Pay now" [ref=e84]:
+            - img [ref=e85]
+            - generic [ref=e88]: Pay now
+      - generic [ref=e89]:
+        - generic [ref=e90]:
+          - generic [ref=e91]:
+            - paragraph [ref=e92]: Rent due
+            - img [ref=e94]
+          - paragraph [ref=e97]: KES 0.00
+        - generic [ref=e98]:
+          - generic [ref=e99]:
+            - paragraph [ref=e100]: Utilities due
+            - img [ref=e102]
+          - paragraph [ref=e105]: KES 0.00
+        - generic [ref=e106]:
+          - generic [ref=e107]:
+            - paragraph [ref=e108]: Previous balance
+            - img [ref=e110]
+          - paragraph [ref=e114]: KES 0.00
+      - generic [ref=e115]:
+        - heading "Open invoices" [level=3] [ref=e116]
+        - paragraph [ref=e117]: No open invoices — you're all caught up.

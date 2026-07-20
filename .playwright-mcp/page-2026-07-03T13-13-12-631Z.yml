@@ -1,0 +1,176 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e8]:
+    - complementary [ref=f1e9]:
+      - generic [ref=f1e11]: SahilPay
+      - navigation [ref=f1e12]:
+        - link "Dashboard" [ref=f1e13] [cursor=pointer]:
+          - /url: /landlord/dashboard
+          - img [ref=f1e15]
+          - generic [ref=f1e20]: Dashboard
+        - link "Invoices" [ref=f1e21] [cursor=pointer]:
+          - /url: /landlord/invoices
+          - img [ref=f1e23]
+          - generic [ref=f1e26]: Invoices
+        - link "Payments" [ref=f1e27] [cursor=pointer]:
+          - /url: /landlord/payments
+          - img [ref=f1e29]
+          - generic [ref=f1e32]: Payments
+        - link "Expenses" [ref=f1e33] [cursor=pointer]:
+          - /url: /landlord/expenses
+          - img [ref=f1e35]
+          - generic [ref=f1e37]: Expenses
+        - link "Tenants" [ref=f1e38] [cursor=pointer]:
+          - /url: /landlord/tenants
+          - img [ref=f1e40]
+          - generic [ref=f1e45]: Tenants
+        - link "Properties" [ref=f1e46] [cursor=pointer]:
+          - /url: /landlord/properties
+          - img [ref=f1e48]
+          - generic [ref=f1e52]: Properties
+        - link "Units" [ref=f1e53] [cursor=pointer]:
+          - /url: /landlord/units
+          - img [ref=f1e55]
+          - generic [ref=f1e58]: Units
+        - link "Utilities" [ref=f1e59] [cursor=pointer]:
+          - /url: /landlord/utilities
+          - img [ref=f1e61]
+          - generic [ref=f1e64]: Utilities
+        - link "Maintenance" [ref=f1e65] [cursor=pointer]:
+          - /url: /landlord/maintenance
+          - img [ref=f1e67]
+          - generic [ref=f1e69]: Maintenance
+        - link "Property Groups" [ref=f1e70] [cursor=pointer]:
+          - /url: /landlord/groups
+          - img [ref=f1e72]
+          - generic [ref=f1e77]: Property Groups
+        - link "Reports" [ref=f1e78] [cursor=pointer]:
+          - /url: /landlord/reports/statements
+          - img [ref=f1e80]
+          - generic [ref=f1e82]: Reports
+        - link "Communications" [ref=f1e83] [cursor=pointer]:
+          - /url: /landlord/communications
+          - img [ref=f1e85]
+          - generic [ref=f1e87]: Communications
+        - link "Notifications" [ref=f1e88] [cursor=pointer]:
+          - /url: /landlord/notifications
+          - img [ref=f1e90]
+          - generic [ref=f1e93]: Notifications
+        - link "Settings" [ref=f1e94] [cursor=pointer]:
+          - /url: /landlord/settings
+          - img [ref=f1e96]
+          - generic [ref=f1e99]: Settings
+      - generic [ref=f1e101]:
+        - paragraph [ref=f1e102]: landlord@sahilpay.test
+        - button "Log out" [ref=f1e103]:
+          - img [ref=f1e104]
+          - text: Log out
+    - generic [ref=f1e107]:
+      - generic [ref=f1e108]:
+        - link "0 SMS left" [ref=f1e109] [cursor=pointer]:
+          - /url: /landlord/settings/billing
+          - img [ref=f1e110]
+          - text: 0 SMS left
+        - button "1" [ref=f1e113]:
+          - img [ref=f1e114]
+          - generic [ref=f1e117]: "1"
+        - generic [ref=f1e118]:
+          - generic [ref=f1e119]: L
+          - generic [ref=f1e120]: landlord@sahilpay.test
+      - main [ref=f1e121]:
+        - generic [ref=f1e122]:
+          - generic [ref=f1e124]:
+            - heading "Settings" [level=1] [ref=f1e125]
+            - paragraph [ref=f1e126]: Configure your SahilPay account
+          - generic [ref=f1e127]:
+            - link "General" [ref=f1e128] [cursor=pointer]:
+              - /url: /landlord/settings/general
+            - link "Account" [ref=f1e129] [cursor=pointer]:
+              - /url: /landlord/settings/account
+            - link "Alerts" [ref=f1e130] [cursor=pointer]:
+              - /url: /landlord/settings/alerts
+            - link "Backup" [ref=f1e131] [cursor=pointer]:
+              - /url: /landlord/settings/backup
+            - link "Documents" [ref=f1e132] [cursor=pointer]:
+              - /url: /landlord/settings/documents
+            - link "Team" [ref=f1e133] [cursor=pointer]:
+              - /url: /landlord/settings/team
+            - link "Billing" [ref=f1e134] [cursor=pointer]:
+              - /url: /landlord/settings/billing
+            - link "M-Pesa" [ref=f1e135] [cursor=pointer]:
+              - /url: /landlord/settings/mpesa
+            - link "Audit Trail" [ref=f1e136] [cursor=pointer]:
+              - /url: /landlord/settings/audit
+            - link "Impersonation" [ref=f1e137] [cursor=pointer]:
+              - /url: /landlord/settings/impersonation-requests
+          - generic [ref=f1e138]:
+            - generic [ref=f1e139]:
+              - generic [ref=f1e140]:
+                - heading "Team" [level=1] [ref=f1e141]
+                - paragraph [ref=f1e142]: People you share the system with
+              - button "Add team member" [ref=f1e144]:
+                - img [ref=f1e145]
+                - generic [ref=f1e146]: Add team member
+            - table [ref=f1e148]:
+              - rowgroup [ref=f1e149]:
+                - row "Name Username Phone Email Role Status" [ref=f1e150]:
+                  - columnheader "Name" [ref=f1e151]
+                  - columnheader "Username" [ref=f1e152]
+                  - columnheader "Phone" [ref=f1e153]
+                  - columnheader "Email" [ref=f1e154]
+                  - columnheader "Role" [ref=f1e155]
+                  - columnheader "Status" [ref=f1e156]
+                  - columnheader [ref=f1e157]
+              - rowgroup [ref=f1e158]:
+                - row "Bianca Browser browser_qa editor Active" [ref=f1e460]:
+                  - cell "Bianca Browser" [ref=f1e461]
+                  - cell "browser_qa" [ref=f1e462]
+                  - cell [ref=f1e463]
+                  - cell [ref=f1e464]
+                  - cell "editor" [ref=f1e465]:
+                    - generic [ref=f1e466]: editor
+                  - cell "Active" [ref=f1e467]:
+                    - generic [ref=f1e468]: Active
+                  - cell [ref=f1e469]:
+                    - button [ref=f1e471]:
+                      - img [ref=f1e472]
+                - row "David Otieno caretaker1 +254722000001 editor Active" [ref=f1e159]:
+                  - cell "David Otieno" [ref=f1e160]
+                  - cell "caretaker1" [ref=f1e161]
+                  - cell "+254722000001" [ref=f1e162]
+                  - cell [ref=f1e163]
+                  - cell "editor" [ref=f1e164]:
+                    - generic [ref=f1e165]: editor
+                  - cell "Active" [ref=f1e166]:
+                    - generic [ref=f1e167]: Active
+                  - cell [ref=f1e168]:
+                    - button [ref=f1e170]:
+                      - img [ref=f1e171]
+                - row "Quinn Tester qa_tester_1783083502 +254799000001 editor Active" [ref=f1e175]:
+                  - cell "Quinn Tester" [ref=f1e176]
+                  - cell "qa_tester_1783083502" [ref=f1e177]
+                  - cell "+254799000001" [ref=f1e178]
+                  - cell [ref=f1e179]
+                  - cell "editor" [ref=f1e180]:
+                    - generic [ref=f1e181]: editor
+                  - cell "Active" [ref=f1e182]:
+                    - generic [ref=f1e183]: Active
+                  - cell [ref=f1e184]:
+                    - button [ref=f1e186]:
+                      - img [ref=f1e187]
+                - row "Patrick Mutua viewer1 +254722000002 viewer Active" [ref=f1e191]:
+                  - cell "Patrick Mutua" [ref=f1e192]
+                  - cell "viewer1" [ref=f1e193]
+                  - cell "+254722000002" [ref=f1e194]
+                  - cell [ref=f1e195]
+                  - cell "viewer" [ref=f1e196]:
+                    - generic [ref=f1e197]: viewer
+                  - cell "Active" [ref=f1e198]:
+                    - generic [ref=f1e199]: Active
+                  - cell [ref=f1e200]:
+                    - button [ref=f1e202]:
+                      - img [ref=f1e203]
+  - generic [ref=f1e477]:
+    - img [ref=f1e478]
+    - paragraph [ref=f1e481]: Team member invited.
+    - button [ref=f1e482]:
+      - img [ref=f1e483]

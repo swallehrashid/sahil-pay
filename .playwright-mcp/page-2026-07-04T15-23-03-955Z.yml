@@ -1,0 +1,87 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e8]:
+    - complementary [ref=f1e9]:
+      - generic [ref=f1e11]: SahilPay Admin
+      - navigation [ref=f1e12]:
+        - link "Dashboard" [ref=f1e13] [cursor=pointer]:
+          - /url: /admin/dashboard
+          - img [ref=f1e15]
+          - generic [ref=f1e20]: Dashboard
+        - link "Landlords" [ref=f1e21] [cursor=pointer]:
+          - /url: /admin/landlords
+          - img [ref=f1e23]
+          - generic [ref=f1e27]: Landlords
+        - link "Properties" [ref=f1e28] [cursor=pointer]:
+          - /url: /admin/properties
+          - img [ref=f1e30]
+          - generic [ref=f1e33]: Properties
+        - link "Units" [ref=f1e34] [cursor=pointer]:
+          - /url: /admin/units
+          - img [ref=f1e36]
+          - generic [ref=f1e40]: Units
+        - link "Tenants" [ref=f1e41] [cursor=pointer]:
+          - /url: /admin/tenants
+          - img [ref=f1e43]
+          - generic [ref=f1e48]: Tenants
+        - link "Team members" [ref=f1e49] [cursor=pointer]:
+          - /url: /admin/team-members
+          - img [ref=f1e51]
+          - generic [ref=f1e63]: Team members
+        - link "Pricing" [ref=f1e64] [cursor=pointer]:
+          - /url: /admin/pricing
+          - img [ref=f1e66]
+          - generic [ref=f1e70]: Pricing
+        - link "SMS" [ref=f1e71] [cursor=pointer]:
+          - /url: /admin/sms
+          - img [ref=f1e73]
+          - generic [ref=f1e75]: SMS
+        - link "Trials" [ref=f1e76] [cursor=pointer]:
+          - /url: /admin/trials
+          - img [ref=f1e78]
+          - generic [ref=f1e81]: Trials
+        - link "Impersonation" [ref=f1e82] [cursor=pointer]:
+          - /url: /admin/impersonation
+          - img [ref=f1e84]
+          - generic [ref=f1e87]: Impersonation
+        - link "Master Audit" [ref=f1e88] [cursor=pointer]:
+          - /url: /admin/audit
+          - img [ref=f1e90]
+          - generic [ref=f1e95]: Master Audit
+        - link "Notifications" [ref=f1e96] [cursor=pointer]:
+          - /url: /admin/notifications
+          - img [ref=f1e98]
+          - generic [ref=f1e101]: Notifications
+      - generic [ref=f1e103]:
+        - paragraph [ref=f1e104]: admin@sahilpay.test
+        - button "Log out" [ref=f1e105]:
+          - img [ref=f1e106]
+          - text: Log out
+    - generic [ref=f1e109]:
+      - generic [ref=f1e110]:
+        - button "2" [ref=f1e112]:
+          - img [ref=f1e113]
+          - generic [ref=f1e116]: "2"
+        - generic [ref=f1e117]:
+          - generic [ref=f1e118]: A
+          - generic [ref=f1e119]: admin@sahilpay.test
+      - main [ref=f1e120]:
+        - generic [ref=f1e121]:
+          - generic [ref=f1e123]:
+            - navigation [ref=f1e124]:
+              - link "Admin" [ref=f1e126] [cursor=pointer]:
+                - /url: /admin/dashboard
+              - generic [ref=f1e127]:
+                - img [ref=f1e128]
+                - generic [ref=f1e130]: SMS
+            - heading "SMS management" [level=1] [ref=f1e131]
+            - paragraph [ref=f1e132]: Pricing, shared pool, monitoring and reselling analytics
+          - generic [ref=f1e133]:
+            - button "Monitoring" [ref=f1e134]
+            - button "Pricing" [ref=f1e136]
+            - button "SMS pool" [ref=f1e137]
+            - button "Report" [active] [ref=f1e138]: Report
+          - generic [ref=f1e340]:
+            - paragraph [ref=f1e341]: Generate the SMS reselling analytics report, edit its columns, then download as PDF or Excel.
+            - button "Generate" [ref=f1e342]:
+              - generic [ref=f1e343]: Generate
+  - generic [ref=f1e308]: KES 0

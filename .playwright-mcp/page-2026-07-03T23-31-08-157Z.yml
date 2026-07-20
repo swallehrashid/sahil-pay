@@ -1,0 +1,123 @@
+- generic [ref=f6e89]:
+  - complementary [ref=f6e90]:
+    - generic [ref=f6e92]: SahilPay
+    - navigation [ref=f6e93]:
+      - link "Dashboard" [ref=f6e94] [cursor=pointer]:
+        - /url: /landlord/dashboard
+        - img [ref=f6e96]
+        - generic [ref=f6e101]: Dashboard
+      - link "Invoices" [ref=f6e102] [cursor=pointer]:
+        - /url: /landlord/invoices
+        - img [ref=f6e104]
+        - generic [ref=f6e107]: Invoices
+      - link "Payments" [ref=f6e108] [cursor=pointer]:
+        - /url: /landlord/payments
+        - img [ref=f6e110]
+        - generic [ref=f6e113]: Payments
+      - link "Expenses" [ref=f6e114] [cursor=pointer]:
+        - /url: /landlord/expenses
+        - img [ref=f6e116]
+        - generic [ref=f6e118]: Expenses
+      - link "Tenants" [ref=f6e119] [cursor=pointer]:
+        - /url: /landlord/tenants
+        - img [ref=f6e121]
+        - generic [ref=f6e126]: Tenants
+      - link "Properties" [ref=f6e127] [cursor=pointer]:
+        - /url: /landlord/properties
+        - img [ref=f6e129]
+        - generic [ref=f6e133]: Properties
+      - link "Units" [ref=f6e134] [cursor=pointer]:
+        - /url: /landlord/units
+        - img [ref=f6e136]
+        - generic [ref=f6e139]: Units
+      - link "Utilities" [ref=f6e140] [cursor=pointer]:
+        - /url: /landlord/utilities
+        - img [ref=f6e142]
+        - generic [ref=f6e145]: Utilities
+      - link "Maintenance" [ref=f6e146] [cursor=pointer]:
+        - /url: /landlord/maintenance
+        - img [ref=f6e148]
+        - generic [ref=f6e150]: Maintenance
+      - link "Property Groups" [ref=f6e151] [cursor=pointer]:
+        - /url: /landlord/groups
+        - img [ref=f6e153]
+        - generic [ref=f6e158]: Property Groups
+      - link "Reports" [ref=f6e159] [cursor=pointer]:
+        - /url: /landlord/reports/statements
+        - img [ref=f6e161]
+        - generic [ref=f6e163]: Reports
+      - link "Communications" [ref=f6e164] [cursor=pointer]:
+        - /url: /landlord/communications
+        - img [ref=f6e166]
+        - generic [ref=f6e168]: Communications
+      - link "Tenant Messages" [ref=f6e169] [cursor=pointer]:
+        - /url: /landlord/messages
+        - img [ref=f6e171]
+        - generic [ref=f6e174]: Tenant Messages
+      - link "Notifications" [ref=f6e175] [cursor=pointer]:
+        - /url: /landlord/notifications
+        - img [ref=f6e177]
+        - generic [ref=f6e180]: Notifications
+      - link "Settings" [ref=f6e181] [cursor=pointer]:
+        - /url: /landlord/settings
+        - img [ref=f6e183]
+        - generic [ref=f6e186]: Settings
+    - generic [ref=f6e188]:
+      - paragraph [ref=f6e189]: sunrise@sahilpay.test
+      - button "Log out" [ref=f6e190]:
+        - img [ref=f6e191]
+        - text: Log out
+  - generic [ref=f6e194]:
+    - generic [ref=f6e195]:
+      - link "0 SMS left" [ref=f6e196] [cursor=pointer]:
+        - /url: /landlord/settings/billing
+        - img [ref=f6e197]
+        - text: 0 SMS left
+      - button "3" [ref=f6e200]:
+        - img [ref=f6e201]
+        - generic [ref=f6e204]: "3"
+      - generic [ref=f6e205]:
+        - generic [ref=f6e206]: S
+        - generic [ref=f6e207]: sunrise@sahilpay.test
+    - main [ref=f6e8]:
+      - generic [ref=f6e9]:
+        - generic [ref=f6e11]:
+          - heading "Communications" [level=1] [ref=f6e12]
+          - paragraph [ref=f6e13]: Every message sent through SahilPay
+        - generic [ref=f6e20]:
+          - button "Log" [ref=f6e21]
+          - button "Templates" [active] [ref=f6e23]: Templates
+        - generic [ref=f6e209]:
+          - generic [ref=f6e210]:
+            - paragraph [ref=f6e211]: Reusable templates with dynamic placeholders. Each starter template already includes your payment method.
+            - generic [ref=f6e212]:
+              - button "Use starter templates" [ref=f6e213]:
+                - img [ref=f6e214]
+                - generic [ref=f6e217]: Use starter templates
+              - button "Add template" [ref=f6e218]:
+                - img [ref=f6e219]
+                - generic [ref=f6e220]: Add template
+          - table [ref=f6e222]:
+            - rowgroup [ref=f6e223]:
+              - row "Name Channel Type" [ref=f6e224]:
+                - columnheader "Name" [ref=f6e225]
+                - columnheader "Channel" [ref=f6e226]
+                - columnheader "Type" [ref=f6e227]
+                - columnheader [ref=f6e228]
+            - rowgroup [ref=f6e229]:
+              - row "Balance Reminder sms balance_reminder" [ref=f6e230]:
+                - cell "Balance Reminder" [ref=f6e231]
+                - cell "sms" [ref=f6e232]:
+                  - generic [ref=f6e233]: sms
+                - cell "balance_reminder" [ref=f6e234]
+                - cell [ref=f6e235]:
+                  - button [ref=f6e237]:
+                    - img [ref=f6e238]
+              - row "Invoice Reminder email invoice_reminder" [ref=f6e242]:
+                - cell "Invoice Reminder" [ref=f6e243]
+                - cell "email" [ref=f6e244]:
+                  - generic [ref=f6e245]: email
+                - cell "invoice_reminder" [ref=f6e246]
+                - cell [ref=f6e247]:
+                  - button [ref=f6e249]:
+                    - img [ref=f6e250]

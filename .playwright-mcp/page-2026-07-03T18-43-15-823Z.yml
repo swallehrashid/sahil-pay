@@ -1,0 +1,224 @@
+- generic [ref=f20e1]:
+  - generic [ref=f20e8]:
+    - complementary [ref=f20e9]:
+      - generic [ref=f20e11]: SahilPay
+      - navigation [ref=f20e12]:
+        - link "Dashboard" [ref=f20e13] [cursor=pointer]:
+          - /url: /landlord/dashboard
+          - img [ref=f20e15]
+          - generic [ref=f20e20]: Dashboard
+        - link "Invoices" [ref=f20e21] [cursor=pointer]:
+          - /url: /landlord/invoices
+          - img [ref=f20e23]
+          - generic [ref=f20e26]: Invoices
+        - link "Payments" [ref=f20e27] [cursor=pointer]:
+          - /url: /landlord/payments
+          - img [ref=f20e29]
+          - generic [ref=f20e32]: Payments
+        - link "Expenses" [ref=f20e33] [cursor=pointer]:
+          - /url: /landlord/expenses
+          - img [ref=f20e35]
+          - generic [ref=f20e37]: Expenses
+        - link "Tenants" [ref=f20e38] [cursor=pointer]:
+          - /url: /landlord/tenants
+          - img [ref=f20e40]
+          - generic [ref=f20e45]: Tenants
+        - link "Properties" [ref=f20e46] [cursor=pointer]:
+          - /url: /landlord/properties
+          - img [ref=f20e48]
+          - generic [ref=f20e52]: Properties
+        - link "Units" [ref=f20e53] [cursor=pointer]:
+          - /url: /landlord/units
+          - img [ref=f20e55]
+          - generic [ref=f20e58]: Units
+        - link "Utilities" [ref=f20e59] [cursor=pointer]:
+          - /url: /landlord/utilities
+          - img [ref=f20e61]
+          - generic [ref=f20e64]: Utilities
+        - link "Maintenance" [ref=f20e65] [cursor=pointer]:
+          - /url: /landlord/maintenance
+          - img [ref=f20e67]
+          - generic [ref=f20e69]: Maintenance
+        - link "Property Groups" [ref=f20e70] [cursor=pointer]:
+          - /url: /landlord/groups
+          - img [ref=f20e72]
+          - generic [ref=f20e77]: Property Groups
+        - link "Reports" [ref=f20e78] [cursor=pointer]:
+          - /url: /landlord/reports/statements
+          - img [ref=f20e80]
+          - generic [ref=f20e82]: Reports
+        - link "Communications" [ref=f20e83] [cursor=pointer]:
+          - /url: /landlord/communications
+          - img [ref=f20e85]
+          - generic [ref=f20e87]: Communications
+        - link "Tenant Messages" [ref=f20e88] [cursor=pointer]:
+          - /url: /landlord/messages
+          - img [ref=f20e90]
+          - generic [ref=f20e93]: Tenant Messages
+        - link "Notifications" [ref=f20e94] [cursor=pointer]:
+          - /url: /landlord/notifications
+          - img [ref=f20e96]
+          - generic [ref=f20e99]: Notifications
+        - link "Settings" [ref=f20e100] [cursor=pointer]:
+          - /url: /landlord/settings
+          - img [ref=f20e102]
+          - generic [ref=f20e105]: Settings
+      - generic [ref=f20e107]:
+        - paragraph [ref=f20e108]: landlord@sahilpay.test
+        - button "Log out" [ref=f20e109]:
+          - img [ref=f20e110]
+          - text: Log out
+    - generic [ref=f20e113]:
+      - generic [ref=f20e114]:
+        - link "0 SMS left" [ref=f20e115] [cursor=pointer]:
+          - /url: /landlord/settings/billing
+          - img [ref=f20e116]
+          - text: 0 SMS left
+        - button "6" [ref=f20e119]:
+          - img [ref=f20e120]
+          - generic [ref=f20e123]: "6"
+        - generic [ref=f20e124]:
+          - generic [ref=f20e125]: L
+          - generic [ref=f20e126]: landlord@sahilpay.test
+      - main [ref=f20e127]:
+        - generic [ref=f20e128]:
+          - generic [ref=f20e129]:
+            - generic [ref=f20e130]:
+              - heading "Payments" [level=1] [ref=f20e131]
+              - paragraph [ref=f20e132]: Every payment recorded against your tenants
+            - generic [ref=f20e133]:
+              - button "Report" [ref=f20e134]:
+                - img [ref=f20e135]
+                - generic [ref=f20e138]: Report
+              - button "Upload statement" [ref=f20e139]:
+                - img [ref=f20e140]
+                - generic [ref=f20e143]: Upload statement
+              - button "Record payment" [ref=f20e144]:
+                - img [ref=f20e145]
+                - generic [ref=f20e146]: Record payment
+          - generic [ref=f20e147]:
+            - generic [ref=f20e148]:
+              - generic [ref=f20e149]:
+                - paragraph [ref=f20e150]: Total payments
+                - img [ref=f20e152]
+              - paragraph [ref=f20e155]: "1"
+            - generic [ref=f20e156]:
+              - generic [ref=f20e157]:
+                - paragraph [ref=f20e158]: Total received
+                - img [ref=f20e160]
+              - paragraph [ref=f20e163]: KES 10,000.00
+          - generic [ref=f20e164]:
+            - complementary [ref=f20e165]:
+              - heading "Filters" [level=3] [ref=f20e166]:
+                - img [ref=f20e167]
+                - text: Filters
+              - generic [ref=f20e168]:
+                - generic [ref=f20e169]:
+                  - generic [ref=f20e170]: From
+                  - generic [ref=f20e171]:
+                    - textbox [ref=f20e172]
+                    - img
+                - generic [ref=f20e173]:
+                  - generic [ref=f20e174]: To
+                  - generic [ref=f20e175]:
+                    - textbox [ref=f20e176]
+                    - img
+                - generic [ref=f20e177]:
+                  - generic [ref=f20e178]: Status
+                  - generic [ref=f20e179]:
+                    - combobox [ref=f20e180]:
+                      - option "confirmed"
+                      - option "pending" [selected]
+                      - option "declined"
+                    - img
+                - generic [ref=f20e181]:
+                  - generic [ref=f20e182]: Source
+                  - generic [ref=f20e183]:
+                    - combobox [ref=f20e184]:
+                      - option "mpesa"
+                      - option "co_pilot"
+                      - option "bank_statement"
+                      - option "manual"
+                    - img
+                - generic [ref=f20e185]:
+                  - button "Apply" [ref=f20e186]:
+                    - generic [ref=f20e187]: Apply
+                  - button "Reset" [ref=f20e188]:
+                    - generic [ref=f20e189]: Reset
+            - generic [ref=f20e190]:
+              - table [ref=f20e192]:
+                - rowgroup [ref=f20e193]:
+                  - row "Date Payment ID Tenant Property / Unit Status Amount" [ref=f20e194]:
+                    - columnheader "Date" [ref=f20e195]
+                    - columnheader "Payment ID" [ref=f20e196]
+                    - columnheader "Tenant" [ref=f20e197]
+                    - columnheader "Property / Unit" [ref=f20e198]
+                    - columnheader "Status" [ref=f20e199]
+                    - columnheader "Amount" [ref=f20e200]
+                    - columnheader [ref=f20e201]
+                - rowgroup [ref=f20e202]:
+                  - row "03 Jul 2026 PAY-1-000018 James Mwangi Riverside Apartments A1 Review KES 10,000.00" [ref=f20e203]:
+                    - cell "03 Jul 2026" [ref=f20e204]
+                    - cell "PAY-1-000018" [ref=f20e205]
+                    - cell "James Mwangi" [ref=f20e206]
+                    - cell "Riverside Apartments A1" [ref=f20e207]
+                    - cell "Review" [ref=f20e208]:
+                      - button "Review" [ref=f20e209]:
+                        - img [ref=f20e210]
+                        - text: Review
+                    - cell "KES 10,000.00" [ref=f20e213]
+                    - cell [ref=f20e214]:
+                      - button [ref=f20e216]:
+                        - img [ref=f20e217]
+              - generic [ref=f20e222]:
+                - generic [ref=f20e223]: Showing 1–1 of 1
+                - generic [ref=f20e224]:
+                  - generic [ref=f20e225]: "Rows:"
+                  - combobox "Rows:" [ref=f20e226]:
+                    - option "25" [selected]
+                    - option "50"
+                    - option "100"
+                    - option "200"
+                    - option "500"
+                    - option "1000"
+  - dialog [ref=f20e229]:
+    - generic [ref=f20e230]:
+      - heading "Review submitted payment" [level=2] [ref=f20e231]
+      - button [ref=f20e232]:
+        - img [ref=f20e233]
+    - generic [ref=f20e237]:
+      - generic [ref=f20e238]:
+        - generic [ref=f20e239]: Amount
+        - generic [ref=f20e240]: KES 10,000.00
+        - generic [ref=f20e241]: Reference
+        - generic [ref=f20e242]: SGH9LIVE01
+        - generic [ref=f20e243]: Proof
+        - generic [ref=f20e244]: No attachment
+      - generic [ref=f20e245]:
+        - button "Auto-allocate" [active] [ref=f20e246]
+        - button "Allocate manually" [ref=f20e247]
+      - generic [ref=f20e248]:
+        - paragraph [ref=f20e249]: Applied in your configured priority order (Settings → Payments).
+        - table [ref=f20e250]:
+          - rowgroup [ref=f20e251]:
+            - row "Charge Category Balance Allocate" [ref=f20e252]:
+              - columnheader "Charge" [ref=f20e253]
+              - columnheader "Category" [ref=f20e254]
+              - columnheader "Balance" [ref=f20e255]
+              - columnheader "Allocate" [ref=f20e256]
+          - rowgroup [ref=f20e257]:
+            - row "Rent — Jul 2026 Rent — current month KES 22,700.00 KES 10,000.00" [ref=f20e281]:
+              - cell "Rent — Jul 2026" [ref=f20e259]
+              - cell "Rent — current month" [ref=f20e260]
+              - cell "KES 22,700.00" [ref=f20e261]
+              - cell "KES 10,000.00" [ref=f20e282]
+        - generic [ref=f20e263]:
+          - generic [ref=f20e264]: Advance credit
+          - generic [ref=f20e265]: KES 0.00
+      - generic [ref=f20e266]:
+        - button "Decline" [ref=f20e267]:
+          - img [ref=f20e268]
+          - generic [ref=f20e272]: Decline
+        - button "Confirm payment" [ref=f20e273]:
+          - img [ref=f20e274]
+          - generic [ref=f20e277]: Confirm payment

@@ -1,0 +1,264 @@
+- generic [ref=e41]:
+  - complementary [ref=e42]:
+    - generic [ref=e44]: SahilPay Admin
+    - navigation [ref=e45]:
+      - link "Dashboard" [ref=e46] [cursor=pointer]:
+        - /url: /admin/dashboard
+        - img [ref=e48]
+        - generic [ref=e53]: Dashboard
+      - link "Landlords" [ref=e54] [cursor=pointer]:
+        - /url: /admin/landlords
+        - img [ref=e56]
+        - generic [ref=e60]: Landlords
+      - link "Properties" [ref=e61] [cursor=pointer]:
+        - /url: /admin/properties
+        - img [ref=e63]
+        - generic [ref=e66]: Properties
+      - link "Units" [ref=e67] [cursor=pointer]:
+        - /url: /admin/units
+        - img [ref=e69]
+        - generic [ref=e73]: Units
+      - link "Tenants" [ref=e74] [cursor=pointer]:
+        - /url: /admin/tenants
+        - img [ref=e76]
+        - generic [ref=e81]: Tenants
+      - link "Team members" [ref=e82] [cursor=pointer]:
+        - /url: /admin/team-members
+        - img [ref=e84]
+        - generic [ref=e96]: Team members
+      - link "Pricing" [ref=e97] [cursor=pointer]:
+        - /url: /admin/pricing
+        - img [ref=e99]
+        - generic [ref=e103]: Pricing
+      - link "Trials" [ref=e104] [cursor=pointer]:
+        - /url: /admin/trials
+        - img [ref=e106]
+        - generic [ref=e109]: Trials
+      - link "Impersonation" [ref=e110] [cursor=pointer]:
+        - /url: /admin/impersonation
+        - img [ref=e112]
+        - generic [ref=e115]: Impersonation
+      - link "Master Audit" [ref=e116] [cursor=pointer]:
+        - /url: /admin/audit
+        - img [ref=e118]
+        - generic [ref=e123]: Master Audit
+      - link "Notifications" [ref=e124] [cursor=pointer]:
+        - /url: /admin/notifications
+        - img [ref=e126]
+        - generic [ref=e129]: Notifications
+    - generic [ref=e131]:
+      - paragraph [ref=e132]: admin@sahilpay.test
+      - button "Log out" [ref=e133]:
+        - img [ref=e134]
+        - text: Log out
+  - generic [ref=e137]:
+    - generic [ref=e138]:
+      - button "2" [ref=e140]:
+        - img [ref=e141]
+        - generic [ref=e144]: "2"
+      - generic [ref=e145]:
+        - generic [ref=e146]: A
+        - generic [ref=e147]: admin@sahilpay.test
+    - main [ref=e148]:
+      - generic [ref=e324]:
+        - generic [ref=e326]:
+          - heading "Units" [level=1] [ref=e327]
+          - paragraph [ref=e328]: Every unit on the platform and who occupies it
+        - textbox "Search unit or property…" [ref=e331]
+        - table [ref=e333]:
+          - rowgroup [ref=e334]:
+            - row "Unit Property Landlord Rent Occupancy Occupant" [ref=e335]:
+              - columnheader "Unit" [ref=e336]
+              - columnheader "Property" [ref=e337]
+              - columnheader "Landlord" [ref=e338]
+              - columnheader "Rent" [ref=e339]
+              - columnheader "Occupancy" [ref=e340]
+              - columnheader "Occupant" [ref=e341]
+          - rowgroup [ref=e342]:
+            - row "V1 Beachside Villas Sunrise Estates KES 40,000.00 Occupied John Baraka" [ref=e343] [cursor=pointer]:
+              - cell "V1" [ref=e344]
+              - cell "Beachside Villas" [ref=e345]
+              - cell "Sunrise Estates" [ref=e346]
+              - cell "KES 40,000.00" [ref=e347]
+              - cell "Occupied" [ref=e348]:
+                - generic [ref=e349]: Occupied
+              - cell "John Baraka" [ref=e350]
+            - row "V2 Beachside Villas Sunrise Estates KES 38,000.00 Vacant —" [ref=e351] [cursor=pointer]:
+              - cell "V2" [ref=e352]
+              - cell "Beachside Villas" [ref=e353]
+              - cell "Sunrise Estates" [ref=e354]
+              - cell "KES 38,000.00" [ref=e355]
+              - cell "Vacant" [ref=e356]:
+                - generic [ref=e357]: Vacant
+              - cell "—" [ref=e358]
+            - row "C1 Coastal Breeze Apartments Coastal Rentals KES 22,000.00 Occupied Daniel Mwambire" [ref=e359] [cursor=pointer]:
+              - cell "C1" [ref=e360]
+              - cell "Coastal Breeze Apartments" [ref=e361]
+              - cell "Coastal Rentals" [ref=e362]
+              - cell "KES 22,000.00" [ref=e363]
+              - cell "Occupied" [ref=e364]:
+                - generic [ref=e365]: Occupied
+              - cell "Daniel Mwambire" [ref=e366]
+            - row "C2 Coastal Breeze Apartments Coastal Rentals KES 22,000.00 Occupied Esther Wanyama" [ref=e367] [cursor=pointer]:
+              - cell "C2" [ref=e368]
+              - cell "Coastal Breeze Apartments" [ref=e369]
+              - cell "Coastal Rentals" [ref=e370]
+              - cell "KES 22,000.00" [ref=e371]
+              - cell "Occupied" [ref=e372]:
+                - generic [ref=e373]: Occupied
+              - cell "Esther Wanyama" [ref=e374]
+            - row "C3 Coastal Breeze Apartments Coastal Rentals KES 20,000.00 Vacant —" [ref=e375] [cursor=pointer]:
+              - cell "C3" [ref=e376]
+              - cell "Coastal Breeze Apartments" [ref=e377]
+              - cell "Coastal Rentals" [ref=e378]
+              - cell "KES 20,000.00" [ref=e379]
+              - cell "Vacant" [ref=e380]:
+                - generic [ref=e381]: Vacant
+              - cell "—" [ref=e382]
+            - row "L1 Lakeview Residences Pioneer Housing Group KES 27,000.00 Occupied Ruth Akinyi" [ref=e383] [cursor=pointer]:
+              - cell "L1" [ref=e384]
+              - cell "Lakeview Residences" [ref=e385]
+              - cell "Pioneer Housing Group" [ref=e386]
+              - cell "KES 27,000.00" [ref=e387]
+              - cell "Occupied" [ref=e388]:
+                - generic [ref=e389]: Occupied
+              - cell "Ruth Akinyi" [ref=e390]
+            - row "L2 Lakeview Residences Pioneer Housing Group KES 25,000.00 Vacant —" [ref=e391] [cursor=pointer]:
+              - cell "L2" [ref=e392]
+              - cell "Lakeview Residences" [ref=e393]
+              - cell "Pioneer Housing Group" [ref=e394]
+              - cell "KES 25,000.00" [ref=e395]
+              - cell "Vacant" [ref=e396]:
+                - generic [ref=e397]: Vacant
+              - cell "—" [ref=e398]
+            - row "G1 Palm Grove Coastal Rentals KES 26,000.00 Occupied Michael Juma" [ref=e399] [cursor=pointer]:
+              - cell "G1" [ref=e400]
+              - cell "Palm Grove" [ref=e401]
+              - cell "Coastal Rentals" [ref=e402]
+              - cell "KES 26,000.00" [ref=e403]
+              - cell "Occupied" [ref=e404]:
+                - generic [ref=e405]: Occupied
+              - cell "Michael Juma" [ref=e406]
+            - row "G2 Palm Grove Coastal Rentals KES 24,000.00 Vacant —" [ref=e407] [cursor=pointer]:
+              - cell "G2" [ref=e408]
+              - cell "Palm Grove" [ref=e409]
+              - cell "Coastal Rentals" [ref=e410]
+              - cell "KES 24,000.00" [ref=e411]
+              - cell "Vacant" [ref=e412]:
+                - generic [ref=e413]: Vacant
+              - cell "—" [ref=e414]
+            - row "B1 Park View Towers Acme Properties Ltd KES 35,000.00 Occupied Grace Wambui" [ref=e415] [cursor=pointer]:
+              - cell "B1" [ref=e416]
+              - cell "Park View Towers" [ref=e417]
+              - cell "Acme Properties Ltd" [ref=e418]
+              - cell "KES 35,000.00" [ref=e419]
+              - cell "Occupied" [ref=e420]:
+                - generic [ref=e421]: Occupied
+              - cell "Grace Wambui" [ref=e422]
+            - row "B2 Park View Towers Acme Properties Ltd KES 32,000.00 Vacant —" [ref=e423] [cursor=pointer]:
+              - cell "B2" [ref=e424]
+              - cell "Park View Towers" [ref=e425]
+              - cell "Acme Properties Ltd" [ref=e426]
+              - cell "KES 32,000.00" [ref=e427]
+              - cell "Vacant" [ref=e428]:
+                - generic [ref=e429]: Vacant
+              - cell "—" [ref=e430]
+            - row "B3 Park View Towers Acme Properties Ltd KES 30,000.00 Occupied Diana Achieng" [ref=e431] [cursor=pointer]:
+              - cell "B3" [ref=e432]
+              - cell "Park View Towers" [ref=e433]
+              - cell "Acme Properties Ltd" [ref=e434]
+              - cell "KES 30,000.00" [ref=e435]
+              - cell "Occupied" [ref=e436]:
+                - generic [ref=e437]: Occupied
+              - cell "Diana Achieng" [ref=e438]
+            - row "P1 Pioneer Heights Pioneer Housing Group KES 20,000.00 Occupied Susan Atieno" [ref=e439] [cursor=pointer]:
+              - cell "P1" [ref=e440]
+              - cell "Pioneer Heights" [ref=e441]
+              - cell "Pioneer Housing Group" [ref=e442]
+              - cell "KES 20,000.00" [ref=e443]
+              - cell "Occupied" [ref=e444]:
+                - generic [ref=e445]: Occupied
+              - cell "Susan Atieno" [ref=e446]
+            - row "P2 Pioneer Heights Pioneer Housing Group KES 20,000.00 Occupied Tom Onyango" [ref=e447] [cursor=pointer]:
+              - cell "P2" [ref=e448]
+              - cell "Pioneer Heights" [ref=e449]
+              - cell "Pioneer Housing Group" [ref=e450]
+              - cell "KES 20,000.00" [ref=e451]
+              - cell "Occupied" [ref=e452]:
+                - generic [ref=e453]: Occupied
+              - cell "Tom Onyango" [ref=e454]
+            - row "P3 Pioneer Heights Pioneer Housing Group KES 18,000.00 Vacant —" [ref=e455] [cursor=pointer]:
+              - cell "P3" [ref=e456]
+              - cell "Pioneer Heights" [ref=e457]
+              - cell "Pioneer Housing Group" [ref=e458]
+              - cell "KES 18,000.00" [ref=e459]
+              - cell "Vacant" [ref=e460]:
+                - generic [ref=e461]: Vacant
+              - cell "—" [ref=e462]
+            - row "A1 Riverside Apartments Acme Properties Ltd KES 25,000.00 Occupied James Mwangi" [ref=e463] [cursor=pointer]:
+              - cell "A1" [ref=e464]
+              - cell "Riverside Apartments" [ref=e465]
+              - cell "Acme Properties Ltd" [ref=e466]
+              - cell "KES 25,000.00" [ref=e467]
+              - cell "Occupied" [ref=e468]:
+                - generic [ref=e469]: Occupied
+              - cell "James Mwangi" [ref=e470]
+            - row "A2 Riverside Apartments Acme Properties Ltd KES 25,000.00 Occupied Amina Hassan" [ref=e471] [cursor=pointer]:
+              - cell "A2" [ref=e472]
+              - cell "Riverside Apartments" [ref=e473]
+              - cell "Acme Properties Ltd" [ref=e474]
+              - cell "KES 25,000.00" [ref=e475]
+              - cell "Occupied" [ref=e476]:
+                - generic [ref=e477]: Occupied
+              - cell "Amina Hassan" [ref=e478]
+            - row "A3 Riverside Apartments Acme Properties Ltd KES 28,000.00 Occupied Brian Kiprotich" [ref=e479] [cursor=pointer]:
+              - cell "A3" [ref=e480]
+              - cell "Riverside Apartments" [ref=e481]
+              - cell "Acme Properties Ltd" [ref=e482]
+              - cell "KES 28,000.00" [ref=e483]
+              - cell "Occupied" [ref=e484]:
+                - generic [ref=e485]: Occupied
+              - cell "Brian Kiprotich" [ref=e486]
+            - row "A4 Riverside Apartments Acme Properties Ltd KES 22,000.00 Vacant —" [ref=e487] [cursor=pointer]:
+              - cell "A4" [ref=e488]
+              - cell "Riverside Apartments" [ref=e489]
+              - cell "Acme Properties Ltd" [ref=e490]
+              - cell "KES 22,000.00" [ref=e491]
+              - cell "Vacant" [ref=e492]:
+                - generic [ref=e493]: Vacant
+              - cell "—" [ref=e494]
+            - row "S1 Sunrise Court Sunrise Estates KES 18,000.00 Occupied Peter Mwakio" [ref=e495] [cursor=pointer]:
+              - cell "S1" [ref=e496]
+              - cell "Sunrise Court" [ref=e497]
+              - cell "Sunrise Estates" [ref=e498]
+              - cell "KES 18,000.00" [ref=e499]
+              - cell "Occupied" [ref=e500]:
+                - generic [ref=e501]: Occupied
+              - cell "Peter Mwakio" [ref=e502]
+            - row "S2 Sunrise Court Sunrise Estates KES 18,000.00 Occupied Mary Wanjala" [ref=e503] [cursor=pointer]:
+              - cell "S2" [ref=e504]
+              - cell "Sunrise Court" [ref=e505]
+              - cell "Sunrise Estates" [ref=e506]
+              - cell "KES 18,000.00" [ref=e507]
+              - cell "Occupied" [ref=e508]:
+                - generic [ref=e509]: Occupied
+              - cell "Mary Wanjala" [ref=e510]
+            - row "S3 Sunrise Court Sunrise Estates KES 16,000.00 Vacant —" [ref=e511] [cursor=pointer]:
+              - cell "S3" [ref=e512]
+              - cell "Sunrise Court" [ref=e513]
+              - cell "Sunrise Estates" [ref=e514]
+              - cell "KES 16,000.00" [ref=e515]
+              - cell "Vacant" [ref=e516]:
+                - generic [ref=e517]: Vacant
+              - cell "—" [ref=e518]
+        - generic [ref=e520]:
+          - generic [ref=e521]: Showing 1–22 of 22
+          - generic [ref=e522]:
+            - generic [ref=e523]: "Rows:"
+            - combobox "Rows:" [ref=e524]:
+              - option "25" [selected]
+              - option "50"
+              - option "100"
+              - option "200"
+              - option "500"
+              - option "1000"
