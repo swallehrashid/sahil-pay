@@ -206,14 +206,14 @@ def _get_or_create_settings(landlord_id: int) -> LandlordSettings:
 @require_permission("settings", "view")
 def sms_provider_settings():
     """
-    §9.3 Africa's Talking SMS reselling connection.
+    §9.3 Custom SMS sender ID reselling connection.
 
     GET: return the landlord's SMS-provider config (api key masked).
-    PUT: save api key / username / sender ID. Body:
-         { at_api_key?, at_username?, at_sender_id? }
-         Sending an empty at_api_key clears the stored key.
+    PUT: save api key / sender ID. Body:
+         { sms_api_key?, sms_sender_id? }
+         Sending an empty sms_api_key clears the stored key.
 
-    Connecting an AT sender ID lets the landlord send under their own sender
+    Connecting a sender ID lets the landlord send under their own sender
     ID (billed a flat rate per SMS). Without one, SahilPay's shared sender ID
     is used and messages are billed by length.
     ---
@@ -236,12 +236,12 @@ def sms_provider_settings():
         from services.sms_billing import load_rates, DEFAULT_PLATFORM_SENDER
         landlord = db.session.get(Landlord, landlord_id)
         rates = load_rates()
-        has_own_sender = bool(getattr(ls, "at_sender_id", None) and getattr(ls, "at_api_key", None))
+        has_own_sender = bool(getattr(ls, "sms_sender_id", None) and getattr(ls, "sms_api_key", None))
         payload = ls.to_dict()
         payload.update({
             "sms_balance":   landlord.sms_balance if landlord else 0,
             "sender_mode":   "custom" if has_own_sender else "default",
-            "sender_id":     getattr(ls, "at_sender_id", None) or DEFAULT_PLATFORM_SENDER,
+            "sender_id":     getattr(ls, "sms_sender_id", None) or DEFAULT_PLATFORM_SENDER,
             "price_per_sms": float(rates["custom_price"] if has_own_sender else rates["default_price"]),
             "currency":      landlord.currency if landlord else "KES",
         })
@@ -251,12 +251,10 @@ def sms_provider_settings():
     _check_permission("settings", "edit")
 
     data = request.get_json(silent=True) or {}
-    if "at_api_key" in data:
-        ls.at_api_key = (data["at_api_key"] or "").strip() or None
-    if "at_username" in data:
-        ls.at_username = (data["at_username"] or "").strip() or None
-    if "at_sender_id" in data:
-        ls.at_sender_id = (data["at_sender_id"] or "").strip() or None
+    if "sms_api_key" in data:
+        ls.sms_api_key = (data["sms_api_key"] or "").strip() or None
+    if "sms_sender_id" in data:
+        ls.sms_sender_id = (data["sms_sender_id"] or "").strip() or None
 
     db.session.commit()
     record_audit(
@@ -280,24 +278,29 @@ def sms_provider_settings():
 @require_permission("settings", "edit")
 def connect_sms_provider():
     """
-    Mark the landlord's Africa's Talking account connected. Requires an API
-    key, username and sender ID to be saved first.
+    Mark the landlord's custom SMS sender connected. Requires an API key and
+    sender ID to be saved first, and the key is validated live against the
+    SMS provider (a balance check) before connecting.
     ---
     tags: [Settings]
     security:
       - Bearer: []
     responses:
       200: {description: Connected.}
-      400: {description: Missing credentials.}
+      400: {description: Missing or invalid credentials.}
     """
     landlord_id = get_current_landlord_id()
     ls = _get_or_create_settings(landlord_id)
 
-    missing = [f for f in ("at_api_key", "at_username", "at_sender_id") if not getattr(ls, f)]
+    missing = [f for f in ("sms_api_key", "sms_sender_id") if not getattr(ls, f)]
     if missing:
         return jsonify({"error": f"Save these first: {', '.join(missing)}."}), 400
 
-    ls.at_connected = True
+    from services.sms_service import check_sms_balance
+    if check_sms_balance(api_key=ls.sms_api_key) is None:
+        return jsonify({"error": "The API key was rejected by the SMS provider."}), 400
+
+    ls.sms_connected = True
     db.session.commit()
     record_audit(
         actor_user_id=int(get_jwt_identity()),
@@ -305,10 +308,10 @@ def connect_sms_provider():
         action="connect_sms_provider",
         entity_type="settings",
         entity_id=landlord_id,
-        description=f"Africa's Talking connected — sender ID '{ls.at_sender_id}'.",
+        description=f"Custom SMS sender connected — sender ID '{ls.sms_sender_id}'.",
     )
     db.session.commit()
-    return jsonify({"message": "Africa's Talking connected.", "settings": ls.to_dict()}), 200
+    return jsonify({"message": "SMS sender connected.", "settings": ls.to_dict()}), 200
 
 
 @settings_bp.route("/sms-provider/disconnect", methods=["POST"])
@@ -317,7 +320,7 @@ def connect_sms_provider():
 @require_permission("settings", "edit")
 def disconnect_sms_provider():
     """
-    Disconnect the landlord's Africa's Talking account. Their messages revert
+    Disconnect the landlord's custom SMS sender. Their messages revert
     to SahilPay's shared sender ID (billed by length). Credentials are kept so
     they can reconnect without re-entering them.
     ---
@@ -329,7 +332,7 @@ def disconnect_sms_provider():
     """
     landlord_id = get_current_landlord_id()
     ls = _get_or_create_settings(landlord_id)
-    ls.at_connected = False
+    ls.sms_connected = False
     db.session.commit()
     record_audit(
         actor_user_id=int(get_jwt_identity()),
@@ -337,10 +340,10 @@ def disconnect_sms_provider():
         action="disconnect_sms_provider",
         entity_type="settings",
         entity_id=landlord_id,
-        description="Africa's Talking disconnected.",
+        description="Custom SMS sender disconnected.",
     )
     db.session.commit()
-    return jsonify({"message": "Africa's Talking disconnected.", "settings": ls.to_dict()}), 200
+    return jsonify({"message": "SMS sender disconnected.", "settings": ls.to_dict()}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -624,9 +627,11 @@ def copilot_settings():
     """
     GET: Co-pilot posture — enabled/auto_allocate/admin_locked, agent code,
          paired devices, and a small activity summary.
-    PUT: { enabled?: bool, auto_allocate?: bool }. Enabling for the first
-         time stamps copilot_consented_at (the consent step). Blocked with
-         403 while an admin has copilot_admin_locked set.
+    PUT: { enabled?: bool, auto_allocate?: bool, retain_unmatched?: bool }.
+         Enabling for the first time stamps copilot_consented_at (the
+         consent step). Blocked with 403 while an admin has
+         copilot_admin_locked set. retain_unmatched is the §2.3 opt-in that
+         skips body redaction on messages no template matches.
     ---
     tags: [Settings]
     security:
@@ -690,6 +695,11 @@ def copilot_settings():
         ls.copilot_enabled = new_val
     if "auto_allocate" in data:
         ls.copilot_auto_allocate = bool(data["auto_allocate"])
+    if "retain_unmatched" in data:
+        # COPILOT_LANDLORD_INBOX_SPEC.md §2.3 — opt-in, off by default. Lets
+        # support see real unrecognised SMS text (instead of the redacted
+        # shape stub) to author new bank/format templates.
+        ls.copilot_retain_unmatched = bool(data["retain_unmatched"])
 
     db.session.commit()
 

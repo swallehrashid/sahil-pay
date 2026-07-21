@@ -303,9 +303,12 @@ def _dispatch_document(
     landlord_id, tenant, channel, template_name,
     pdf_bytes=None, file_url=None
 ):
-    """Write a CommunicationLog row and dispatch the document."""
+    """Dispatch the document and write a CommunicationLog row. SMS/WhatsApp
+    goes through dispatch_message() (the single billed/gated/logged
+    chokepoint); email is a direct send with its own log row since it isn't
+    billed and carries a PDF attachment dispatch_message() doesn't build."""
     from services.email_service import send_document_email
-    from services.sms_service   import send_sms
+    from services.communication_service import dispatch_message
 
     content = f"Please find your {template_name} document."
     if file_url:
@@ -315,10 +318,19 @@ def _dispatch_document(
         send_document_email.delay(
             tenant.email, tenant.first_name, template_name, pdf_bytes, file_url
         )
-    elif channel in (MessageChannel.sms.value, MessageChannel.whatsapp.value):
-        recipient = tenant.phone
-        if recipient:
-            send_sms(recipient, content)
+        log = CommunicationLog(
+            landlord_id    = landlord_id,
+            message_type   = channel,
+            recipient_type = RecipientType.tenant.value,
+            tenant_id      = tenant.id,
+            content        = content,
+            status         = CommunicationStatus.pending.value,
+        )
+        db.session.add(log)
+        return log
+
+    if channel in (MessageChannel.sms.value, MessageChannel.whatsapp.value):
+        return dispatch_message(landlord_id=landlord_id, tenant=tenant, channel=channel, content=content)
 
     log = CommunicationLog(
         landlord_id    = landlord_id,

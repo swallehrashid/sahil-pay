@@ -137,6 +137,7 @@ export const apiSlice = createApi({
     "AdminAffiliateConfig",
     "CopilotSettings",
     "AdminCopilot",
+    "CopilotInbox",
     "Demo",
     "AdminBillingTransaction",
     "AdminC2bPayment",

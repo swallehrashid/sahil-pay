@@ -5,8 +5,8 @@ SahilPay — services/sms_billing.py
 
 SahilPay acts as the SMS provider for its landlords:
 
-  * A landlord who has **connected their own Africa's Talking sender ID**
-    (a *custom* user) sends under that sender ID out of their own AT account
+  * A landlord who has **connected their own SMS sender ID** (a *custom*
+    user) sends under that sender ID out of their own provider account
     and is billed SahilPay's **custom price per SMS** — a pure service fee
     (SahilPay incurs no delivery cost for them).
 
@@ -37,7 +37,7 @@ DEFAULT_PRICE_PER_SMS = Decimal("1.00")   # KES/SMS, shared sender (default user
 CUSTOM_PRICE_PER_SMS  = Decimal("0.50")   # KES/SMS, own sender (custom users)
 PLATFORM_COST_PER_SMS = Decimal("0.65")   # KES/SMS SahilPay pays the provider
 
-DEFAULT_PLATFORM_SENDER = "SahilPay"
+DEFAULT_PLATFORM_SENDER = "SAHILPAY"
 
 
 def count_segments(text: str) -> int:
@@ -80,18 +80,18 @@ def resolve_sender(settings) -> tuple[str, bool]:
     """
     Return ``(sender_id, uses_own_sender_id)`` for a landlord's LandlordSettings.
 
-    Uses the landlord's registered Africa's Talking sender ID when they have
-    connected one; otherwise falls back to SahilPay's shared sender ID.
+    Uses the landlord's registered custom sender ID when they have connected
+    one; otherwise falls back to SahilPay's shared sender ID.
     """
-    if settings is not None and settings.at_connected and settings.at_sender_id:
-        return settings.at_sender_id, True
+    if settings is not None and settings.sms_connected and settings.sms_sender_id:
+        return settings.sms_sender_id, True
     return _platform_sender(), False
 
 
 def _platform_sender() -> str:
     try:
         from flask import current_app
-        return current_app.config.get("AT_SENDER_ID") or DEFAULT_PLATFORM_SENDER
+        return current_app.config.get("FLUXSMS_SENDER_ID") or DEFAULT_PLATFORM_SENDER
     except Exception:
         return DEFAULT_PLATFORM_SENDER
 
