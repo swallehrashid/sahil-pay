@@ -542,10 +542,16 @@ def master_audit_log():
         query = query.filter(AuditLog.entity_type == v)
     if v := request.args.get("action"):
         query = query.filter(AuditLog.action.ilike(f"%{v}%"))
-    # Impersonation-only view: utils.audit() prefixes every impersonated action's
-    # description with "[Impersonating landlord #<id>]".
+    # Client-support-only view: utils.audit() prefixes every support-session action's
+    # description with "[Client support session — landlord #<id>]" (older rows use the
+    # legacy "[Impersonating landlord #<id>]" prefix — match both).
     if request.args.get("impersonated") == "true":
-        query = query.filter(AuditLog.description.ilike("%[Impersonating%"))
+        query = query.filter(
+            db.or_(
+                AuditLog.description.ilike("%[Client support session%"),
+                AuditLog.description.ilike("%[Impersonating%"),
+            )
+        )
     if v := request.args.get("start_date"):
         query = query.filter(AuditLog.created_at >= v)
     if v := request.args.get("end_date"):

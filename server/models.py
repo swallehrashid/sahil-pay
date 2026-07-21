@@ -1631,6 +1631,84 @@ class MpesaTransaction(TimestampMixin, Base):
 
 
 # ===========================================================================
+# Daraja production integration (MPESA_INTEGRATION_SPEC.md) — platform
+# paybill webhooks: STK billing callback, C2B direct-paybill confirmation,
+# B2C affiliate payout results. All distinct from MpesaTransaction above,
+# which is the landlord's OWN rent-collection tooling.
+# ===========================================================================
+
+class DarajaCallbackLog(TimestampMixin, Base):
+    """
+    §MPESA_INTEGRATION_SPEC.md §4.1  Raw payload log — the forensic trail for
+    every shilling that crosses a Daraja webhook. Written BEFORE any
+    processing, on every callback, successful or not.
+    """
+    __tablename__ = "daraja_callback_logs"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    kind         = Column(String(20), nullable=False, index=True)  # stk | c2b_validation | c2b_confirmation | b2c_result | b2c_timeout
+    remote_ip    = Column(String(45), nullable=True)
+    payload_json = Column(JSON, nullable=False)
+    processed    = Column(Boolean, default=False, nullable=False)
+    error        = Column(Text, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id":           self.id,
+            "kind":         self.kind,
+            "remote_ip":    self.remote_ip,
+            "payload_json": self.payload_json,
+            "processed":    self.processed,
+            "error":        self.error,
+            "created_at":   _serialise(self.created_at),
+        }
+
+
+class PlatformC2BPayment(TimestampMixin, Base):
+    """
+    §MPESA_INTEGRATION_SPEC.md §5.1  A direct-paybill (C2B) payment received
+    on the PLATFORM shortcode (subscriptions/SMS credits only — never rent).
+    Every confirmation is recorded here regardless of whether it could be
+    auto-matched, so nothing that touched the platform paybill is ever lost.
+    """
+    __tablename__ = "platform_c2b_payments"
+
+    id             = Column(Integer, primary_key=True, autoincrement=True)
+    trans_id       = Column(String(20), nullable=False, unique=True, index=True)  # M-Pesa receipt
+    amount         = Column(Numeric(12, 2), nullable=False)
+    bill_ref       = Column(String(30), nullable=True)
+    msisdn         = Column(String(64), nullable=True)   # may arrive hashed
+    payer_name     = Column(String(120), nullable=True)
+    trans_time     = Column(String(20), nullable=True)    # raw Daraja YYYYMMDDHHMMSS
+    landlord_id    = Column(Integer, ForeignKey("landlords.id"), nullable=True, index=True)
+    billing_transaction_id = Column(Integer, ForeignKey("billing_transactions.id"), nullable=True)
+    status         = Column(String(20), nullable=False, default="unmatched")  # matched | unmatched | resolved
+    resolved_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    resolution_note      = Column(Text, nullable=True)
+
+    landlord            = relationship("Landlord", foreign_keys=[landlord_id])
+    billing_transaction = relationship("BillingTransaction", foreign_keys=[billing_transaction_id])
+
+    def to_dict(self):
+        return {
+            "id":                      self.id,
+            "trans_id":                self.trans_id,
+            "amount":                  _serialise(self.amount),
+            "bill_ref":                self.bill_ref,
+            "msisdn":                  self.msisdn,
+            "payer_name":              self.payer_name,
+            "trans_time":              self.trans_time,
+            "landlord_id":             self.landlord_id,
+            "billing_transaction_id":  self.billing_transaction_id,
+            "status":                  self.status,
+            "resolved_by_admin_id":    self.resolved_by_admin_id,
+            "resolution_note":         self.resolution_note,
+            "created_at":              _serialise(self.created_at),
+            "updated_at":              _serialise(self.updated_at),
+        }
+
+
+# ===========================================================================
 # Co-Pilot — SMS-forwarder platform (COPILOT_PLATFORM_SPEC.md)
 # ===========================================================================
 #
@@ -1755,6 +1833,12 @@ class CopilotMessage(CreatedAtMixin, Base):
     tenant           = relationship("Tenant")
     payment          = relationship("Payment")
     mpesa_transaction = relationship("MpesaTransaction")
+
+    @property
+    def raw_text_redacted(self) -> bool:
+        """True when raw_text is a services.copilot_service._redact_unmatched()
+        stub rather than the real SMS body (COPILOT_LANDLORD_INBOX_SPEC.md §2.2/§3.1)."""
+        return bool(self.raw_text) and self.raw_text.startswith("[redacted: no matching template]")
 
     def to_dict(self, include_raw: bool = True):
         return {
@@ -2232,10 +2316,10 @@ class CommunicationLog(CreatedAtMixin, Base):
     # rows stay accurate even if the landlord later connects/disconnects a
     # sender ID or the admin changes pricing):
     sms_segments        = Column(Integer, nullable=True)   # credits consumed by this SMS
-    uses_own_sender     = Column(Boolean, default=False, nullable=False)  # custom (own AT) vs default (shared pool)
-    platform_cost       = Column(Numeric(8, 2), default=Decimal("0.00"), nullable=False)  # SahilPay's AT cost; 0 for custom
+    uses_own_sender     = Column(Boolean, default=False, nullable=False)  # custom (own sender ID) vs default (shared pool)
+    platform_cost       = Column(Numeric(8, 2), default=Decimal("0.00"), nullable=False)  # SahilPay's provider cost; 0 for custom
     status              = Column(String(15), nullable=True)     # enum CommunicationStatus
-    provider_message_id = Column(String(80), nullable=True)     # Africa's Talking / SendGrid id
+    provider_message_id = Column(String(80), nullable=True)     # FluxSMS / SendGrid id
     sent_at             = Column(DateTime, nullable=True)
 
     landlord    = relationship("Landlord",   back_populates="communication_logs")
@@ -2693,6 +2777,15 @@ class AffiliateWithdrawal(TimestampMixin, Base):
     processed_at              = Column(DateTime, nullable=True)
     rejection_reason           = Column(String(255), nullable=True)
 
+    # B2C automation (MPESA_INTEGRATION_SPEC.md §8.1) — admin-triggered payout
+    # via Daraja B2C, with the manual mpesa_reference flow above kept as fallback.
+    b2c_originator_id   = Column(String(40), unique=True, nullable=True)  # UUID we send to Daraja
+    b2c_conversation_id = Column(String(60), nullable=True)               # Daraja's ConversationID
+    b2c_status          = Column(String(20), nullable=True)               # sent | result_received | timeout | failed
+    b2c_result_code     = Column(Integer, nullable=True)
+    b2c_result_desc     = Column(Text, nullable=True)
+    paid_amount         = Column(Numeric(12, 2), nullable=True)           # whole-shilling amount actually sent
+
     __table_args__ = (
         CheckConstraint(
             "wht_amount + fee_amount + net_amount = gross_amount",
@@ -2719,6 +2812,12 @@ class AffiliateWithdrawal(TimestampMixin, Base):
             "processed_by_admin_id": self.processed_by_admin_id,
             "processed_at":       _serialise(self.processed_at),
             "rejection_reason":   self.rejection_reason,
+            "b2c_originator_id":   self.b2c_originator_id,
+            "b2c_conversation_id": self.b2c_conversation_id,
+            "b2c_status":          self.b2c_status,
+            "b2c_result_code":     self.b2c_result_code,
+            "b2c_result_desc":     self.b2c_result_desc,
+            "paid_amount":         _serialise(self.paid_amount),
             "created_at":         _serialise(self.created_at),
             "updated_at":         _serialise(self.updated_at),
         }
@@ -2849,14 +2948,13 @@ class LandlordSettings(TimestampMixin, Base):
     email_enabled            = Column(Boolean, default=True,  nullable=False)
     low_sms_balance_threshold = Column(Integer, default=50,   nullable=False)
 
-    # §9.3 Africa's Talking SMS reselling. A landlord connects their own AT
-    # credentials + registered sender ID; SahilPay then delivers SMS under
-    # that sender ID and bills a flat rate per SMS. Landlords without a sender
-    # ID fall back to SahilPay's shared sender ID, billed by message length.
-    at_api_key   = Column(String(255), nullable=True)   # landlord's Africa's Talking API key
-    at_username  = Column(String(120), nullable=True)   # landlord's AT username
-    at_sender_id = Column(String(20),  nullable=True)   # their registered alphanumeric sender ID
-    at_connected = Column(Boolean, default=False, nullable=False)
+    # §9.3 SMS reselling (FluxSMS). A landlord connects their own FluxSMS API
+    # key + registered sender ID; SahilPay then delivers SMS under that sender
+    # ID and bills a flat rate per SMS. Landlords without a sender ID fall
+    # back to SahilPay's shared sender ID, billed by message length.
+    sms_api_key    = Column(String(255), nullable=True)   # landlord's own SMS provider API key
+    sms_sender_id  = Column(String(20),  nullable=True)   # their registered alphanumeric sender ID
+    sms_connected  = Column(Boolean, default=False, nullable=False)
 
     # Co-Pilot SMS forwarder (COPILOT_PLATFORM_SPEC.md §2.6). Enabling is the
     # landlord's consent step; auto_allocate picks confirmed+allocated vs
@@ -2866,6 +2964,10 @@ class LandlordSettings(TimestampMixin, Base):
     copilot_auto_allocate = Column(Boolean, default=False, nullable=False)
     copilot_consented_at  = Column(DateTime, nullable=True)
     copilot_admin_locked  = Column(Boolean, default=False, nullable=False)
+    # COPILOT_LANDLORD_INBOX_SPEC.md §2.3 — opt-in (default OFF) exemption from
+    # the §2 unmatched-message body redaction. Lets support see real unrecognised
+    # SMS text to author new bank/format templates, at the landlord's consent.
+    copilot_retain_unmatched = Column(Boolean, default=False, nullable=False)
 
     landlord = relationship("Landlord", back_populates="landlord_settings")
 
@@ -2873,8 +2975,8 @@ class LandlordSettings(TimestampMixin, Base):
         # api key is a secret — only ever expose whether one is set, plus a
         # masked tail, never the full value.
         api_key_display = None
-        if self.at_api_key:
-            api_key_display = f"••••{self.at_api_key[-4:]}" if mask_secrets else self.at_api_key
+        if self.sms_api_key:
+            api_key_display = f"••••{self.sms_api_key[-4:]}" if mask_secrets else self.sms_api_key
         return {
             "id":                        self.id,
             "landlord_id":               self.landlord_id,
@@ -2882,15 +2984,15 @@ class LandlordSettings(TimestampMixin, Base):
             "whatsapp_enabled":          self.whatsapp_enabled,
             "email_enabled":             self.email_enabled,
             "low_sms_balance_threshold": self.low_sms_balance_threshold,
-            "at_username":               self.at_username,
-            "at_sender_id":              self.at_sender_id,
-            "at_connected":              self.at_connected,
-            "at_api_key_set":            bool(self.at_api_key),
-            "at_api_key_masked":         api_key_display,
+            "sms_sender_id":             self.sms_sender_id,
+            "sms_connected":             self.sms_connected,
+            "sms_api_key_set":           bool(self.sms_api_key),
+            "sms_api_key_masked":        api_key_display,
             "copilot_enabled":           self.copilot_enabled,
             "copilot_auto_allocate":     self.copilot_auto_allocate,
             "copilot_consented_at":      _serialise(self.copilot_consented_at),
             "copilot_admin_locked":      self.copilot_admin_locked,
+            "copilot_retain_unmatched":  self.copilot_retain_unmatched,
             "created_at":                _serialise(self.created_at),
             "updated_at":                _serialise(self.updated_at),
         }
@@ -3103,7 +3205,7 @@ class SmsPricingConfig(TimestampMixin, Base):
     Admin-editable global SMS reselling knobs (§9.3). Singleton — exactly one
     row (id=1). Sets the resale price per SMS for *default* users (who send via
     SahilPay's shared sender ID out of the platform pool) and *custom* users
-    (who connected their own Africa's Talking sender ID and pay a per-SMS
+    (who connected their own SMS sender ID and pay a per-SMS
     service fee), the fixed platform cost per SMS used for margin analytics,
     the shared-pool credit balance, and the master toggle gating shared sending.
     """

@@ -20,7 +20,7 @@ from html import escape
 
 from utils import render_pdf
 from services.allocation_service import categorize_invoice
-from services.report_builder import build_meta, _letterhead_html, _signature_html, _REPORT_STYLE
+from services.report_builder import build_meta, _letterhead_html, _signature_html, _platform_credit_html, _REPORT_STYLE
 
 
 def _f(value) -> float:
@@ -178,7 +178,7 @@ def render_receipt_pdf(payment) -> bytes:
     body = (
         f"{_letterhead_html(meta)}{info}{sections_html}{totals}"
         "<p class='muted'>Thank you for your payment.</p>"
-        f"{_signature_html(meta)}"
+        f"{_signature_html(meta)}{_platform_credit_html()}"
     )
     html = f"<!doctype html><html><head><meta charset='utf-8'>{_REPORT_STYLE}</head><body>{body}</body></html>"
     return render_pdf(html)

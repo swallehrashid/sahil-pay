@@ -31,7 +31,7 @@ from decorators import (
 from services.audit_service   import record_audit
 from services.pdf_service     import generate_receipt_pdf
 from services.email_service   import send_receipt_email
-from services.sms_service     import send_sms
+from services.communication_service import dispatch_message
 from services.notification_service import notify
 from services.storage_service import upload_to_s3
 from tasks.payment_tasks      import parse_bank_statement_task
@@ -722,8 +722,11 @@ def send_receipt(payment_id):
                 skipped.append("email (no email on file)")
         elif ch == "sms":
             if tenant.phone:
-                send_sms(tenant.phone, summary)
-                sent.append("sms")
+                log = dispatch_message(landlord_id=landlord_id, tenant=tenant, channel="sms", content=summary)
+                if log and log.status == "delivered":
+                    sent.append("sms")
+                else:
+                    skipped.append("sms (send failed or insufficient balance)")
             else:
                 skipped.append("sms (no phone on file)")
         elif ch == "in_app":

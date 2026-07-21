@@ -288,6 +288,38 @@ def finalize_subscription_payment(txn, admin_id: int | None = None):
     return txn
 
 
+def finalize_sms_purchase(txn, admin_id: int | None = None):
+    """
+    Mark an sms_purchase BillingTransaction verified and, on first call only,
+    credit the SMS credits to the landlord's balance. Idempotent twin of
+    finalize_subscription_payment — no affiliate accrual ever fires for this
+    transaction type (accrue_for_transaction ignores non-subscription types).
+    """
+    from extensions import db
+    from models import BillingTransactionStatus
+
+    if txn.is_verified:
+        return txn
+
+    ctx = dict(txn.context_json or {})
+    if not ctx.get("applied"):
+        sms_count = ctx.get("sms_count") or txn.sms_count or 0
+        landlord  = txn.landlord
+        if landlord is not None and sms_count:
+            landlord.sms_balance += sms_count
+        txn.status = BillingTransactionStatus.paid.value
+        ctx["applied"] = True
+        txn.context_json = ctx
+
+    txn.is_verified = True
+    txn.verified_at  = datetime.utcnow()
+    if admin_id:
+        txn.verified_by_admin_id = admin_id
+    db.session.flush()
+
+    return txn
+
+
 def mark_subscription_payment_failed(txn) -> None:
     """STK cancelled/timed out — never verified, never activates anything."""
     from models import BillingTransactionStatus

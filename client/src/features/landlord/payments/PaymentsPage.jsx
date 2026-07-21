@@ -8,6 +8,7 @@ import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import FilterPanel from "@/components/tables/FilterPanel";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
+import Tabs from "@/components/ui/Tabs";
 import Dropdown from "@/components/ui/Dropdown";
 import Modal from "@/components/ui/Modal";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -18,8 +19,10 @@ import RecordPaymentForm from "./RecordPaymentForm";
 import BankStatementUpload from "./BankStatementUpload";
 import ReassignTenantModal from "./ReassignTenantModal";
 import ConfirmPaymentModal from "./ConfirmPaymentModal";
+import CopilotInboxTab from "./CopilotInboxTab";
 import SendReminderModal from "../communications/SendReminderModal";
 import { useGetPaymentsQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
+import { useGetCopilotInboxSummaryQuery } from "./copilotInboxApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetInvoicesQuery } from "../invoices/invoiceApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
@@ -38,9 +41,13 @@ export default function PaymentsPage() {
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
   const statusFromQuery = searchParams.get("status");   // deep-link from the "payment awaiting confirmation" notification
+  const tabFromQuery = searchParams.get("tab");
 
+  const [tab, setTab] = useState(tabFromQuery === "copilot" ? "copilot" : "payments");
   const [filters, setFilters] = useState({ status: statusFromQuery || "", source: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState(statusFromQuery ? { status: statusFromQuery } : {});
+  const { data: copilotSummary } = useGetCopilotInboxSummaryQuery();
+  const copilotBadgeCount = (copilotSummary?.unparsed ?? 0) + (copilotSummary?.unmatched ?? 0);
 
   const pg = usePagination();
   const { data, isLoading } = useGetPaymentsQuery({ ...appliedFilters, ...pg.params });
@@ -148,87 +155,105 @@ export default function PaymentsPage() {
         title="Payments"
         subtitle="Every payment recorded against your tenants"
         actions={
-          <>
-            <Button variant="ghost" leftIcon={<FileBarChart className="h-4 w-4" />} onClick={() => downloadFile("/payments/report", { filename: "payments-report.pdf" })}>
-              Report
-            </Button>
-            <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setIsUploadOpen(true)}>
-              Upload statement
-            </Button>
-            <Button data-tour={ANCHORS.payments.recordButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
-              Record payment
-            </Button>
-          </>
+          tab === "payments" && (
+            <>
+              <Button variant="ghost" leftIcon={<FileBarChart className="h-4 w-4" />} onClick={() => downloadFile("/payments/report", { filename: "payments-report.pdf" })}>
+                Report
+              </Button>
+              <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setIsUploadOpen(true)}>
+                Upload statement
+              </Button>
+              <Button data-tour={ANCHORS.payments.recordButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
+                Record payment
+              </Button>
+            </>
+          )
         }
       />
 
-      {isLoading ? (
-        <SkeletonStatCards count={2} />
+      <Tabs
+        tabs={[
+          { key: "payments", label: "Payments" },
+          { key: "copilot", label: "Co-Pilot", count: copilotBadgeCount > 0 ? copilotBadgeCount : undefined },
+        ]}
+        activeKey={tab}
+        onChange={setTab}
+        className="mb-6"
+      />
+
+      {tab === "copilot" ? (
+        <CopilotInboxTab />
       ) : (
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <SummaryCard label="Total payments" value={totals.count} icon={<Wallet className="h-5 w-5" />} />
-          <SummaryCard label="Total received" value={formatCurrency(totals.total)} icon={<Wallet className="h-5 w-5" />} accent="third" />
-        </div>
-      )}
+        <>
+          {isLoading ? (
+            <SkeletonStatCards count={2} />
+          ) : (
+            <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <SummaryCard label="Total payments" value={totals.count} icon={<Wallet className="h-5 w-5" />} />
+              <SummaryCard label="Total received" value={formatCurrency(totals.total)} icon={<Wallet className="h-5 w-5" />} accent="third" />
+            </div>
+          )}
 
-      <div className="mt-6 flex flex-col gap-6 lg:flex-row">
-        <FilterPanel
-          onApply={() => { setAppliedFilters(filters); pg.reset(); }}
-          onReset={() => {
-            setFilters({ status: "", source: "", date_from: "", date_to: "" });
-            setAppliedFilters({});
-          }}
-        >
-          <DatePicker label="From" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} />
-          <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
-          <Select
-            label="Status"
-            value={filters.status}
-            onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
-            options={PAYMENT_STATUSES.map((s) => ({ value: s, label: s }))}
-          />
-          <Select
-            label="Source"
-            value={filters.source}
-            onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
-            options={PAYMENT_SOURCES.map((s) => ({ value: s, label: PAYMENT_SOURCE_LABELS[s] ?? s }))}
-          />
-        </FilterPanel>
-
-        <div className="min-w-0 flex-1">
-          <ResponsiveTable
-            columns={columns}
-            rows={payments}
-            isLoading={isLoading}
-            rowActions={(row) => (
-              <Dropdown
-                items={[
-                  ...(row.status === "pending"
-                    ? [{ label: "Review & confirm", icon: <CheckCircle2 className="h-4 w-4" />, onClick: () => setReviewPayment(row) }]
-                    : []),
-                  { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
-                  { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => sendReceipt(row.id).then(() => toast("Receipt sent.", { type: "success" })) },
-                  {
-                    label: "Download receipt",
-                    icon: <Download className="h-4 w-4" />,
-                    onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
-                  },
-                  { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
-                  ...(row.tenant_id
-                    ? [{
-                        label: "Remind tenant",
-                        icon: <Send className="h-4 w-4" />,
-                        onClick: () => setReminderTenant({ id: row.tenant_id, first_name: (row.tenant_name || "").split(" ")[0] || "Tenant", last_name: (row.tenant_name || "").split(" ").slice(1).join(" ") }),
-                      }]
-                    : []),
-                  { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
-                ]}
+          <div className="mt-6 flex flex-col gap-6 lg:flex-row">
+            <FilterPanel
+              onApply={() => { setAppliedFilters(filters); pg.reset(); }}
+              onReset={() => {
+                setFilters({ status: "", source: "", date_from: "", date_to: "" });
+                setAppliedFilters({});
+              }}
+            >
+              <DatePicker label="From" value={filters.date_from} onChange={(e) => setFilters((f) => ({ ...f, date_from: e.target.value }))} />
+              <DatePicker label="To" value={filters.date_to} onChange={(e) => setFilters((f) => ({ ...f, date_to: e.target.value }))} />
+              <Select
+                label="Status"
+                value={filters.status}
+                onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+                options={PAYMENT_STATUSES.map((s) => ({ value: s, label: s }))}
               />
-            )}
-          />
-          <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
-        </div>
-      </div>
+              <Select
+                label="Source"
+                value={filters.source}
+                onChange={(e) => setFilters((f) => ({ ...f, source: e.target.value }))}
+                options={PAYMENT_SOURCES.map((s) => ({ value: s, label: PAYMENT_SOURCE_LABELS[s] ?? s }))}
+              />
+            </FilterPanel>
+
+            <div className="min-w-0 flex-1">
+              <ResponsiveTable
+                columns={columns}
+                rows={payments}
+                isLoading={isLoading}
+                rowActions={(row) => (
+                  <Dropdown
+                    items={[
+                      ...(row.status === "pending"
+                        ? [{ label: "Review & confirm", icon: <CheckCircle2 className="h-4 w-4" />, onClick: () => setReviewPayment(row) }]
+                        : []),
+                      { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
+                      { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => sendReceipt(row.id).then(() => toast("Receipt sent.", { type: "success" })) },
+                      {
+                        label: "Download receipt",
+                        icon: <Download className="h-4 w-4" />,
+                        onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
+                      },
+                      { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
+                      ...(row.tenant_id
+                        ? [{
+                            label: "Remind tenant",
+                            icon: <Send className="h-4 w-4" />,
+                            onClick: () => setReminderTenant({ id: row.tenant_id, first_name: (row.tenant_name || "").split(" ")[0] || "Tenant", last_name: (row.tenant_name || "").split(" ").slice(1).join(" ") }),
+                          }]
+                        : []),
+                      { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
+                    ]}
+                  />
+                )}
+              />
+              <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
+            </div>
+          </div>
+        </>
+      )}
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={activePayment?.id ? "Edit payment" : "Record payment"} size="lg">
         <RecordPaymentForm

@@ -28,9 +28,9 @@ CRITICAL — reconciling plain declarative Base with Flask-SQLAlchemy:
 
 CELERY NOTE:
   The Celery instance is NOT created here because it requires app config
-  (broker URL, result backend).  It lives in `app.py::make_celery(app)`.
-  The worker entrypoint (`celery_app.py`, created later) calls make_celery
-  and exposes the bound instance for `celery -A celery_app worker ...`.
+  (broker URL, result backend).  It lives in `celery_app.py`, which builds
+  it from config alone (no Flask app import) and is the single instance
+  used by `celery -A celery_app:celery worker` and `... beat`.
 """
 
 from flask_cors import CORS                     # CORS — cross-origin requests (§2 Frontend)

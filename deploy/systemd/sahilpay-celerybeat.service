@@ -1,0 +1,21 @@
+# Sahil Pay — Celery Beat scheduler (monthly invoices, trial expiry, lease
+# expiry notifications, low-SMS alerts, M-Pesa reconciliation). Exactly ONE
+# instance of this may run.
+[Unit]
+Description=Sahil Pay Celery Beat scheduler
+After=network.target redis-server.service
+Wants=redis-server.service
+
+[Service]
+User=sahilpay
+Group=sahilpay
+WorkingDirectory=/var/www/sahilpay/app/server
+EnvironmentFile=/var/www/sahilpay/app/server/.env
+Environment=APP_ENV=production
+ExecStart=/var/www/sahilpay/app/server/venv/bin/celery -A celery_app beat \
+    --loglevel=info
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

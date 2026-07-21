@@ -72,6 +72,15 @@ export default function CopilotSettings() {
     }
   };
 
+  const handleRetainUnmatched = async (next) => {
+    try {
+      await updateSettings({ retain_unmatched: next }).unwrap();
+      toast(next ? "Unrecognised messages will now be stored in full." : "Unrecognised messages will be redacted again.", { type: "success" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not update this setting.", { type: "error" });
+    }
+  };
+
   const handleGenerateCode = async () => {
     try {
       const result = await generateAgentCode().unwrap();
@@ -189,6 +198,35 @@ export default function CopilotSettings() {
               Follows your Settings → Payments auto-allocation priority.
             </p>
           </button>
+        </div>
+      </div>
+
+      <div className="glass space-y-3 p-6">
+        <h3 className="text-base font-medium text-white">Message storage</h3>
+        <p className="text-sm text-white/50">
+          Help improve payment detection — store unrecognised message text so support can add new bank formats.
+          Off by default. Messages that don't match a payment template never show your private SMS content
+          unless you turn this on.
+        </p>
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant={data.copilot_retain_unmatched ? "primary" : "ghost"}
+            size="sm"
+            disabled={isSaving || data.copilot_admin_locked}
+            onClick={() => handleRetainUnmatched(true)}
+          >
+            Store for support
+          </Button>
+          <Button
+            type="button"
+            variant={!data.copilot_retain_unmatched ? "primary" : "ghost"}
+            size="sm"
+            disabled={isSaving || data.copilot_admin_locked}
+            onClick={() => handleRetainUnmatched(false)}
+          >
+            Redact (default)
+          </Button>
         </div>
       </div>
 

@@ -39,7 +39,7 @@ from .notification_routes     import notification_bp
 from .tenant_message_routes   import tenant_message_bp
 from .public_routes           import public_bp
 from .webhook_routes          import webhook_bp
-from .admin_billing_routes    import admin_billing_bp
+from .admin_billing_routes    import admin_billing_bp, admin_billing_c2b_bp
 from .affiliate_routes        import affiliate_bp
 from .admin_affiliate_routes  import admin_affiliate_bp
 from .copilot_routes          import copilot_bp
@@ -88,6 +88,7 @@ def register_blueprints(app):
     app.register_blueprint(admin_trial_bp)        # /api/admin/trials
     app.register_blueprint(admin_impersonation_bp) # /api/admin/impersonation
     app.register_blueprint(admin_billing_bp)      # /api/admin/billing-transactions
+    app.register_blueprint(admin_billing_c2b_bp)  # /api/admin/billing/c2b-payments
     app.register_blueprint(admin_affiliate_bp)    # /api/admin/affiliates
     app.register_blueprint(admin_copilot_bp)      # /api/admin/copilot
 

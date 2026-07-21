@@ -12,6 +12,13 @@ checked by @require_copilot_device (see COPILOT_PLATFORM_SPEC.md §4).
   POST /ingest            — device auth. Batch-forward queued SMSs.
   GET  /app/latest        — public. Version-check payload for the update prompt.
   GET  /app/download      — public. Redirects to the latest APK.
+
+COPILOT_LANDLORD_INBOX_SPEC.md §3 adds landlord-SESSION endpoints below (JWT
+auth, mirroring settings_routes.py — NOT the device-token pattern above):
+
+  GET  /messages           — landlord's own Co-Pilot inbox, paginated + filtered.
+  GET  /messages/<id>      — single message detail, 404 outside this landlord.
+  GET  /messages/summary   — counts for the Payments page tab badge.
 """
 
 from __future__ import annotations
@@ -22,9 +29,14 @@ from datetime import datetime
 from functools import wraps
 
 from flask import Blueprint, request, jsonify, g, redirect
+from flask_jwt_extended import jwt_required
 
 from extensions import db
-from models import Landlord, CopilotDevice, CopilotDeviceStatus, CopilotAppRelease
+from models import (
+    Landlord, CopilotDevice, CopilotDeviceStatus, CopilotAppRelease,
+    CopilotMessage, CopilotParseStatus, CopilotMatchStatus, PaymentStatus,
+)
+from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service import record_audit
 from services.notification_service import notify
 from services.copilot_service import (
@@ -337,3 +349,168 @@ def app_download():
     if release is None:
         return jsonify({"error": "No Co-pilot release is available yet."}), 404
     return redirect(release.apk_path)
+
+
+# ===========================================================================
+# Landlord inbox (COPILOT_LANDLORD_INBOX_SPEC.md §3)
+# ===========================================================================
+# Session-authenticated (JWT), NOT device-token. Mirrors settings_routes.py's
+# auth stack exactly — do not reuse @require_copilot_device here.
+
+def _serialise_message(msg: "CopilotMessage") -> dict:
+    """§3.1/§3.2 response shape — the landlord's own inbox row, with the raw
+    SMS body (redacted or not) plus enough tenant/payment context to act on
+    it, without duplicating the payment-review flow."""
+    tenant = msg.tenant
+    payment = msg.payment
+    return {
+        "id":               msg.id,
+        "sender_id":        msg.sender_id,
+        "created_at":       msg.created_at.isoformat() if msg.created_at else None,
+        "sms_received_at":  msg.sms_received_at.isoformat() if msg.sms_received_at else None,
+        "parse_status":     msg.parse_status,
+        "match_status":     msg.match_status,
+        "parsed_amount":    str(msg.parsed_amount) if msg.parsed_amount is not None else None,
+        "parsed_ref":       msg.parsed_ref,
+        "parsed_name":      msg.parsed_name,
+        "parsed_account":   msg.parsed_account,
+        "parsed_phone":     msg.parsed_phone,
+        "tenant": (
+            {"id": tenant.id, "name": f"{tenant.first_name} {tenant.last_name}".strip(),
+             "unit": tenant.unit.name if tenant.unit else None}
+            if tenant else None
+        ),
+        "payment": (
+            {"id": payment.id, "payment_ref": payment.payment_ref, "status": payment.status}
+            if payment else None
+        ),
+        "error_reason":     msg.error_reason,
+        "raw_text":         msg.raw_text,
+        "raw_text_redacted": msg.raw_text_redacted,
+    }
+
+
+@copilot_bp.route("/messages", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "view")
+def list_landlord_messages():
+    """
+    The landlord's own Co-Pilot inbox — every SMS ever forwarded on their
+    behalf, whatever the outcome. This is the data source for the Payments
+    page's Co-Pilot tab (§4).
+
+    ?status=all|parsed|unparsed|duplicate|rejected (default all)
+    ?match=all|matched|unmatched (default all)
+    ?q= substring over parsed_name / parsed_ref / parsed_account
+    ?page=, ?per_page= (default 25, max 100)
+    ---
+    tags: [Co-Pilot]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Paginated Co-pilot message list.}
+    """
+    landlord_id = get_current_landlord_id()
+    page        = request.args.get("page", 1, type=int)
+    per_page    = min(request.args.get("per_page", 25, type=int), 100)
+
+    query = CopilotMessage.query.filter_by(landlord_id=landlord_id)
+
+    status = request.args.get("status", "all")
+    if status and status != "all":
+        query = query.filter(CopilotMessage.parse_status == status)
+
+    match = request.args.get("match", "all")
+    if match and match != "all":
+        query = query.filter(CopilotMessage.match_status == match)
+
+    q = (request.args.get("q") or "").strip()
+    if q:
+        like = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                CopilotMessage.parsed_name.ilike(like),
+                CopilotMessage.parsed_ref.ilike(like),
+                CopilotMessage.parsed_account.ilike(like),
+            )
+        )
+
+    paginated = query.order_by(CopilotMessage.created_at.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+
+    return jsonify({
+        "messages":     [_serialise_message(m) for m in paginated.items],
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
+
+
+@copilot_bp.route("/messages/<int:message_id>", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "view")
+def get_landlord_message(message_id):
+    """
+    Single Co-Pilot message — the detail modal's data source (§4.3). 404 if
+    it isn't this landlord's (never leak by guessable ID).
+    ---
+    tags: [Co-Pilot]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Co-pilot message detail.}
+      404: {description: Message not found.}
+    """
+    landlord_id = get_current_landlord_id()
+    msg = CopilotMessage.query.filter_by(id=message_id, landlord_id=landlord_id).first()
+    if msg is None:
+        return jsonify({"error": "Message not found."}), 404
+
+    payload = _serialise_message(msg)
+    payload["template_name"] = msg.template.name if msg.template else None
+    return jsonify(payload), 200
+
+
+@copilot_bp.route("/messages/summary", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "view")
+def landlord_messages_summary():
+    """
+    Counts for the Payments page's Co-Pilot tab badge (§4.1).
+    `pending_review` = messages whose linked Payment is still `pending`.
+    ---
+    tags: [Co-Pilot]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: "{unparsed, unmatched, pending_review} counts."}
+    """
+    landlord_id = get_current_landlord_id()
+
+    from models import Payment
+
+    unparsed = CopilotMessage.query.filter_by(
+        landlord_id=landlord_id, parse_status=CopilotParseStatus.unparsed.value,
+    ).count()
+    unmatched = CopilotMessage.query.filter_by(
+        landlord_id=landlord_id, match_status=CopilotMatchStatus.unmatched.value,
+    ).count()
+    pending_review = (
+        CopilotMessage.query
+        .join(Payment, Payment.id == CopilotMessage.payment_id)
+        .filter(
+            CopilotMessage.landlord_id == landlord_id,
+            Payment.status == PaymentStatus.pending.value,
+        )
+        .count()
+    )
+
+    return jsonify({
+        "unparsed":       unparsed,
+        "unmatched":      unmatched,
+        "pending_review": pending_review,
+    }), 200
