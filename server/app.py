@@ -1,7 +1,7 @@
 """
 SahilPay — app.py
 ==================
-Application factory and Celery factory.
+Application factory.
 
 Usage
 -----
@@ -21,16 +21,13 @@ Design
 ------
   create_app()  — builds the Flask app; registers extensions, blueprints,
                   JWT callbacks, and error handlers in a fixed order.
-  make_celery() — builds a Celery instance that pushes a Flask app context
-                  for every task (so tasks can use db.session).
 
-The Beat schedule is defined inside make_celery() because it is CORE
-infrastructure, not optional:
-  • generate-monthly-invoices     — 1st of month 00:05 Africa/Nairobi
-  • generate-recurring-expenses   — 1st of month 00:10
-  • check-trial-expirations       — daily 00:30
-  • lease-expiry-notifications    — daily 07:00
-  • low-sms-balance-alerts        — daily 08:00
+The Celery instance, its task registry (via `include=`) and the Beat
+schedule all live in celery_app.py — that is the single instance the
+worker and beat entrypoints above actually load. There is deliberately no
+Celery factory here: an earlier make_celery() built a second, orphaned
+instance that nothing ever called, so the Beat schedule it defined was
+invisible to the running beat process.
 """
 
 from __future__ import annotations
@@ -39,8 +36,6 @@ import logging
 import os
 
 import redis
-from celery import Celery
-from celery.schedules import crontab
 from flask import Flask, jsonify
 from flask_jwt_extended import JWTManager
 from sqlalchemy.exc import IntegrityError
@@ -89,7 +84,7 @@ def create_app(config_name: str | None = None) -> Flask:
     # ------------------------------------------------------------------
     # Python's root logger defaults to WARNING, which silently swallows every
     # logger.info(...) the app emits — including the dev SMS/OTP stub line that
-    # prints a tenant's login code while Africa's Talking is unconfigured. In
+    # prints a tenant's login code while FluxSMS is unconfigured. In
     # development we lower the threshold to INFO so those show up in the same
     # terminal that runs `python app.py` (no separate Celery worker needed when
     # CELERY_TASK_ALWAYS_EAGER is on). basicConfig only installs a handler if
@@ -399,112 +394,11 @@ def _register_error_handlers(app: Flask) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Celery factory + Beat schedule
+# Module-level app  (for `flask` CLI and gunicorn)
 # ---------------------------------------------------------------------------
-
-def make_celery(app: Flask | None = None) -> Celery:
-    """
-    Build a Celery instance tied to the Flask app context.
-
-    Every task runs inside a Flask application context so that db.session
-    and current_app are available (via the ContextTask base class).
-
-    The Beat schedule is registered here because it is CORE to the product
-    (monthly billing, trial checks) — not an optional add-on.
-
-    Task dotted paths reference modules under tasks/ (built later).
-    They are wrapped in try/except so Beat config does not crash when
-    a task module has not been created yet.
-    """
-    if app is None:
-        app = create_app()
-
-    celery_instance = Celery(
-        app.import_name,
-        broker=app.config["CELERY_BROKER_URL"],
-        backend=app.config["CELERY_RESULT_BACKEND"],
-    )
-
-    celery_instance.conf.update(
-        task_always_eager=app.config.get("CELERY_TASK_ALWAYS_EAGER", False),
-        timezone=app.config.get("CELERY_TIMEZONE", "Africa/Nairobi"),
-        enable_utc=True,
-        task_serializer="json",
-        result_serializer="json",
-        accept_content=["json"],
-        # Retry failed tasks once after 60 s by default.
-        task_acks_late=True,
-        task_reject_on_worker_lost=True,
-    )
-
-    # ---- ContextTask: push Flask app context for every task ----
-
-    class ContextTask(celery_instance.Task):
-        """Base task class that ensures an active Flask app context."""
-        abstract = True
-
-        def __call__(self, *args, **kwargs):
-            with app.app_context():
-                return super().__call__(*args, **kwargs)
-
-    celery_instance.Task = ContextTask
-
-    # ---- Celery Beat schedule (core infra — non-optional) ----
-    # Task callables live in tasks/ (built later). We reference them by
-    # dotted path and guard each import so Beat config does not fail while
-    # those modules are still being built.
-
-    beat_schedule: dict = {}
-
-    # 1st of every month at 00:05 Africa/Nairobi — month-end billing + rollover
-    #   for every landlord: carry unpaid balances forward and raise the single
-    #   monthly invoice per tenant (charge-category restructure, spec §3).
-    beat_schedule["generate-monthly-invoices"] = {
-        "task": "tasks.invoice_tasks.run_monthly_billing_all",
-        "schedule": crontab(day_of_month="1", hour="0", minute="5"),
-        "options": {"queue": "periodic"},
-    }
-
-    # 1st of every month at 00:10 — instantiate recurring expense templates.
-    beat_schedule["generate-recurring-expenses"] = {
-        "task": "tasks.billing_tasks.generate_recurring_expenses",
-        "schedule": crontab(day_of_month="1", hour="0", minute="10"),
-        "options": {"queue": "periodic"},
-    }
-
-    # Daily at 00:30 — expire trials whose trial_ends_at has passed.
-    beat_schedule["check-trial-expirations"] = {
-        "task": "tasks.admin_tasks.check_trial_expirations",
-        "schedule": crontab(hour="0", minute="30"),
-        "options": {"queue": "periodic"},
-    }
-
-    # Daily at 07:00 — notify landlords of leases expiring within their
-    #   configured lease_expiry_range_days window.
-    beat_schedule["lease-expiry-notifications"] = {
-        "task": "tasks.notification_tasks.lease_expiry_notifications",
-        "schedule": crontab(hour="7", minute="0"),
-        "options": {"queue": "periodic"},
-    }
-
-    # Daily at 08:00 — warn landlords whose SMS balance is below threshold.
-    beat_schedule["low-sms-balance-alerts"] = {
-        "task": "tasks.notification_tasks.low_sms_balance_alerts",
-        "schedule": crontab(hour="8", minute="0"),
-        "options": {"queue": "periodic"},
-    }
-
-    celery_instance.conf.beat_schedule = beat_schedule
-
-    return celery_instance
-
-
-# ---------------------------------------------------------------------------
-# Module-level app + Celery  (for `flask` CLI and gunicorn)
-# ---------------------------------------------------------------------------
-# These are created at import time so the `flask` CLI can find the app and
-# so gunicorn / uWSGI can reference "app:app".
-# make_celery is called separately in celery_app.py for the worker process.
+# Created at import time so the `flask` CLI can find the app and so
+# gunicorn / uWSGI can reference "app:app". The Celery instance lives in
+# celery_app.py and is loaded independently by the worker/beat processes.
 
 app = create_app()
 
