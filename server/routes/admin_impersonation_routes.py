@@ -140,7 +140,7 @@ def create_impersonation_request():
         entity_type="account",
         entity_id=imp_req.id,
         description=(
-            f"ADMIN: Impersonation access requested for landlord {landlord_id} "
+            f"ADMIN: Client support access requested for landlord {landlord_id} "
             f"({landlord.company_name}). Reason: {reason}"
         ),
         after_data=imp_req.to_dict(),
@@ -162,7 +162,7 @@ def create_impersonation_request():
     db.session.commit()
 
     return jsonify({
-        "message": "Impersonation request sent. Awaiting landlord consent.",
+        "message": "Support request sent. Awaiting landlord consent.",
         "request": imp_req.to_dict(),
     }), 201
 
@@ -227,7 +227,7 @@ def admin_revoke_request(request_id):
         id=request_id, admin_user_id=_admin_id()
     ).first()
     if not imp_req:
-        return jsonify({"error": "Impersonation request not found."}), 404
+        return jsonify({"error": "Support request not found."}), 404
     if imp_req.status in (
         ImpersonationStatus.revoked.value, ImpersonationStatus.expired.value
     ):
@@ -245,7 +245,7 @@ def admin_revoke_request(request_id):
         entity_type="account",
         entity_id=imp_req.id,
         description=(
-            f"ADMIN: Impersonation session revoked for landlord "
+            f"ADMIN: Client support session revoked for landlord "
             f"{imp_req.landlord_id}."
         ),
         before_data=before,
@@ -253,7 +253,7 @@ def admin_revoke_request(request_id):
     )
     db.session.commit()
 
-    return jsonify({"message": "Impersonation access revoked.", "request": imp_req.to_dict()}), 200
+    return jsonify({"message": "Support access revoked.", "request": imp_req.to_dict()}), 200
 
 
 # ===========================================================================
@@ -327,7 +327,7 @@ def landlord_grant_request(request_id):
         id=request_id, landlord_id=landlord_id
     ).first()
     if not imp_req:
-        return jsonify({"error": "Impersonation request not found."}), 404
+        return jsonify({"error": "Support request not found."}), 404
     if imp_req.status != ImpersonationStatus.pending.value:
         return jsonify({"error": f"This request is already '{imp_req.status}'."}), 400
     if imp_req.expires_at and imp_req.expires_at < datetime.utcnow():
@@ -369,7 +369,7 @@ def landlord_grant_request(request_id):
     db.session.commit()
 
     return jsonify({
-        "message": "Impersonation access granted.",
+        "message": "Support access granted.",
         "request": imp_req.to_dict(),
     }), 200
 
@@ -400,7 +400,7 @@ def landlord_deny_request(request_id):
         id=request_id, landlord_id=landlord_id
     ).first()
     if not imp_req:
-        return jsonify({"error": "Impersonation request not found."}), 404
+        return jsonify({"error": "Support request not found."}), 404
     if imp_req.status != ImpersonationStatus.pending.value:
         return jsonify({"error": f"This request is already '{imp_req.status}'."}), 400
 
@@ -425,6 +425,6 @@ def landlord_deny_request(request_id):
     db.session.commit()
 
     return jsonify({
-        "message": "Impersonation request denied.",
+        "message": "Support request denied.",
         "request": imp_req.to_dict(),
     }), 200

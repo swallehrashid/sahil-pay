@@ -34,7 +34,8 @@ _counter = itertools.count()
 # Factories
 # ---------------------------------------------------------------------------
 
-def make_landlord(session, *, copilot_enabled=True, auto_allocate=False, admin_locked=False):
+def make_landlord(session, *, copilot_enabled=True, auto_allocate=False, admin_locked=False,
+                   retain_unmatched=False):
     n = next(_counter)
     user = User(
         email=f"landlord{n}@test.sahilpay", phone=f"25470{n:07d}",
@@ -53,6 +54,11 @@ def make_landlord(session, *, copilot_enabled=True, auto_allocate=False, admin_l
         copilot_enabled=copilot_enabled,
         copilot_auto_allocate=auto_allocate,
         copilot_admin_locked=admin_locked,
+        # COPILOT_LANDLORD_INBOX_SPEC.md §2.3 — opt-in exemption from §2's
+        # unmatched-message redaction. Off by default, matching every other
+        # test here; the one retry-after-admin-fix test below opts in
+        # because that workflow needs the pre-fix raw text still present.
+        copilot_retain_unmatched=retain_unmatched,
     )
     session.add(ls)
     session.flush()
@@ -439,7 +445,12 @@ def test_pending_path_touches_no_balances_until_confirmed(db_session):
 # ===========================================================================
 
 def test_retry_unparsed_message_resolves_after_template_added(db_session):
-    landlord = make_landlord(db_session, auto_allocate=False)
+    # COPILOT_LANDLORD_INBOX_SPEC.md §2 redacts raw_text the moment a message
+    # is filed unparsed (default OFF landlords), so a template added AFTER
+    # the fact has nothing left to re-parse on retry unless this landlord
+    # opted in to retention (§2.3) — exactly the admin-support scenario that
+    # opt-in exists for, and exactly what this test exercises.
+    landlord = make_landlord(db_session, auto_allocate=False, retain_unmatched=True)
     _, unit = make_property_unit(db_session, landlord)
     tenant = make_tenant(db_session, landlord, unit, phone="+254712345678")
     device = make_device(db_session, landlord)

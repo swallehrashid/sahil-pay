@@ -277,6 +277,17 @@ def _dedupe_hash(landlord_id: int, sender_id: str, raw_text: str) -> str:
     return hashlib.sha256(basis.encode()).hexdigest()
 
 
+def _redact_unmatched(raw: str | None) -> str:
+    """No template claimed this message. Retain only a redacted shape stub —
+    enough for an admin to recognise a message family worth writing a template
+    for, never enough to expose the landlord's private SMS content."""
+    if not raw:
+        return "[redacted: no matching template]"
+    head = raw.strip()[:40]
+    head = re.sub(r"\d", "#", head)
+    return f"[redacted: no matching template] {head}..."
+
+
 def _copilot_payment_ref(landlord_id: int) -> str:
     from models import Payment
     count = Payment.query.filter_by(landlord_id=landlord_id).count()
@@ -410,6 +421,13 @@ def _finalize_message(msg, landlord, ls, device) -> None:
         msg.match_status = CopilotMatchStatus.n_a.value
         msg.template_id = None
         msg.error_reason = None
+        # §2 — no active template claimed this message, so it is not a payment
+        # notification: it is the landlord's private SMS traffic (airtime,
+        # personal transfers, utility bills, ...) picked up because
+        # SENDER_PRESETS is deliberately broad-carrier. Do not retain the body
+        # unless this landlord has opted in (admin-authoring exemption).
+        if not getattr(ls, "copilot_retain_unmatched", False):
+            msg.raw_text = _redact_unmatched(msg.raw_text)
         db.session.flush()
         return
 

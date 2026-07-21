@@ -88,7 +88,7 @@ def record_audit(
     except Exception:
         imp = None
     if imp is not None:
-        prefix = f"[Impersonating landlord #{imp.landlord_id}]"
+        prefix = f"[Client support session — landlord #{imp.landlord_id}]"
         description = f"{prefix} {description}" if description else prefix
 
     # Defense-in-depth: mark demo-scope writes (DEMO_MODE_SPEC.md §3.5) — the

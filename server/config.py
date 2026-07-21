@@ -20,11 +20,14 @@ Environment selection
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import timedelta
 from decimal import Decimal
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load .env before any os.environ reads so local dev works without system vars.
 load_dotenv()
@@ -182,18 +185,18 @@ class BaseConfig:
     S3_PUBLIC_BASE_URL: str | None = _env("S3_PUBLIC_BASE_URL")  # CDN prefix
 
     # ------------------------------------------------------------------
-    # Africa's Talking — SMS  (Kenyan delivery; §2 Third-Party Integrations)
+    # FluxSMS — SMS delivery  (Kenyan delivery; §2 Third-Party Integrations)
     # ------------------------------------------------------------------
-    AT_USERNAME: str | None = _env("AT_USERNAME")
-    AT_API_KEY: str | None = _env("AT_API_KEY")
-    AT_SENDER_ID: str | None = _env("AT_SENDER_ID")
+    FLUXSMS_BASE_URL: str = _env("FLUXSMS_BASE_URL", "https://api.fluxsms.co.ke")
+    FLUXSMS_API_KEY: str | None = _env("FLUXSMS_API_KEY")
+    FLUXSMS_SENDER_ID: str = _env("FLUXSMS_SENDER_ID", "SAHILPAY")
 
     # ------------------------------------------------------------------
     # Email — SendGrid  (transactional; §2 Third-Party Integrations)
     # ------------------------------------------------------------------
     SENDGRID_API_KEY: str | None = _env("SENDGRID_API_KEY")
-    MAIL_DEFAULT_SENDER: str = _env("MAIL_DEFAULT_SENDER", "noreply@sahilpay.com")
-    MAIL_DEFAULT_SENDER_NAME: str = _env("MAIL_DEFAULT_SENDER_NAME", "SahilPay")
+    MAIL_DEFAULT_SENDER: str = _env("MAIL_DEFAULT_SENDER", "noreply@sahilpay.co.ke")
+    MAIL_DEFAULT_SENDER_NAME: str = _env("MAIL_DEFAULT_SENDER_NAME", "Sahil Pay")
 
     # When True (default until real SMS/email/WhatsApp providers are wired),
     # message dispatch is SIMULATED: no external API is called, and a message is
@@ -258,7 +261,7 @@ class BaseConfig:
             "Admin / Landlord-PM / Team Member / Tenant portals."
         ),
         "termsOfService": "",
-        "contact": {"email": "support@sahilpay.com"},
+        "contact": {"email": "hello@sahilpay.co.ke"},
     }
 
     # ------------------------------------------------------------------
@@ -395,9 +398,20 @@ class ProductionConfig(BaseConfig):
         _require("JWT_SECRET_KEY", "production JWT signing key")
         _require("REDIS_URL", "production Redis URL for Celery / rate-limiter")
         _require("SENDGRID_API_KEY", "transactional email")
-        _require("CLOUDINARY_CLOUD_NAME", "property image storage")
-        _require("AWS_ACCESS_KEY_ID", "PDF / document S3 storage")
-        _require("MPESA_CONSUMER_KEY", "M-Pesa Daraja integration")
+        # Cloud file/image storage is OPTIONAL for v1. When Cloudinary / AWS S3
+        # credentials are absent, services/storage_service.py transparently falls
+        # back to local-disk storage under server/uploads/ (served by app.py's
+        # /uploads route), and the unused Cloudinary image helper is never called.
+        # Set these later to move file storage off the VPS with no code change.
+        if not _env("CLOUDINARY_CLOUD_NAME"):
+            logger.warning("CLOUDINARY_CLOUD_NAME not set — property/maintenance images "
+                           "would use local disk if that feature is wired up.")
+        if not _env("AWS_ACCESS_KEY_ID"):
+            logger.warning("AWS_ACCESS_KEY_ID not set — uploaded documents/receipts are "
+                           "stored on local disk (server/uploads/). Ensure it's backed up.")
+        _require("PLATFORM_DARAJA_CONSUMER_KEY", "M-Pesa Daraja integration")
+        if not _env("MPESA_SIMULATION_MODE", "true").lower() in ("1", "true", "yes", "on"):
+            _require("PLATFORM_DARAJA_PASSKEY", "M-Pesa STK Push (simulation mode is off)")
 
     # Override database URI from validated env
     SQLALCHEMY_DATABASE_URI: str = _normalize_db_url(

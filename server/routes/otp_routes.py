@@ -10,7 +10,7 @@ OTP flow:
   1. Tenant submits phone or email.
   2. We look up the Tenant row by that identifier.
   3. Generate a 6-digit code, hash it, store in otp_tokens.
-  4. Dispatch via Africa's Talking (SMS) or SendGrid (email).
+  4. Dispatch via FluxSMS (SMS) or SendGrid (email).
   5. Tenant submits code → validate expiry, attempt count, is_used.
   6. Issue tenant JWT on success.
 """

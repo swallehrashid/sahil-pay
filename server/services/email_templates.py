@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from html import escape
 
+from services import branding
+
 # ── Palette ──────────────────────────────────────────────────────────────────
 BG        = "#08011f"   # page background (primary-950)
 CARD_TOP  = "#160653"   # card gradient top (primary-700)
@@ -144,7 +146,7 @@ def render_email(
 
     year_footer = (
         footer_note
-        or "You're receiving this because you have a SahilPay account."
+        or "You're receiving this because you have a Sahil Pay account."
     )
 
     return f"""\
@@ -158,10 +160,10 @@ def render_email(
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{BG};padding:32px 12px;">
 <tr><td align="center">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;">
-    <!-- Brand header -->
+    <!-- Brand header (styled text only — Gmail/Outlook strip embedded SVG) -->
     <tr><td style="padding:4px 6px 20px;">
-      <span style="font-family:{FONT};font-size:22px;font-weight:700;letter-spacing:.02em;color:#ffffff;">Sahil<span style="color:{ROSE};">Pay</span></span>
-      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{ROSE};margin-left:4px;vertical-align:middle;"></span>
+      <div style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:700;letter-spacing:.14em;color:#ffffff;">SAHIL&nbsp;PAY</div>
+      <div style="margin-top:2px;font-family:{FONT};font-size:9px;font-weight:600;letter-spacing:.35em;color:{MUTED};">SMART&nbsp;RENT&nbsp;COLLECTION</div>
     </td></tr>
     <!-- Card -->
     <tr><td style="background:{CARD_BOT};background:linear-gradient(160deg,{CARD_TOP} 0%,{CARD_BOT} 100%);border:1px solid {BORDER};border-radius:20px;padding:34px 32px;">
@@ -171,7 +173,7 @@ def render_email(
     <!-- Footer -->
     <tr><td style="padding:22px 8px 4px;">
       <p style="margin:0 0 6px;font-family:{FONT};font-size:12px;line-height:1.6;color:{MUTED};">{escape(year_footer)}</p>
-      <p style="margin:0;font-family:{FONT};font-size:12px;color:{BORDER};">SahilPay · Property management &amp; rent collection · Nairobi, Kenya</p>
+      <p style="margin:0;font-family:{FONT};font-size:12px;color:{BORDER};">{branding.BRAND_NAME} · {branding.BRAND_SLOGAN.title()} · {branding.BRAND_LOCATION} · {branding.BRAND_PHONE} · {branding.BRAND_EMAIL}</p>
     </td></tr>
   </table>
 </td></tr></table>

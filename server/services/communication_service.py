@@ -26,6 +26,12 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     decrementing the landlord's SMS balance for SMS sends, and writing one
     communication_logs row regardless of channel or outcome.
 
+    For SMS, the landlord's own credit balance is checked BEFORE attempting a
+    send (regardless of default vs custom sender — a custom sender still
+    consumes credits at the admin-set custom rate) and the charge/decrement
+    only happens AFTER a send actually succeeds (or is simulated as
+    delivered) — a failed provider call never burns credits.
+
     Does not commit — the caller commits in the same transaction (matches
     every other service in this layer). The returned log is flushed, so
     .id is available immediately.
@@ -57,14 +63,18 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     sms_segments = None
     uses_own = False
     sender_id = None
-    at_username = None
-    at_api_key = None
-    blocked = None   # reason string when a shared send can't proceed
+    sms_api_key = None
+    provider_message_id = None
+    blocked = None   # reason string when a send can't proceed
+    landlord = None
+    cfg = None
+    econ = None
 
     if channel == "sms":
         # §9.3 reselling charge model: own connected sender ID (custom) → custom
         # price; SahilPay's shared sender ID (default) → default price by length,
-        # delivered out of the shared pool.
+        # delivered out of the shared pool. Both models consume the landlord's
+        # own credit balance — custom senders are NOT exempt from the gate.
         landlord = demo_landlord if demo_landlord is not None else db.session.get(Landlord, landlord_id)
         settings = landlord.landlord_settings if landlord else None
         rates = load_rates()
@@ -73,32 +83,21 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         uses_own     = econ["uses_own_sender_id"]
         sms_segments = econ["segments"]
         if uses_own and settings is not None:
-            at_username = settings.at_username
-            at_api_key = settings.at_api_key
+            sms_api_key = settings.sms_api_key
 
-        cfg = None
-        if not uses_own and not is_demo:
-            # Shared (default) sends are gated by the master toggle and the
-            # shared pool balance; custom sends never touch the pool. A demo
-            # shadow never draws from the real shared pool or shows up in
-            # platform SMS revenue — its "balance" is decremented below for a
-            # realistic training experience, but nothing platform-facing moves.
+        if landlord is not None and not is_demo and (landlord.sms_balance or 0) < sms_segments:
+            blocked = "Insufficient SMS balance — top up to keep sending."
+
+        if not blocked and not uses_own and not is_demo:
+            # Shared (default) sends are additionally gated by the master
+            # toggle and the shared pool balance; custom sends never touch
+            # the pool. A demo shadow never draws from the real shared pool
+            # or shows up in platform SMS revenue.
             cfg = SmsPricingConfig.get_singleton()
             if not rates["shared_enabled"]:
                 blocked = "Shared-sender sending is disabled by the administrator."
             elif cfg.pool_balance < sms_segments:
-                blocked = "SahilPay shared SMS pool is exhausted."
-
-        if not blocked:
-            if not is_demo:
-                sms_charge    = econ["charge"]
-                platform_cost = econ["platform_cost"]
-            if landlord is not None:
-                # Decrement one balance credit per segment (balance is a credit
-                # count; the resale price only affects KES billed at purchase).
-                decrement_sms_balance(landlord, sms_segments)
-            if not uses_own and cfg is not None:
-                cfg.pool_balance = max(0, cfg.pool_balance - sms_segments)
+                blocked = "Sahil Pay shared SMS pool is exhausted."
 
     if channel == "sms" and blocked:
         logger.warning("dispatch_message: SMS to tenant %s blocked — %s", tenant.id, blocked)
@@ -115,7 +114,8 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     elif not destination:
         status = "failed"
     elif channel == "sms":
-        status = "delivered" if send_sms(tenant.phone, content, sender_id=sender_id, username=at_username, api_key=at_api_key) else "failed"
+        provider_message_id = send_sms(tenant.phone, content, sender_id=sender_id, api_key=sms_api_key)
+        status = "delivered" if provider_message_id else "failed"
     elif channel == "email":
         status = "delivered" if _send_email(tenant.email, "Message from your landlord", f"<p>{content}</p>") else "failed"
     elif channel == "whatsapp":
@@ -123,6 +123,20 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         # it is; simulation mode above is the working path for now.
         logger.info("WhatsApp [not implemented] to %s: %s", getattr(tenant, "phone", None), content)
         status = "failed"
+
+    # Charge/decrement only AFTER the outcome is known, and only when the SMS
+    # actually went out (or was simulated as delivered) — a failed send never
+    # burns credits or records platform cost.
+    if channel == "sms" and not blocked and status == "delivered":
+        if not is_demo:
+            sms_charge    = econ["charge"]
+            platform_cost = econ["platform_cost"]
+        if landlord is not None:
+            # Decrement one balance credit per segment (balance is a credit
+            # count; the resale price only affects KES billed at purchase).
+            decrement_sms_balance(landlord, sms_segments)
+        if not uses_own and cfg is not None:
+            cfg.pool_balance = max(0, cfg.pool_balance - sms_segments)
 
     unit = getattr(tenant, "unit", None)
     log = CommunicationLog(
@@ -138,6 +152,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         uses_own_sender=uses_own,
         platform_cost=platform_cost,
         status=status,
+        provider_message_id=provider_message_id,
         sent_at=datetime.utcnow(),
     )
     db.session.add(log)

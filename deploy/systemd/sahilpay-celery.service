@@ -1,0 +1,19 @@
+# Sahil Pay — Celery worker (invoices, SMS, emails, PDFs, M-Pesa reconciliation)
+[Unit]
+Description=Sahil Pay Celery worker
+After=network.target redis-server.service postgresql.service
+Wants=redis-server.service
+
+[Service]
+User=sahilpay
+Group=sahilpay
+WorkingDirectory=/var/www/sahilpay/app/server
+EnvironmentFile=/var/www/sahilpay/app/server/.env
+Environment=APP_ENV=production
+ExecStart=/var/www/sahilpay/app/server/venv/bin/celery -A celery_app worker \
+    --loglevel=info --concurrency=2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
