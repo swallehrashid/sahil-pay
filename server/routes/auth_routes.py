@@ -259,8 +259,12 @@ def refresh():
     """
     identity = get_jwt_identity()
     claims   = get_jwt()
+    # tenant_id MUST be carried across a refresh: tenant routes authorise off
+    # this claim, so dropping it would silently break a tenant's session after
+    # their access token rotates (the identity is "tenant:<id>", not a User id).
     additional_claims = {k: v for k, v in claims.items()
-                         if k in ("role", "landlord_id", "team_member_id", "affiliate_id", "affiliate_status")}
+                         if k in ("role", "landlord_id", "team_member_id",
+                                  "tenant_id", "affiliate_id", "affiliate_status")}
     new_token = create_access_token(identity=identity, additional_claims=additional_claims)
     return jsonify({"access_token": new_token}), 200
 

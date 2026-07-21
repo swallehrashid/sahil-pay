@@ -221,12 +221,23 @@ def verify_otp():
         "landlord_id": tenant.landlord_id,
     }
 
+    # SECURITY: the JWT identity ("sub") MUST be namespaced for tenants and
+    # MUST NOT be a bare numeric id. It was previously
+    # str(tenant.user_id or tenant.id): for an OTP-only tenant with no linked
+    # User, that fell back to tenant.id — a small integer that user_lookup_loader
+    # then resolved as a User.id, logging the tenant into whatever unrelated User
+    # (often a landlord's team member) happened to share that id. Prefixing with
+    # "tenant:" makes the identity non-numeric, so it can never collide with a
+    # User.id, and user_lookup_loader returns None for it (correct — a tenant is
+    # not a User; the portal authorises off the tenant_id claim, not current_user).
+    identity = f"tenant:{tenant.id}"
+
     access_token  = create_access_token(
-        identity=str(tenant.user_id or tenant.id),
+        identity=identity,
         additional_claims=additional_claims,
     )
     refresh_token = create_refresh_token(
-        identity=str(tenant.user_id or tenant.id),
+        identity=identity,
         additional_claims=additional_claims,
     )
 
