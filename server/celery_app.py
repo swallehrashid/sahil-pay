@@ -23,6 +23,20 @@ by which point app.py has always finished importing.
 
 from __future__ import annotations
 
+import os
+import sys
+
+# The forked pool workers do not reliably inherit the server directory on
+# sys.path, so the bare `from app import app` inside _ContextTask fails at
+# task-execution time with ModuleNotFoundError: No module named 'app'. Put
+# this file's own directory (the server root) on sys.path so `import app`
+# resolves regardless of how the worker forks or what CWD it inherits — the
+# task modules under services.*/tasks.* import fine already, this is only
+# needed for the top-level `app` module.
+_SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SERVER_DIR not in sys.path:
+    sys.path.insert(0, _SERVER_DIR)
+
 from celery import Celery
 from celery.schedules import crontab
 
