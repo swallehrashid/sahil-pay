@@ -10,9 +10,10 @@ Templates support dynamic placeholders: {tenant_name}, {balance},
 {invoice_items}, {due_date}, etc. — substitution happens at send time.
 """
 
+import time
 from datetime import datetime
 
-from flask import Blueprint, request, jsonify, abort
+from flask import Blueprint, current_app, request, jsonify, abort
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -162,8 +163,10 @@ def send_message():
         Tenant.is_deleted.is_(False),
     ).all()
 
+    simulate = current_app.config.get("COMMS_SIMULATION_MODE", True)
+
     log_ids = []
-    for tenant in tenants:
+    for i, tenant in enumerate(tenants):
         # Substitute every universal variable ({tenant_name}, {unit}, {balance},
         # {payment_method}, …) for this specific tenant + landlord.
         personalized = render_message(content, tenant, landlord)
@@ -177,6 +180,11 @@ def send_message():
         log_ids.append(log.id if log else None)
         # NB: the SMS balance is decremented inside dispatch_message() (the single
         # chokepoint). Decrementing again here would double-charge every SMS.
+
+        # FluxSMS allows 100 req/min per API key — throttle real SMS sends so
+        # a large selection here doesn't burst past the rate limit.
+        if channel == MessageChannel.sms.value and not simulate and i < len(tenants) - 1:
+            time.sleep(0.75)
 
     db.session.commit()
 

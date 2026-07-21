@@ -643,6 +643,139 @@ def pay_withdrawal(withdrawal_id):
     return jsonify({"message": "Withdrawal paid.", "withdrawal": withdrawal.to_dict()}), 200
 
 
+@admin_affiliate_bp.route("/withdrawals/<int:withdrawal_id>/pay-b2c", methods=["POST"])
+@jwt_required()
+def pay_withdrawal_b2c(withdrawal_id):
+    """
+    Send the withdrawal's net amount to the affiliate's M-Pesa number via
+    Daraja B2C (MPESA_INTEGRATION_SPEC.md §8.2). B2C amounts are whole
+    shillings — the net amount is floored; the sub-shilling remainder stays
+    untracked in the program ledger.
+
+    In simulation mode (MPESA_SIMULATION_MODE=true, the default until the
+    B2C initiator credentials are configured) this finalises instantly with
+    a synthetic receipt, exactly like the STK simulation paths — no external
+    call is made. Otherwise it fires a real B2C payment and waits for
+    POST /api/webhooks/daraja/b2c/result to confirm it.
+
+    The manual POST .../pay endpoint above remains available as a fallback
+    at all times — this endpoint never replaces it.
+    ---
+    tags: [Admin, Affiliate]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: B2C payout simulated and paid immediately (simulation mode).}
+      202: {description: B2C payout initiated. Awaiting result callback.}
+      400: {description: Invalid payout profile or withdrawal state.}
+      404: {description: Withdrawal not found.}
+      409: {description: A payout is already in flight for this withdrawal.}
+      503: {description: B2C initiator credentials are not configured (production only).}
+    """
+    import uuid
+    from decimal import Decimal
+    from flask import current_app
+    from services.daraja_service import normalize_msisdn, b2c_payment, DarajaError
+
+    _require_admin()
+    withdrawal = db.session.get(AffiliateWithdrawal, withdrawal_id)
+    if not withdrawal:
+        return jsonify({"error": "Withdrawal not found."}), 404
+    if withdrawal.status not in (WithdrawalStatus.requested.value, WithdrawalStatus.processing.value):
+        return jsonify({"error": "This withdrawal is already in a terminal state."}), 400
+
+    if withdrawal.b2c_status == "sent":
+        return jsonify({"error": "A B2C payout is already in flight for this withdrawal."}), 409
+
+    phone = normalize_msisdn(withdrawal.affiliate.mpesa_number)
+    if not phone:
+        return jsonify({"error": "This affiliate's M-Pesa number is missing or invalid. Ask them to update their payout profile."}), 400
+
+    paid_amount = int(withdrawal.net_amount)  # B2C rejects decimals — floor to whole shillings
+    if paid_amount <= 0:
+        return jsonify({"error": "Net amount must be at least KES 1 to pay via B2C."}), 400
+
+    originator_id = str(uuid.uuid4())
+    before = withdrawal.to_dict()
+
+    simulation_mode = current_app.config.get("MPESA_SIMULATION_MODE", True)
+
+    if simulation_mode:
+        withdrawal.b2c_originator_id = originator_id
+        withdrawal.paid_amount = Decimal(paid_amount)
+        withdrawal.b2c_status = "result_received"
+        receipt = f"SIMB2C{withdrawal.id:08d}"
+        svc.pay_withdrawal(withdrawal, _admin_actor_id(), receipt)
+        db.session.commit()
+
+        record_audit(
+            actor_user_id=_admin_actor_id(), landlord_id=None,
+            action="pay_affiliate_withdrawal_b2c_simulated", entity_type="affiliate_withdrawal", entity_id=withdrawal.id,
+            description=(
+                f"[SIMULATION] B2C payout of KES {paid_amount} to {phone} verified instantly "
+                f"(receipt {receipt})."
+            ),
+            before_data=before, after_data=withdrawal.to_dict(),
+        )
+        db.session.commit()
+
+        return jsonify({
+            "message":    "B2C payout simulated and paid immediately (simulation mode).",
+            "simulated":  True,
+            "withdrawal": withdrawal.to_dict(),
+        }), 200
+
+    # Double-pay lock: commit b2c_status='sent' BEFORE the HTTP call so a
+    # crash mid-request can never result in two payouts for one withdrawal.
+    withdrawal.b2c_originator_id = originator_id
+    withdrawal.paid_amount = Decimal(paid_amount)
+    withdrawal.b2c_status = "sent"
+    if withdrawal.status == WithdrawalStatus.requested.value:
+        svc.process_withdrawal(withdrawal, _admin_actor_id())
+    db.session.commit()
+
+    try:
+        resp_data = b2c_payment(
+            phone=phone,
+            amount=paid_amount,
+            remarks="SahilPay affiliate payout",
+            occasion=f"Withdrawal-{withdrawal.id}",
+            originator_id=originator_id,
+        )
+    except DarajaError as e:
+        withdrawal.b2c_status = "failed"
+        db.session.commit()
+        current_app.logger.error(f"B2C payout error for withdrawal {withdrawal.id}: {e}")
+        return jsonify({"error": "B2C initiator credentials are not configured or the request failed."}), 503
+
+    if resp_data.get("ResponseCode") != "0":
+        withdrawal.b2c_status = "failed"
+        db.session.commit()
+        return jsonify({
+            "error":       resp_data.get("ResponseDescription", "B2C payout rejected."),
+            "daraja_code": resp_data.get("ResponseCode"),
+        }), 400
+
+    withdrawal.b2c_conversation_id = resp_data.get("ConversationID")
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=_admin_actor_id(), landlord_id=None,
+        action="pay_affiliate_withdrawal_b2c_initiated", entity_type="affiliate_withdrawal", entity_id=withdrawal.id,
+        description=(
+            f"Admin initiated B2C payout of KES {paid_amount} to {phone} for withdrawal #{withdrawal.id} "
+            f"(OriginatorConversationID {originator_id})."
+        ),
+        before_data=before, after_data=withdrawal.to_dict(),
+    )
+    db.session.commit()
+
+    return jsonify({
+        "message":    "B2C payout initiated. Awaiting confirmation.",
+        "withdrawal": withdrawal.to_dict(),
+    }), 202
+
+
 @admin_affiliate_bp.route("/withdrawals/<int:withdrawal_id>/reject", methods=["POST"])
 @jwt_required()
 def reject_withdrawal(withdrawal_id):

@@ -606,9 +606,9 @@ def audit(
     # Enrich description when impersonating.
     imp = active_impersonation()
     if imp is not None and description is not None:
-        description = f"[Impersonating landlord #{imp.landlord_id}] {description}"
+        description = f"[Client support session — landlord #{imp.landlord_id}] {description}"
     elif imp is not None:
-        description = f"[Impersonating landlord #{imp.landlord_id}]"
+        description = f"[Client support session — landlord #{imp.landlord_id}]"
 
     # Defense-in-depth: mark demo-scope writes even though the shadow
     # landlord's own landlord_id already isolates the row (DEMO_MODE_SPEC §3.5).
@@ -920,7 +920,7 @@ def decrement_sms_balance(landlord, n: int = 1) -> None:
     Decrement the landlord's SMS balance by *n*.
 
     Called by communication services/tasks after successfully dispatching
-    an outbound SMS via Africa's Talking.  The actual send lives in
+    an outbound SMS via FluxSMS.  The actual send lives in
     services/ or tasks/ — this helper only updates the balance.
 
     Low-balance detection:

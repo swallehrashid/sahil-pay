@@ -51,9 +51,17 @@ def _send_email(
         logger.warning("_send_email: no recipient address given for subject '%s' — skipping.", subject)
         return False
 
+    # Honour COMMS_SIMULATION_MODE like the SMS path: when simulation is on (the
+    # default until go-live) log the email instead of dispatching, so a non-prod
+    # environment that happens to carry a real SendGrid key never emails a real
+    # person. In production (COMMS_SIMULATION_MODE=false) real emails are sent.
+    if current_app.config.get("COMMS_SIMULATION_MODE", True):
+        logger.info("EMAIL [simulated — not sent] to %s: %s", to_email, subject)
+        return False
+
     api_key = current_app.config.get("SENDGRID_API_KEY")
-    sender = current_app.config.get("MAIL_DEFAULT_SENDER", "noreply@sahilpay.com")
-    sender_name = current_app.config.get("MAIL_DEFAULT_SENDER_NAME", "SahilPay")
+    sender = current_app.config.get("MAIL_DEFAULT_SENDER", "noreply@sahilpay.co.ke")
+    sender_name = current_app.config.get("MAIL_DEFAULT_SENDER_NAME", "Sahil Pay")
 
     if not api_key:
         logger.info("EMAIL [stub — SendGrid not configured] to %s | subject: %s\n%s", to_email, subject, html_body)
@@ -93,17 +101,17 @@ def _send_email(
 @celery.task(name="services.email_service.send_otp_email")
 def send_otp_email(identifier: str, code: str, first_name: str) -> None:
     """Celery task — sends a tenant's OTP login code via email."""
-    subject = "Your SahilPay login code"
+    subject = "Your Sahil Pay login code"
     html = T.render_email(
         heading="Your login code",
-        intro=f"Hi {T.escape(first_name or 'there')}, use the one-time code below to sign in to your SahilPay tenant portal.",
+        intro=f"Hi {T.escape(first_name or 'there')}, use the one-time code below to sign in to your Sahil Pay tenant portal.",
         blocks=[
             T.code_box(code, caption="One-time code"),
             T.note("This code expires in 10 minutes and can only be used once. "
                    "If you didn't try to log in, you can ignore this email — no one can access your account without it."),
         ],
-        preheader=f"Your SahilPay login code is {code}",
-        footer_note="You're receiving this because someone requested a login code for your SahilPay tenant account.",
+        preheader=f"Your Sahil Pay login code is {code}",
+        footer_note="You're receiving this because someone requested a login code for your Sahil Pay tenant account.",
     )
     _send_email(identifier, subject, html)
 
@@ -112,20 +120,20 @@ def send_otp_email(identifier: str, code: str, first_name: str) -> None:
 def send_verification_email(email: str, verification_token: str) -> None:
     """Celery task — sends the email-verification link after registration."""
     link = f"{_frontend_url()}/verify-email/{verification_token}"
-    subject = "Verify your SahilPay account"
+    subject = "Verify your Sahil Pay account"
     html = T.render_email(
         heading="Confirm your email to activate your account",
-        intro="Welcome to SahilPay! You're one step away. Confirm this email address to "
+        intro="Welcome to Sahil Pay! You're one step away. Confirm this email address to "
               "verify and activate your landlord account so you can start managing your "
               "properties, tenants and rent collection.",
         blocks=[
             T.button("Verify my email", link),
             T.note(f'If the button doesn\'t work, copy and paste this link into your browser:<br>'
                    f'<a href="{T.escape(link, quote=True)}" style="color:{T.ACCENT};">{T.escape(link)}</a>'),
-            T.note("This link is unique to you. If you didn't create a SahilPay account, you can ignore this email."),
+            T.note("This link is unique to you. If you didn't create a Sahil Pay account, you can ignore this email."),
         ],
-        preheader="Confirm your email to activate your SahilPay account.",
-        footer_note="You're receiving this because a SahilPay account was created with this email address.",
+        preheader="Confirm your email to activate your Sahil Pay account.",
+        footer_note="You're receiving this because a Sahil Pay account was created with this email address.",
     )
     _send_email(email, subject, html)
 
@@ -134,10 +142,10 @@ def send_verification_email(email: str, verification_token: str) -> None:
 def send_password_reset_email(email: str, reset_token: str) -> None:
     """Celery task — sends a password-reset link (landlord, team member or any user)."""
     link = f"{_frontend_url()}/reset-password?token={reset_token}"
-    subject = "Reset your SahilPay password"
+    subject = "Reset your Sahil Pay password"
     html = T.render_email(
         heading="Reset your password",
-        intro="We received a request to reset the password for your SahilPay account. "
+        intro="We received a request to reset the password for your Sahil Pay account. "
               "Click the button below to choose a new one.",
         blocks=[
             T.button("Reset my password", link),
@@ -146,8 +154,8 @@ def send_password_reset_email(email: str, reset_token: str) -> None:
             T.note("This link expires after a single use. If you didn't request a password reset, "
                    "you can safely ignore this email — your password won't change."),
         ],
-        preheader="Reset your SahilPay password.",
-        footer_note="You're receiving this because a password reset was requested for your SahilPay account.",
+        preheader="Reset your Sahil Pay password.",
+        footer_note="You're receiving this because a password reset was requested for your Sahil Pay account.",
     )
     _send_email(email, subject, html)
 
@@ -159,13 +167,13 @@ def send_team_activation_email(email: str, activation_token: str, username: str)
     members now receive their credentials directly — see send_team_credentials_email.
     """
     link = f"{_frontend_url()}/team-activate/{activation_token}"
-    subject = "Activate your SahilPay team account"
+    subject = "Activate your Sahil Pay team account"
     html = T.render_email(
         heading="Activate your team account",
-        intro=f"Hi {T.escape(username)}, you've been added as a team member on SahilPay. "
+        intro=f"Hi {T.escape(username)}, you've been added as a team member on Sahil Pay. "
               f"Activate your account and set a password to get started.",
         blocks=[T.button("Activate my account", link)],
-        preheader="Activate your SahilPay team account.",
+        preheader="Activate your Sahil Pay team account.",
     )
     _send_email(email, subject, html)
 
@@ -185,10 +193,10 @@ def send_team_credentials_email(
     login_url = f"{_frontend_url()}/login"
     who = first_name or username
     by = f" by {T.escape(company_name)}" if company_name else ""
-    subject = "Your SahilPay team account is ready"
+    subject = "Your Sahil Pay team account is ready"
     html = T.render_email(
         heading="Your team account is ready",
-        intro=f"Hi {T.escape(who)}, a SahilPay team member account has been created for you{by}. "
+        intro=f"Hi {T.escape(who)}, a Sahil Pay team member account has been created for you{by}. "
               f"Use the credentials below to log in to your team portal.",
         blocks=[
             T.credentials([
@@ -196,17 +204,17 @@ def send_team_credentials_email(
                 ("Username", username),
                 ("Temp password", temp_password),
             ]),
-            T.button("Log in to SahilPay", login_url),
+            T.button("Log in to Sahil Pay", login_url),
             T.paragraph("<strong style='color:#fff;'>Please change your password right after your first login.</strong>"),
             T.steps([
-                "Click <strong>Log in to SahilPay</strong> above and sign in with the email and temporary password.",
+                "Click <strong>Log in to Sahil Pay</strong> above and sign in with the email and temporary password.",
                 "You'll be taken straight to <strong>Change password</strong> — enter the temporary password, then set a new private one (at least 8 characters).",
                 "From then on, log in with your email and your new password. Your username never changes.",
             ]),
-            T.note("Keep these details private. If you didn't expect this account, contact the person who manages your SahilPay team."),
+            T.note("Keep these details private. If you didn't expect this account, contact the person who manages your Sahil Pay team."),
         ],
-        preheader="Your SahilPay team login details are inside.",
-        footer_note="You're receiving this because a SahilPay team account was created for this email address.",
+        preheader="Your Sahil Pay team login details are inside.",
+        footer_note="You're receiving this because a Sahil Pay team account was created for this email address.",
     )
     _send_email(email, subject, html)
 
@@ -214,12 +222,12 @@ def send_team_credentials_email(
 @celery.task(name="services.email_service.send_receipt_email")
 def send_receipt_email(email: str, first_name: str, pdf_bytes: bytes, payment_ref: str) -> None:
     """Celery task — emails a payment receipt PDF."""
-    subject = f"Your SahilPay receipt — {payment_ref}"
+    subject = f"Your Sahil Pay receipt — {payment_ref}"
     html = T.render_email(
         heading="Payment received — thank you",
         intro=f"Hi {T.escape(first_name or 'there')}, we've recorded your payment. "
               f"Your receipt <strong>{T.escape(payment_ref)}</strong> is attached to this email as a PDF.",
-        preheader=f"Your SahilPay receipt {payment_ref} is attached.",
+        preheader=f"Your Sahil Pay receipt {payment_ref} is attached.",
     )
     _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename=f"{payment_ref}.pdf")
 
@@ -241,11 +249,11 @@ def send_invoice_email(email: str, first_name: str, pdf_bytes: bytes, invoice_nu
 @celery.task(name="services.email_service.send_statement_email")
 def send_statement_email(email: str, first_name: str, pdf_bytes: bytes) -> None:
     """Celery task — emails a tenant statement PDF."""
-    subject = "Your SahilPay account statement"
+    subject = "Your Sahil Pay account statement"
     html = T.render_email(
         heading="Your account statement",
-        intro=f"Hi {T.escape(first_name or 'there')}, your latest SahilPay account statement is attached as a PDF.",
-        preheader="Your SahilPay account statement is attached.",
+        intro=f"Hi {T.escape(first_name or 'there')}, your latest Sahil Pay account statement is attached as a PDF.",
+        preheader="Your Sahil Pay account statement is attached.",
     )
     _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename="statement.pdf")
 

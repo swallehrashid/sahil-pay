@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Smartphone, MessageSquareWarning, AlertTriangle, Wallet, Activity, Percent,
@@ -527,28 +527,108 @@ function TemplateDrawer({ template, onClose }) {
   const [form, setForm] = useState(null);
   const [prevTemplate, setPrevTemplate] = useState(undefined);
   const [testResult, setTestResult] = useState(null);
+  // §1.5.2 — sample_text (the raw, untouched SMS the admin pastes in) is the
+  // authoring surface. workingCopy starts as a COPY of it and is what
+  // placeholder clicks progressively rewrite in place; template_text is
+  // always derived from workingCopy. sample_text itself is never mutated by
+  // a placeholder click, so it stays the true ground truth "Live test" (and
+  // the server's own save-time validation) matches template_text against.
+  const [workingCopy, setWorkingCopy] = useState("");
+  const [selection, setSelection] = useState({ start: 0, end: 0 });
+  const [rawEditMode, setRawEditMode] = useState(false);
+  const sampleRef = useRef(null);
   const [createTemplate, { isLoading: isCreating }] = useCreateCopilotTemplateMutation();
   const [updateTemplate, { isLoading: isUpdating }] = useUpdateCopilotTemplateMutation();
   const [testTemplate, { isLoading: isTesting }] = useTestCopilotTemplateMutation();
 
   if (template !== prevTemplate) {
     setPrevTemplate(template);
-    setForm(
+    const nextForm =
       template && Object.keys(template).length
         ? { name: "", sender_id: "", template_text: "", sample_text: "", priority: 100, is_active: true, ...template }
         : template
         ? { name: "", sender_id: "", template_text: "", sample_text: "", priority: 100, is_active: true }
-        : null
-    );
+        : null;
+    setForm(nextForm);
+    // Seed the working copy: prefer an existing template_text (editing a
+    // saved template) so re-opening doesn't discard prior authoring work;
+    // otherwise start from the raw sample, unconverted.
+    setWorkingCopy(nextForm?.template_text || nextForm?.sample_text || "");
+    setSelection({ start: 0, end: 0 });
+    setRawEditMode(false);
     setTestResult(null);
   }
+
+  // Auto-run live test whenever the derived template_text changes (§1.5.2
+  // step 5) so authoring mistakes (literal date/time/balance left in) surface
+  // immediately instead of only on manual click.
+  useEffect(() => {
+    if (!form) return undefined;
+    const templateText = (form.template_text ?? "").trim();
+    const sampleText = (form.sample_text ?? "").trim();
+    const handle = setTimeout(() => {
+      if (!templateText || !sampleText) {
+        setTestResult(null);
+        return;
+      }
+      testTemplate({ template_text: templateText, sample_sms: form.sample_text }).unwrap()
+        .then(setTestResult)
+        .catch(() => setTestResult({ ok: false, error: "Could not run the test." }));
+    }, 400); // debounce — avoid a request per keystroke while raw-editing
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form?.template_text, form?.sample_text]);
 
   if (!form) return null;
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  const insertPlaceholder = (ph) => {
-    setForm((f) => ({ ...f, template_text: `${f.template_text ?? ""}{${ph}}` }));
+  const hasSelection = selection.end > selection.start;
+
+  const trackSelection = (e) => {
+    const el = e.target;
+    setSelection({ start: el.selectionStart ?? 0, end: el.selectionEnd ?? 0 });
+  };
+
+  // Sample SMS changed (retyped/pasted a different message) — reset the
+  // working copy to match so old placeholder placements from a previous
+  // message don't linger against new text.
+  const handleSampleChange = (e) => {
+    const value = e.target.value;
+    setForm((f) => ({ ...f, sample_text: value, template_text: value }));
+    setWorkingCopy(value);
+    setSelection({ start: 0, end: 0 });
+  };
+
+  // §1.5.2 step 2 — replace the selected span of the working copy with a
+  // placeholder token, leaving every other character literal, then re-derive
+  // template_text from the result (step 3).
+  const placeholderize = (ph) => {
+    if (!hasSelection) return;
+    const { start, end } = selection;
+    const next = workingCopy.slice(0, start) + `{${ph}}` + workingCopy.slice(end);
+    setWorkingCopy(next);
+    setForm((f) => ({ ...f, template_text: next }));
+    // Put the caret right after the inserted token so a second placeholder
+    // pick doesn't require re-selecting from scratch.
+    const caret = start + `{${ph}}`.length;
+    setSelection({ start: caret, end: caret });
+    requestAnimationFrame(() => {
+      sampleRef.current?.focus();
+      sampleRef.current?.setSelectionRange(caret, caret);
+    });
+  };
+
+  const handleWorkingCopyChange = (e) => {
+    const value = e.target.value;
+    setWorkingCopy(value);
+    setForm((f) => ({ ...f, template_text: value }));
+  };
+
+  const resetWorkingCopy = () => {
+    setWorkingCopy(form.sample_text ?? "");
+    setForm((f) => ({ ...f, template_text: f.sample_text ?? "" }));
+    setSelection({ start: 0, end: 0 });
   };
 
   const handleTest = async () => {
@@ -593,31 +673,91 @@ function TemplateDrawer({ template, onClose }) {
           <Input label="Priority" type="number" value={form.priority ?? 100} onChange={set("priority")} />
         </div>
         <Input label="Name" value={form.name ?? ""} onChange={set("name")} placeholder="e.g. KCB credit alert" required />
-        <Textarea label="Sample SMS" rows={3} value={form.sample_text ?? ""} onChange={set("sample_text")} placeholder="Paste the real bank SMS here" />
+
+        <Textarea
+          label="Sample SMS"
+          rows={3}
+          value={form.sample_text ?? ""}
+          onChange={handleSampleChange}
+          placeholder="Paste the real bank SMS here"
+          hint="The exact message this template must match. Editing this resets the authoring box below to match it."
+        />
 
         <div>
-          <p className="mb-1.5 text-sm font-medium text-white/70">Placeholders</p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <p className="text-sm font-medium text-white/70">Build the template</p>
+            <button
+              type="button"
+              onClick={resetWorkingCopy}
+              className="text-xs text-white/40 underline decoration-dotted hover:text-white/70"
+            >
+              Reset to sample
+            </button>
+          </div>
+          <p className="mb-1.5 text-sm text-white/50">
+            Select the part of the message that changes each time (amount, name, phone, date...) and click the
+            matching placeholder. Leave everything else as-is — that's the fixed wording this template will match on.
+          </p>
+          <Textarea
+            ref={sampleRef}
+            rows={4}
+            value={workingCopy}
+            onChange={handleWorkingCopyChange}
+            onSelect={trackSelection}
+            onMouseUp={trackSelection}
+            onKeyUp={trackSelection}
+            placeholder="Starts as a copy of the sample SMS above — select spans here and click a placeholder"
+          />
+          <div className="mt-2 flex flex-wrap gap-1.5">
             {TEMPLATE_PLACEHOLDERS.map((ph) => (
               <button
                 key={ph}
                 type="button"
-                onClick={() => insertPlaceholder(ph)}
-                className="rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-xs text-white/70 transition-colors hover:border-secondary hover:text-white"
+                disabled={!hasSelection}
+                title={hasSelection ? `Replace the selected text with {${ph}}` : "Select a span of text above first"}
+                onClick={() => placeholderize(ph)}
+                className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                  hasSelection
+                    ? "border-white/15 bg-white/5 text-white/70 hover:border-secondary hover:text-white"
+                    : "cursor-not-allowed border-white/5 bg-white/[0.02] text-white/25"
+                }`}
               >
                 {`{${ph}}`}
               </button>
             ))}
           </div>
+          {!hasSelection && (
+            <p className="mt-1 text-xs text-white/30">Select text above to enable these.</p>
+          )}
         </div>
-        <Textarea
-          label="Template"
-          rows={4}
-          value={form.template_text ?? ""}
-          onChange={set("template_text")}
-          placeholder="{ref} Confirmed. Ksh{amount} received from {name} {phone}"
-          required
-        />
+
+        <div>
+          <button
+            type="button"
+            onClick={() => setRawEditMode((v) => !v)}
+            className="mb-1.5 text-xs font-medium text-white/50 underline decoration-dotted hover:text-white/80"
+          >
+            {rawEditMode ? "Hide raw template text" : "Edit raw template text"}
+          </button>
+          {rawEditMode ? (
+            <Textarea
+              label="Template (derived — hand-edit only if you know what you're doing)"
+              rows={4}
+              value={form.template_text ?? ""}
+              onChange={(e) => {
+                set("template_text")(e);
+                setWorkingCopy(e.target.value);
+              }}
+              placeholder="{ref} Confirmed. Ksh{amount} received from {name} {phone}"
+              required
+            />
+          ) : (
+            <pre className="overflow-x-auto rounded-lg bg-white/5 p-3 text-xs text-white/60">
+              {form.template_text || "—"}
+            </pre>
+          )}
+        </div>
+
         <Checkbox
           label="Active"
           checked={Boolean(form.is_active)}

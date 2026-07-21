@@ -34,7 +34,7 @@ TEMPLATES = {
     },
     "trial_expiring": {
         "title": "Your trial is ending soon",
-        "body": "Your SahilPay trial ends on {trial_ends_at}. Upgrade to keep using your account without interruption.",
+        "body": "Your Sahil Pay trial ends on {trial_ends_at}. Upgrade to keep using your account without interruption.",
     },
     "lease_expiring": {
         "title": "Lease expiring soon",
@@ -50,10 +50,10 @@ TEMPLATES = {
     },
     "impersonation_requested": {
         "title": "Support access requested",
-        "body": "A SahilPay admin ({admin_email}) has requested temporary access to assist your account. Reason: {reason}",
+        "body": "A Sahil Pay admin ({admin_email}) has requested temporary access to assist your account. Reason: {reason}",
     },
     "impersonation_granted": {
-        "title": "Impersonation access granted",
+        "title": "Support access granted",
         "body": "{company_name} has granted you access to assist their account.",
     },
     # ---- #11: landlord → tenant / team member templates ------------------
