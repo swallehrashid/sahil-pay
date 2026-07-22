@@ -267,18 +267,44 @@ def _register_jwt_callbacks(app: Flask, jwt_manager: JWTManager) -> None:
     @jwt_manager.user_lookup_loader
     def user_lookup_loader(_jwt_header, jwt_data):
         """
-        Load the User model from the JWT identity for current_user proxy.
-        Returns None if the user no longer exists.
+        Resolve the JWT identity into the current_user proxy.
+
+        SECURITY — tenant identity isolation:
+        Tenant tokens use a namespaced identity ("tenant:<id>", see
+        otp_routes.py). This exists because tenants are OTP-only and usually
+        have NO linked User row (tenant_routes.py creates no User), so the old
+        str(tenant.user_id or tenant.id) identity fell back to tenant.id — a
+        bare integer that this loader then resolved as a User.id, silently
+        logging the tenant into whatever unrelated User (often a landlord's
+        team member) shared that number. A namespaced identity can never
+        collide with a numeric User.id.
+
+        For a tenant identity we must NOT load a real User (that is the bug),
+        but we also must NOT return None: flask-jwt-extended raises
+        UserLookupError -> 401 when a registered loader returns None, which
+        would break every tenant request. So we return a transient, unpersisted
+        sentinel User carrying the tenant's real id/role and nothing else — it
+        is never added to the session, never queried back, and only ever exists
+        to keep current_user truthy. Tenant routes authorise off the tenant_id
+        claim, not current_user, so this sentinel is never used for access
+        decisions.
         """
-        from models import User
+        from models import User, UserRole
         identity = jwt_data.get("sub")
         if identity is None:
             return None
-        try:
-            user_id = int(identity)
-        except (TypeError, ValueError):
+
+        identity = str(identity)
+        if identity.startswith("tenant:"):
+            tenant_id_str = identity.split(":", 1)[1]
+            sentinel = User(role=UserRole.tenant.value)
+            sentinel.id = int(tenant_id_str) if tenant_id_str.isdigit() else None
+            sentinel._is_tenant_token = True  # marker for any code that must distinguish
+            return sentinel
+
+        if not identity.isdigit():
             return None
-        return db.session.query(User).filter(User.id == user_id).first()
+        return db.session.query(User).filter(User.id == int(identity)).first()
 
     @jwt_manager.token_in_blocklist_loader
     def token_in_blocklist_loader(_jwt_header, jwt_data: dict) -> bool:

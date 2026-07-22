@@ -28,7 +28,20 @@ notification_bp = Blueprint("notifications", __name__, url_prefix="/api/notifica
 
 
 def _current_user_id() -> int:
-    return int(get_jwt_identity())
+    """The numeric User.id of the caller, or -1 for a tenant token.
+
+    Tenant tokens carry a namespaced identity ("tenant:<id>", see
+    otp_routes.py) that is deliberately not a User.id. Notifications are keyed
+    by recipient User.id, and OTP-only tenants have no User row, so a tenant
+    caller simply owns no notification rows — return a sentinel that matches
+    nothing rather than crashing on int("tenant:..."). (Do not resolve this to
+    the tenant's id: that is exactly the cross-account collision this identity
+    scheme was introduced to prevent.)
+    """
+    identity = get_jwt_identity()
+    if isinstance(identity, str) and identity.startswith("tenant:"):
+        return -1
+    return int(identity)
 
 
 def _current_role() -> str:
