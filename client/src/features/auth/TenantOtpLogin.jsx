@@ -35,8 +35,14 @@ export default function TenantOtpLogin() {
     try {
       await otpRequest({ identifier }).unwrap();
       setStep("verify");
-    } catch {
-      toast("We couldn't find a tenant account with that detail.", { type: "error" });
+    } catch (err) {
+      // The server now returns an explicit "not registered" message (404) so the
+      // tenant isn't left waiting forever on a silent failure. Surface it verbatim
+      // when present; otherwise fall back to a generic message.
+      const serverMsg = err?.data?.error;
+      const msg = serverMsg || "We couldn't send a code. Check your phone or email and try again.";
+      setError(msg);
+      toast(msg, { type: "error" });
     }
   };
 

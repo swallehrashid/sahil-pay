@@ -39,6 +39,19 @@ export const adminSmsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["SmsOverview"],
     }),
+    // Manually credit ONE landlord's SMS balance (paid the operator directly).
+    creditLandlordSms: builder.mutation({
+      query: ({ landlordId, ...body }) => ({
+        url: `/admin/sms/landlords/${landlordId}/credit`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["SmsOverview"],
+    }),
+    getLandlordSmsCredits: builder.query({
+      query: (landlordId) => `/admin/sms/landlords/${landlordId}/credit`,
+      providesTags: ["SmsOverview"],
+    }),
     // Preview JSON for the report (downloads go through downloadFile in ReportView).
     getSmsReport: builder.query({
       query: (params) => ({ url: "/admin/sms/report", params }),
@@ -56,5 +69,7 @@ export const {
   useSyncSmsPoolMutation,
   useGetLandlordSmsProviderQuery,
   useUpdateLandlordSmsProviderMutation,
+  useCreditLandlordSmsMutation,
+  useGetLandlordSmsCreditsQuery,
   useGetSmsReportQuery,
 } = adminSmsApiSlice;

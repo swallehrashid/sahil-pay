@@ -393,8 +393,12 @@ class TestOtpExclusion:
             demo_tenant = Tenant.query.filter_by(landlord_id=shadow.id).first()
 
             resp = client.post("/api/otp/request", json={"identifier": demo_tenant.phone})
-            assert resp.status_code == 200
-            # No enumeration either way, but there must be zero OTP tokens issued.
+            # A demo tenant is deliberately invisible to the public OTP lookup, so
+            # it resolves as "not a registered tenant" (404) — the same as any
+            # unknown identifier. The SECURITY invariant is unchanged and is what
+            # this test guards: zero OTP tokens are ever issued for a demo tenant,
+            # so the real OTP never reaches the seeded demo phone/email.
+            assert resp.status_code == 404
             from models import OtpToken
             count = OtpToken.query.filter_by(identifier=demo_tenant.phone).count()
             assert count == 0

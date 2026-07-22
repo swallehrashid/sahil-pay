@@ -719,6 +719,37 @@ def active_impersonation():
 # §4.9 — PDF generation (WeasyPrint) + storage
 # ===========================================================================
 
+def _local_uploads_url_fetcher(url: str):
+    """
+    WeasyPrint URL fetcher that resolves the landlord's own uploaded assets
+    (logo / signature / stamps) to files on local disk.
+
+    When AWS/Cloudinary is not configured, storage_service returns a
+    root-relative URL like "/uploads/logos/1/ab12_logo.png". WeasyPrint runs
+    server-side with no HTTP origin, so such a URL would fail to fetch and the
+    landlord's logo/signature would silently vanish from every PDF report and
+    receipt. This maps any "/uploads/..." path (bare, or embedded in a full
+    http(s)://host/uploads/... URL the frontend may have produced) to the real
+    file under <app_root>/uploads/, and delegates everything else — data: URIs,
+    genuine remote S3/Cloudinary URLs — to WeasyPrint's default fetcher.
+    """
+    from weasyprint import default_url_fetcher
+    from urllib.parse import urlparse
+
+    path = url
+    if url.startswith(("http://", "https://")):
+        path = urlparse(url).path  # keep only the path component
+
+    marker = "/uploads/"
+    if marker in path:
+        rel = path.split(marker, 1)[1]
+        disk_path = os.path.join(current_app.root_path, "uploads", rel)
+        if os.path.isfile(disk_path):
+            return default_url_fetcher("file://" + disk_path)
+
+    return default_url_fetcher(url)
+
+
 def render_pdf(html: str, base_url: str | None = None) -> bytes:
     """
     Render an HTML string to PDF bytes using WeasyPrint.
@@ -732,8 +763,18 @@ def render_pdf(html: str, base_url: str | None = None) -> bytes:
     Returns
     -------
     bytes : Raw PDF data ready for upload or HTTP response.
+
+    Every PDF goes through _local_uploads_url_fetcher so the landlord's own
+    logo/signature (stored on local disk when S3 isn't configured) always
+    render — see that function. base_url still defaults to the app root so any
+    other relative asset resolves against the server, not the filesystem root.
     """
-    h = HTML(string=html, base_url=base_url)
+    if base_url is None:
+        try:
+            base_url = current_app.root_path + "/"
+        except Exception:
+            base_url = None
+    h = HTML(string=html, base_url=base_url, url_fetcher=_local_uploads_url_fetcher)
     return h.write_pdf()
 
 
