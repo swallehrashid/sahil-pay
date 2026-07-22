@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 
 from extensions import db, limiter
 from models import (
-    User, Landlord, SystemAdmin, TeamMember,
+    User, Landlord, SystemAdmin, TeamMember, Tenant,
     Subscription, LandlordSettings, AutomationSettings,
     AuditLog, UserRole, SubscriptionStatus, BillingCycle,
     ImpersonationRequest, ImpersonationStatus,
@@ -543,7 +543,31 @@ def me():
       404: {description: User not found.}
     """
     user_id = get_jwt_identity()
-    user    = db.session.get(User, int(user_id))
+
+    # Tenant tokens carry a namespaced identity ("tenant:<id>", see
+    # otp_routes.py) — a tenant is NOT a User row, so int(user_id) here would
+    # raise ValueError -> 500, the AuthProvider would treat that as isError and
+    # wipe the token, and the tenant would be bounced straight back to the login
+    # screen (the "it just loads / refreshes" symptom). Resolve the tenant
+    # directly and hand back a flat record the frontend hydrates exactly like a
+    # User: it MUST carry role="tenant" so ProtectedRoutes admits the tenant
+    # portal, and tenant_id so the portal's own queries can scope themselves.
+    identity_str = str(user_id) if user_id is not None else ""
+    if identity_str.startswith("tenant:"):
+        tid = identity_str.split(":", 1)[1]
+        tenant = (
+            db.session.get(Tenant, int(tid))
+            if tid.isdigit() else None
+        )
+        if not tenant or tenant.is_deleted:
+            return jsonify({"error": "Tenant not found."}), 404
+        payload = tenant.to_dict()
+        payload["role"] = UserRole.tenant.value
+        payload["tenant_id"] = tenant.id
+        payload["name"] = f"{tenant.first_name} {tenant.last_name}".strip()
+        return jsonify(payload), 200
+
+    user = db.session.get(User, int(user_id)) if identity_str.isdigit() else None
     if not user:
         return jsonify({"error": "User not found."}), 404
 

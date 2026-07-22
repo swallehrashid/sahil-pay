@@ -558,6 +558,42 @@ def _seed_sms_parser_templates(m) -> None:
          "{*}received KES {amount} from {name}. Ref: {ref}{*}",
          "You have received KES 10,000.00 from PETER OTIENO. Ref: EQ12345678. Available balance is KES 25,000.00.",
          100),
+        # Tolerant presets for the rest of the major Kenyan banks (mirrors
+        # migrations/versions/c1a2b3d4e5f6_copilot_bank_preset_templates.py).
+        # The tolerant-literal parser means each of these covers that bank's
+        # common wording variants, not just the exact sample below.
+        ("Co-op Bank credit", "CO-OP BANK",
+         "{*}received Ksh{amount} from {name} to your account {account}. Ref {ref}{*}",
+         "Dear customer, you have received Ksh2,500.00 from MARY ATIENO to your account ACME-T001. Ref CO123456AB. Thank you.",
+         100),
+        ("NCBA credit", "NCBA",
+         "{*}credited with KES {amount} on {*} from {name}. Ref {ref}{*}",
+         "Your account has been credited with KES 4,000.00 on 22/07 from JOHN KAMAU. Ref NC789012CD available balance KES 9,000.",
+         100),
+        ("Absa credit", "ABSA",
+         "{*}received KES {amount} from {name} to account {account}. Ref {ref}{*}",
+         "Absa: You have received KES 6,300.00 from PETER O to account ACME-T003. Ref AB456789EF on 22/07/2026.",
+         100),
+        ("Family Bank credit", "FAMILY BANK",
+         "{*}KES {amount} received from {name} to your account {account}, Ref {ref}{*}",
+         "FamilyBank: KES 1,200.00 received from GRACE W to your account ACME-T004, Ref FB321654GH. Bal KES 3,000.",
+         100),
+        ("DTB credit", "DTB",
+         "{*}received KES {amount} from {name}. Ref {ref}{*}",
+         "DTB: You have received KES 7,700.00 from BRIAN K. Ref DT147258IJ. Thank you for banking with DTB.",
+         100),
+        ("Stanbic credit", "STANBIC",
+         "{*}credited KES {amount} from {name}. Ref {ref}{*}",
+         "Stanbic: Your account credited KES 5,500.00 from AMINA H. Ref ST963852KL on 22 Jul.",
+         100),
+        ("I&M credit", "I&M",
+         "{*}received KES {amount} from {name} to your account {account} Ref {ref}{*}",
+         "I&M Bank: received KES 8,800.00 from DIANA A to your account ACME-T005 Ref IM852741MN.",
+         100),
+        ("M-Pesa till (buy goods received)", "MPESA",
+         "{ref} Confirmed. {*}Ksh{amount}{*}received from {name} {phone}{*}",
+         "RJK5X9PLMN Confirmed. Ksh2,000.00 received from JAMES MWANGI 254711000001 for till on 22/7/26",
+         95),
     ]
     for name, sender_id, template_text, sample_text, priority in templates:
         db.session.add(m.SmsParserTemplate(

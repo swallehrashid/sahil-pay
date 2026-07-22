@@ -106,9 +106,21 @@ def request_otp():
 
     tenant = _find_tenant_by_identifier(identifier)
 
-    # Always respond 200 to prevent tenant enumeration
+    # Product decision (operator request): tenants were silently stuck when they
+    # mistyped or used an unregistered contact — no OTP ever arrived and no
+    # feedback told them why. We now return an explicit "not registered" so they
+    # know to check the detail / contact their landlord, rather than waiting
+    # forever. The aggressive rate limit above (5/min, 30/hr) is what blunts
+    # enumeration abuse; a distinct 404 here is the accepted UX trade-off.
     if not tenant:
-        return jsonify({"message": "If that identifier is registered, an OTP has been sent."}), 200
+        channel = _detect_channel(identifier)
+        label = "email address" if channel == OtpChannel.email.value else "phone number"
+        return jsonify({
+            "error": f"This {label} isn't registered as a tenant on Sahil Pay. "
+                     "Please check it, or ask your landlord to confirm the "
+                     f"{label} on your account.",
+            "not_registered": True,
+        }), 404
 
     channel = _detect_channel(identifier)
 

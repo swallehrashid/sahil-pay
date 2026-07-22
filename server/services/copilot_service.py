@@ -76,15 +76,86 @@ _REGEX_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="copilot-
 _REGEX_TIMEOUT_SECONDS = 0.1
 
 
+# Interchangeable connector words. Kenyan bank/M-Pesa SMS say the same thing
+# many ways for the SAME transaction; a template author shouldn't have to
+# author one template per bank's phrasing. Each key (lowercased literal word an
+# admin types in the template) expands to a regex alternation that also matches
+# its synonyms, so "received" in a template still matches an SMS that says
+# "credited", and "Ref" still matches "Reference"/"Ref."/"Ref:". This is the
+# core of "if a template exists for that sender, it should parse" — the literal
+# glue between placeholders becomes tolerant instead of exact.
+_CONNECTOR_SYNONYMS = {
+    "received":  r"(?:received|credited|deposited|paid)",
+    "credited":  r"(?:credited|received|deposited|paid)",
+    "deposited": r"(?:deposited|credited|received|paid)",
+    "ref":       r"(?:ref|reference|txn|transaction)",
+    "reference": r"(?:reference|ref|txn|transaction)",
+    "account":   r"(?:account|acc|a/c|acct)",
+    "from":      r"from",
+    "to":        r"to",
+    "for":       r"for",
+    "ksh":       r"(?:ksh|kes|kshs)",
+    "kes":       r"(?:kes|ksh|kshs)",
+}
+
+# Trailing punctuation on a connector word varies ("Ref", "Ref:", "Ref."). We
+# strip it off the literal, match the word tolerantly, then allow optional
+# punctuation after. Leading/standalone punctuation runs (":", ",", "-") in a
+# template are made optional too, so a missing colon in the real SMS doesn't
+# break the whole match.
+_TRAILING_PUNCT_RE = re.compile(r"([:.,;#\-]+)$")
+
+
 def _escape_literal(text: str) -> str:
-    """re.escape() each non-whitespace chunk, but collapse literal whitespace
-    runs to \\s+ — banks vary spacing/line-breaks around the same message."""
+    """Turn an admin's literal template text into a TOLERANT regex.
+
+    - Whitespace runs collapse to \\s+ (banks vary spacing/line-breaks).
+    - Recognised connector words (received/credited, Ref/Reference, account/acc,
+      Ksh/KES, …) match any of their synonyms — so one template covers a bank's
+      many phrasings instead of failing on a single word swap.
+    - Trailing punctuation on any word (Ref: / Ref. / Ref) is made optional.
+    - Standalone punctuation tokens (":", ",", "-") are made optional so a
+      missing separator in the real SMS doesn't sink the match.
+
+    The placeholder anchors ({amount}, {ref}, {account}, {phone}) are untouched
+    and still terminate themselves, so tolerant glue can never make the pattern
+    ambiguous or greedy across them."""
     parts = re.split(r"(\s+)", text)
     out = []
     for part in parts:
         if not part:
             continue
-        out.append(r"\s+" if part.isspace() else re.escape(part))
+        if part.isspace():
+            out.append(r"\s+")
+            continue
+
+        # A run that's purely punctuation ("," ":" "-" "#") — make it optional.
+        if re.fullmatch(r"[:.,;#\-]+", part):
+            out.append("(?:" + re.escape(part) + r")?")
+            continue
+
+        # Peel trailing punctuation off the word so "Ref:" -> word "Ref" + ":".
+        trailing = ""
+        m = _TRAILING_PUNCT_RE.search(part)
+        if m:
+            trailing = m.group(1)
+            core = part[: m.start()]
+        else:
+            core = part
+
+        low = core.lower()
+        if low in _CONNECTOR_SYNONYMS:
+            out.append(_CONNECTOR_SYNONYMS[low])
+            # A connector word in the real SMS often carries trailing punctuation
+            # the template author didn't type ("Ref" -> "Ref.", "account" ->
+            # "account:"). Allow an optional punctuation run right after any
+            # recognised connector so that never breaks the match.
+            out.append(r"[:.,;]?")
+        else:
+            out.append(re.escape(core))
+
+        if trailing:
+            out.append("(?:" + re.escape(trailing) + r")?")
     return "".join(out)
 
 
@@ -187,11 +258,21 @@ def _normalize_phone(raw: str | None) -> str | None:
     return p
 
 
+def _clean_account(raw: str | None) -> str | None:
+    """Trim an account number and shave trailing sentence punctuation the
+    tolerant literal matcher may have let the greedy account group swallow
+    (e.g. "ACME-T001." -> "ACME-T001"), so tenant matching by account number
+    compares clean value to clean value."""
+    if not raw:
+        return None
+    return raw.strip().rstrip(".,;:") or None
+
+
 _POST_PROCESS = {
     "amount":  _clean_amount,
-    "ref":     lambda s: s.strip().upper() if s else None,
+    "ref":     lambda s: s.strip().upper().rstrip(".,;:") if s else None,
     "name":    lambda s: s.strip() if s else None,
-    "account": lambda s: s.strip() if s else None,
+    "account": _clean_account,
     "phone":   _normalize_phone,
 }
 

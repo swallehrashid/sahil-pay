@@ -3270,6 +3270,40 @@ class SmsPoolTopUp(CreatedAtMixin, Base):
         }
 
 
+class SmsLandlordCredit(CreatedAtMixin, Base):
+    """
+    Append-only ledger of admin manual SMS-balance adjustments for ONE landlord.
+    Used while automated M-Pesa billing is being finalised: a landlord pays the
+    operator directly (e.g. 100 KES to a Safaricom number) and the admin credits
+    the equivalent SMS balance here. Every row records the credit amount (may be
+    negative to correct a mistake), the landlord's resulting balance, a mandatory
+    reason/reference, and which admin did it — so a manual credit is always
+    traceable and reversible, exactly like SmsPoolTopUp is for the shared pool.
+    """
+    __tablename__ = "sms_landlord_credits"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id   = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    admin_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    credits_added = Column(Integer, nullable=False)          # signed; negative = correction
+    balance_after = Column(Integer, nullable=False)
+    reason        = Column(String(255), nullable=False)      # mandatory reference (e.g. "M-Pesa 100 KES, code ABC123")
+
+    landlord   = relationship("Landlord", foreign_keys=[landlord_id])
+    admin_user = relationship("User", foreign_keys=[admin_user_id])
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "landlord_id":   self.landlord_id,
+            "admin_user_id": self.admin_user_id,
+            "credits_added": self.credits_added,
+            "balance_after": self.balance_after,
+            "reason":        self.reason,
+            "created_at":    _serialise(self.created_at),
+        }
+
+
 # ===========================================================================
 # §17 ACCEPTANCE CHECKLIST — verified at definition time
 # ===========================================================================

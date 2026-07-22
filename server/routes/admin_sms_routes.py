@@ -21,7 +21,7 @@ from flask import Blueprint, request, jsonify, abort, Response
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 
 from extensions import db
-from models import UserRole, SmsPricingConfig, SmsPoolTopUp, Landlord, LandlordSettings
+from models import UserRole, SmsPricingConfig, SmsPoolTopUp, SmsLandlordCredit, Landlord, LandlordSettings
 from services.audit_service import record_audit
 from services.report_builder import document_to_json, parse_column_selection, render_document
 
@@ -147,6 +147,95 @@ def pool_history():
     _require_admin()
     rows = SmsPoolTopUp.query.order_by(SmsPoolTopUp.created_at.desc()).limit(100).all()
     return jsonify({"topups": [t.to_dict() for t in rows]}), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/admin/sms/landlords/<id>/credit — manually credit ONE landlord's
+# SMS balance (used while automated M-Pesa billing is being finalised: the
+# landlord pays the operator directly and the admin credits the equivalent
+# number of SMS here). Signed so a mistake can be corrected with a negative
+# value. Always writes an audited, reasoned ledger row.
+# ---------------------------------------------------------------------------
+@admin_sms_bp.route("/landlords/<int:landlord_id>/credit", methods=["POST"])
+@jwt_required()
+def credit_landlord_sms(landlord_id):
+    """
+    Credit (or, with a negative value, correct) a single landlord's SMS balance.
+    Body: { credits: int (non-zero), reason: str (required) }.
+    ---
+    tags: [Admin — SMS]
+    responses:
+      201: {description: Balance credited; ledger row returned.}
+      400: {description: Invalid credits or missing reason.}
+      404: {description: Landlord not found.}
+    """
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    data = request.get_json(silent=True) or {}
+    try:
+        credits = int(data.get("credits", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "credits must be a whole number."}), 400
+    if credits == 0:
+        return jsonify({"error": "credits must be a non-zero whole number."}), 400
+
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"error": "A reason/reference for this credit is required."}), 400
+
+    new_balance = (landlord.sms_balance or 0) + credits
+    if new_balance < 0:
+        return jsonify({
+            "error": f"This would drop the balance below zero "
+                     f"(current {landlord.sms_balance or 0}, change {credits})."
+        }), 400
+
+    landlord.sms_balance = new_balance
+    row = SmsLandlordCredit(
+        landlord_id=landlord.id,
+        admin_user_id=_admin_id(),
+        credits_added=credits,
+        balance_after=new_balance,
+        reason=reason,
+    )
+    db.session.add(row)
+    db.session.flush()
+
+    record_audit(
+        actor_user_id=_admin_id(), landlord_id=landlord.id,
+        action="admin_credit_landlord_sms", entity_type="sms", entity_id=row.id,
+        description=(
+            f"ADMIN: {'Credited' if credits > 0 else 'Adjusted'} {credits:+,} SMS "
+            f"for landlord {landlord.id} ({landlord.company_name}); new balance "
+            f"{new_balance:,}. Reason: {reason}"
+        ),
+        after_data=row.to_dict(),
+    )
+    db.session.commit()
+    return jsonify({"credit": row.to_dict(), "sms_balance": new_balance}), 201
+
+
+@admin_sms_bp.route("/landlords/<int:landlord_id>/credit", methods=["GET"])
+@jwt_required()
+def landlord_credit_history(landlord_id):
+    """One landlord's manual SMS-credit history (most recent first). ---
+    tags: [Admin — SMS]
+    responses: {200: {description: Credit history + current balance.}}"""
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+    rows = (
+        SmsLandlordCredit.query.filter_by(landlord_id=landlord_id)
+        .order_by(SmsLandlordCredit.created_at.desc()).limit(100).all()
+    )
+    return jsonify({
+        "credits": [r.to_dict() for r in rows],
+        "sms_balance": landlord.sms_balance or 0,
+    }), 200
 
 
 # ---------------------------------------------------------------------------
