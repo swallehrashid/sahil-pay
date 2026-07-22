@@ -97,8 +97,13 @@ def send_sms(
         return None
 
     if result.get("response-code") == 200:
-        message_id = result.get("messageid")
-        logger.info("SMS sent to %s via FluxSMS (messageid=%s).", recipient, message_id)
+        # FluxSMS's /sendsms response returns the id under "message_id"
+        # (underscore); some older docs show "messageid". Accept either so a
+        # provider-side key change never silently drops the id we need for DLR
+        # reconciliation. The id can come back as an int — stringify it.
+        message_id = result.get("message_id") or result.get("messageid")
+        message_id = str(message_id) if message_id is not None else None
+        logger.info("SMS sent to %s via FluxSMS (message_id=%s).", recipient, message_id)
         return message_id
 
     logger.error("send_sms failed for %s: %s", recipient, result.get("error") or result)
@@ -134,9 +139,35 @@ def send_otp_sms(identifier: str, code: str, first_name: str) -> None:
     simulation is on (the default until go-live) the code is logged instead of
     dispatched, so a non-production environment that happens to carry the real
     FluxSMS key never fires a live SMS at a real number. In production
-    (COMMS_SIMULATION_MODE=false) real OTP codes are sent."""
+    (COMMS_SIMULATION_MODE=false) real OTP codes are sent.
+
+    On a real send we now capture the provider message id and query the
+    delivery report once, then LOG it. This is the diagnostic that tells the
+    operator the truth about "provider says sent but the SMS never arrived":
+    a report of `SentToNetwork` that never becomes `DeliveredToTerminal` means
+    the message reached Safaricom but stalled there — the signature of an
+    unapproved/throttled alphanumeric sender ID, which no code change can fix.
+    """
     content = f"Hi {first_name}, your Sahil Pay login code is {code}. It expires shortly — do not share it."
     if current_app.config.get("COMMS_SIMULATION_MODE", True):
         logger.info("SMS [simulated — OTP not sent] to %s: %s", identifier, content)
         return
-    send_sms(identifier, content)
+
+    message_id = send_sms(identifier, content)
+    if not message_id:
+        logger.error("OTP SMS to %s was NOT accepted by the provider (no message id returned).", identifier)
+        return
+
+    # One immediate delivery-status probe for observability. FluxSMS updates the
+    # DLR asynchronously, so a single early probe usually reads 'SentToNetwork';
+    # the point is to surface WHERE the message is, not to block on delivery.
+    status = get_delivery_status(message_id)
+    if status:
+        logger.info(
+            "OTP SMS to %s — provider message_id=%s, delivery-status=%s (%s).",
+            identifier, message_id,
+            status.get("delivery-status"), status.get("delivery-description"),
+        )
+    else:
+        logger.info("OTP SMS to %s accepted — provider message_id=%s (DLR not yet available).",
+                    identifier, message_id)

@@ -69,6 +69,16 @@ def cleanup_existing():
         m.Unit.query.filter(m.Unit.property_id.in_([p.id for p in m.Property.query.filter_by(landlord_id=ll.id).all()])).delete(synchronize_session=False)
         m.Property.query.filter_by(landlord_id=ll.id).delete(synchronize_session=False)
         m.ChargeCategory.query.filter_by(landlord_id=ll.id).delete(synchronize_session=False)
+        # Other rows that FK to the landlord and would otherwise block the delete
+        # (the sim only exercises billing, but the engine writes audit rows, and a
+        # landlord always has a subscription/settings). Clear them so the harness
+        # stays repeatable run-to-run.
+        m.AuditLog.query.filter_by(landlord_id=ll.id).delete(synchronize_session=False)
+        for _model in ("Subscription", "LandlordSettings", "AutomationSettings",
+                       "CommunicationLog", "Notification", "AlertSetting"):
+            _cls = getattr(m, _model, None)
+            if _cls is not None and hasattr(_cls, "landlord_id"):
+                _cls.query.filter_by(landlord_id=ll.id).delete(synchronize_session=False)
         m.Landlord.query.filter_by(id=ll.id).delete(synchronize_session=False)
     m.User.query.filter_by(email=SIM_EMAIL).delete(synchronize_session=False)
     db.session.commit()

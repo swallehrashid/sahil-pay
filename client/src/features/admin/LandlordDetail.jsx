@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Ban, RotateCcw, Wrench, Smartphone } from "lucide-react";
+import { ArrowLeft, Ban, RotateCcw, Wrench, Smartphone, MessageSquarePlus } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -13,6 +13,7 @@ import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import { toast } from "@/components/ui/Toast";
 import { useGetAdminLandlordQuery, useSuspendLandlordMutation, useReactivateLandlordMutation, useCorrectDataMutation } from "./adminApiSlice";
+import { useCreditLandlordSmsMutation } from "./adminSmsApiSlice";
 import { ADMIN_ROUTES } from "@/config/routePaths";
 
 const CORRECTION_ENTITY_TYPES = [
@@ -28,6 +29,34 @@ export default function LandlordDetail() {
   const [suspend, { isLoading: isSuspending }] = useSuspendLandlordMutation();
   const [reactivate, { isLoading: isReactivating }] = useReactivateLandlordMutation();
   const [correctData, { isLoading: isCorrecting }] = useCorrectDataMutation();
+  const [creditSms, { isLoading: isCrediting }] = useCreditLandlordSmsMutation();
+
+  // Manual SMS credit (landlord paid the operator directly, before automated billing).
+  const [isCreditOpen, setIsCreditOpen] = useState(false);
+  const [smsCredit, setSmsCredit] = useState({ credits: "", reason: "" });
+  const [smsCreditError, setSmsCreditError] = useState("");
+
+  const handleCreditSms = async (e) => {
+    e.preventDefault();
+    const credits = Number(smsCredit.credits);
+    if (!Number.isInteger(credits) || credits === 0) {
+      setSmsCreditError("Enter a non-zero whole number of SMS (negative to correct a mistake).");
+      return;
+    }
+    if (!smsCredit.reason.trim()) {
+      setSmsCreditError("A reason/reference is required (e.g. 'M-Pesa 100 KES, code ABC123').");
+      return;
+    }
+    setSmsCreditError("");
+    try {
+      const res = await creditSms({ landlordId: Number(id), credits, reason: smsCredit.reason }).unwrap();
+      toast(`SMS balance updated — now ${res.sms_balance.toLocaleString()}.`, { type: "success" });
+      setIsCreditOpen(false);
+      setSmsCredit({ credits: "", reason: "" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not credit the SMS balance.", { type: "error" });
+    }
+  };
 
   const [isCorrectOpen, setIsCorrectOpen] = useState(false);
   const [correction, setCorrection] = useState({ entity_type: "tenant", entity_id: "", correction_json: "{}", reason: "" });
@@ -103,6 +132,9 @@ export default function LandlordDetail() {
             <Button variant="ghost" leftIcon={<Wrench className="h-4 w-4" />} onClick={() => setIsCorrectOpen(true)}>
               Correct data
             </Button>
+            <Button variant="ghost" leftIcon={<MessageSquarePlus className="h-4 w-4" />} onClick={() => setIsCreditOpen(true)}>
+              Add SMS credit
+            </Button>
             <Link to={`${ADMIN_ROUTES.copilot}?tab=landlords&landlord_id=${id}`}>
               <Button variant="ghost" leftIcon={<Smartphone className="h-4 w-4" />}>
                 Co-pilot
@@ -129,6 +161,7 @@ export default function LandlordDetail() {
           <SummaryCard label="Units" value={data?.unit_count ?? 0} accent="third" />
           <SummaryCard label="Active tenants" value={data?.active_tenants ?? 0} accent="third" />
           <SummaryCard label="Team members" value={data?.team_members?.length ?? 0} accent="third" />
+          <SummaryCard label="SMS balance" value={(data?.sms_balance ?? 0).toLocaleString()} accent="third" />
         </div>
       )}
 
@@ -151,6 +184,41 @@ export default function LandlordDetail() {
           className="mt-3"
         />
       </ConfirmDialog>
+
+      <Modal isOpen={isCreditOpen} onClose={() => setIsCreditOpen(false)} title="Add SMS credit">
+        <form onSubmit={handleCreditSms} className="space-y-4">
+          <p className="text-sm text-white/60">
+            Current balance: <span className="text-white">{(data?.sms_balance ?? 0).toLocaleString()}</span> SMS.
+            Use this when a landlord has paid you directly (e.g. via M-Pesa) before automated billing is live.
+            At the current rate 1 KES = 1 SMS credit.
+          </p>
+          <Input
+            label="SMS credits to add"
+            type="number"
+            hint="Whole number. Use a negative value to correct a mistaken credit."
+            value={smsCredit.credits}
+            onChange={(e) => setSmsCredit((c) => ({ ...c, credits: e.target.value }))}
+            required
+          />
+          <Textarea
+            label="Reason / reference"
+            hint="e.g. 'M-Pesa 100 KES received, code ABC123XYZ'"
+            value={smsCredit.reason}
+            onChange={(e) => setSmsCredit((c) => ({ ...c, reason: e.target.value }))}
+            rows={2}
+            required
+          />
+          {smsCreditError && <p className="text-xs text-secondary-300">{smsCreditError}</p>}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setIsCreditOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" isLoading={isCrediting}>
+              Credit balance
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal isOpen={isCorrectOpen} onClose={() => setIsCorrectOpen(false)} title="Correct data">
         <form onSubmit={handleCorrect} className="space-y-4">

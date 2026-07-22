@@ -770,7 +770,12 @@ def download_receipt(payment_id):
     """Stream the payment receipt PDF."""
     landlord_id = get_current_landlord_id()
     pay         = _get_or_404(landlord_id, payment_id)
-    pdf_bytes   = generate_receipt_pdf(pay)
+    # Use the fully-branded receipt (landlord letterhead: logo + company +
+    # address + signature, identical to the report documents) rather than the
+    # plain text-only pdf_service receipt, so the landlord's logo/signature
+    # appears on the receipt the tenant receives — matching every report.
+    from services.receipt_service import render_receipt_pdf
+    pdf_bytes   = render_receipt_pdf(pay)
 
     return Response(
         pdf_bytes,
