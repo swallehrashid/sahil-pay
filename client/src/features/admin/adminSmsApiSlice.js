@@ -11,6 +11,14 @@ export const adminSmsApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/admin/sms/pricing", method: "PUT", body }),
       invalidatesTags: ["SmsPricing", "SmsOverview"],
     }),
+    getSmsCreditRanges: builder.query({
+      query: () => "/admin/sms/credit-ranges",
+      providesTags: ["SmsPricing"],
+    }),
+    updateSmsCreditRanges: builder.mutation({
+      query: (body) => ({ url: "/admin/sms/credit-ranges", method: "PUT", body }),
+      invalidatesTags: ["SmsPricing"],
+    }),
     getSmsOverview: builder.query({
       query: (params) => ({ url: "/admin/sms/overview", params }),
       providesTags: ["SmsOverview"],
@@ -63,6 +71,8 @@ export const adminSmsApiSlice = apiSlice.injectEndpoints({
 export const {
   useGetSmsPricingQuery,
   useUpdateSmsPricingMutation,
+  useGetSmsCreditRangesQuery,
+  useUpdateSmsCreditRangesMutation,
   useGetSmsOverviewQuery,
   useGetSmsPoolHistoryQuery,
   useTopUpSmsPoolMutation,

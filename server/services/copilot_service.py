@@ -656,7 +656,10 @@ def _finalize_message(msg, landlord, ls, device) -> None:
                 "tenant_name": tenant_name,
             },
             landlord_id=landlord.id,
-            link="/landlord/payments?status=pending",
+            # Deep-link straight into the review-and-allocate modal for this
+            # payment (PaymentsPage reads ?review=<id>), so clicking the
+            # notification opens the same flow as clicking the parsed message.
+            link=f"/landlord/payments?review={payment.id}",
             entity_type="payment", entity_id=payment.id,
         )
 

@@ -96,17 +96,37 @@ def send_sms(
     if result is None:
         return None
 
-    if result.get("response-code") == 200:
-        # FluxSMS's /sendsms response returns the id under "message_id"
-        # (underscore); some older docs show "messageid". Accept either so a
-        # provider-side key change never silently drops the id we need for DLR
-        # reconciliation. The id can come back as an int — stringify it.
-        message_id = result.get("message_id") or result.get("messageid")
+    # Log the FULL provider response for every send. When a message shows up as
+    # "SCHEDULED / no network / no messageid" on the FluxSMS dashboard (the
+    # signature of an alphanumeric sender ID still pending network approval),
+    # this is the record that tells the operator exactly what the provider
+    # returned — not just our derived success/fail.
+    logger.info("FluxSMS /sendsms raw response for %s (sender=%s): %s", recipient, sender_id, result)
+
+    # Success per FLUXSMS_INTEGRATION_SPEC §Endpoints: response-code == 200.
+    # Accept the code as int OR string ("200") since provider serialisation
+    # has varied. A message may be accepted-but-scheduled: FluxSMS still
+    # returns a messageid, which we capture so the DLR sweep can later flip it.
+    code = result.get("response-code")
+    if code in (200, "200"):
+        # id key has varied across FluxSMS docs: message_id / messageid / id.
+        message_id = result.get("message_id") or result.get("messageid") or result.get("id")
         message_id = str(message_id) if message_id is not None else None
-        logger.info("SMS sent to %s via FluxSMS (message_id=%s).", recipient, message_id)
+        network_id = result.get("networkid")
+        if message_id:
+            logger.info("SMS sent to %s via FluxSMS (message_id=%s, networkid=%s).",
+                        recipient, message_id, network_id)
+        else:
+            # Accepted but no id — likely queued/scheduled by the provider. Treat
+            # as a soft failure so we do NOT burn a credit for a message that may
+            # never leave the provider; the raw response above shows why.
+            logger.warning("SMS to %s accepted by FluxSMS but returned no message id "
+                           "(likely SCHEDULED — sender '%s' may be pending network approval).",
+                           recipient, sender_id)
         return message_id
 
-    logger.error("send_sms failed for %s: %s", recipient, result.get("error") or result)
+    logger.error("send_sms failed for %s (sender=%s): %s", recipient, sender_id,
+                 result.get("error") or result)
     return None
 
 

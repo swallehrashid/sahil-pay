@@ -11,6 +11,10 @@ export const communicationApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/communications/send", method: "POST", body }),
       invalidatesTags: ["Communication"],
     }),
+    // Pre-send SMS credit-cost calculator (email/in-app are free).
+    quoteCommunication: builder.mutation({
+      query: (body) => ({ url: "/communications/quote", method: "POST", body }),
+    }),
     resendCommunication: builder.mutation({
       query: (id) => ({ url: `/communications/${id}/resend`, method: "POST" }),
       invalidatesTags: ["Communication"],
@@ -47,6 +51,7 @@ export const communicationApiSlice = apiSlice.injectEndpoints({
 export const {
   useGetCommunicationsQuery,
   useSendCommunicationMutation,
+  useQuoteCommunicationMutation,
   useResendCommunicationMutation,
   useGetMessageTemplatesQuery,
   useGetMessageVariablesQuery,

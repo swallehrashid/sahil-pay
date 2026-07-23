@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Send, RotateCw } from "lucide-react";
+import { Send, RotateCw, Coins } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -17,7 +17,7 @@ import { toast } from "@/components/ui/Toast";
 import MessageTemplates from "./MessageTemplates";
 import { useGetSmsProviderQuery } from "../settings/smsProviderApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommunicationMutation } from "./communicationApiSlice";
+import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommunicationMutation, useQuoteCommunicationMutation } from "./communicationApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { MESSAGE_CHANNELS, COMMUNICATION_STATUSES } from "@/utils/constants";
 import { formatDateTime } from "@/utils/dateFormatter";
@@ -207,6 +207,12 @@ export default function CommunicationsPage() {
             required
           />
           <Textarea label="Message" rows={4} value={compose.content} onChange={(e) => setCompose((c) => ({ ...c, content: e.target.value }))} required />
+          {compose.message_type === "sms" && (
+            <SmsCostEstimate
+              content={compose.content}
+              tenantIds={compose.tenant_id ? [Number(compose.tenant_id)] : []}
+            />
+          )}
           <div className="flex justify-end gap-3 pt-2">
             <Button type="button" variant="ghost" onClick={() => setIsComposeOpen(false)}>
               Cancel
@@ -217,6 +223,52 @@ export default function CommunicationsPage() {
           </div>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+// Pre-send SMS credit calculator — shows exactly how many credits the message
+// will cost (by word count, per the admin tiers) before the landlord sends.
+// Email/in-app are free, so this only renders for the SMS channel.
+function SmsCostEstimate({ content, tenantIds }) {
+  const [quote, { data, isLoading }] = useQuoteCommunicationMutation();
+
+  useEffect(() => {
+    if (!content?.trim()) return;
+    const t = setTimeout(() => {
+      quote({ content, tenant_ids: tenantIds });
+    }, 400); // debounce as the landlord types
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, JSON.stringify(tenantIds)]);
+
+  if (!content?.trim()) return null;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
+      <div className="flex items-center gap-2 text-white/70">
+        <Coins className="h-4 w-4 text-secondary-200" />
+        <span className="font-medium text-white">SMS cost</span>
+      </div>
+      {isLoading || !data ? (
+        <p className="mt-1 text-xs text-white/40">Calculating…</p>
+      ) : (
+        <div className="mt-1 space-y-1 text-xs text-white/60">
+          <p>
+            <span className="text-white">{data.total_credits}</span> credit
+            {data.total_credits === 1 ? "" : "s"} for{" "}
+            <span className="text-white">{data.recipients}</span> message
+            {data.recipients === 1 ? "" : "s"}
+            {data.per_recipient?.[0]?.words != null && (
+              <span className="text-white/40"> · {data.per_recipient[0].words} words each</span>
+            )}
+          </p>
+          <p className={data.sufficient ? "text-white/40" : "text-rose-300"}>
+            Balance: {data.sms_balance} credit{data.sms_balance === 1 ? "" : "s"}
+            {!data.sufficient && " — not enough to send"}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

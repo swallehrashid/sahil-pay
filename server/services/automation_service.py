@@ -106,20 +106,20 @@ def run_monthly_reminders(landlord) -> int:
     if not aut or not aut.monthly_reminders_enabled:
         return 0
 
-    from decimal import Decimal
-
     from models import Tenant
     from services.communication_service import dispatch_message
+    from services.reminder_content import build_reminder, KIND_PAYMENT
 
     sent = 0
     tenants = Tenant.query.filter(
         Tenant.landlord_id == landlord.id, Tenant.is_deleted.is_(False), Tenant.balance < 0
     ).all()
     for t in tenants:
-        owed = abs(t.balance or Decimal("0"))
+        # Fully itemised reminder (breakdown + landlord + payment details) — never
+        # a bare "your balance is X" line.
+        rc = build_reminder(KIND_PAYMENT, t, landlord)
         dispatch_message(
-            landlord_id=landlord.id, tenant=t, channel="sms",
-            content=f"Dear {t.first_name}, your outstanding balance is KES {owed}. Kindly clear it. Thank you.",
+            landlord_id=landlord.id, tenant=t, channel="sms", content=rc.text,
         )
         sent += 1
     logger.info("Automation: monthly reminders sent to %s tenant(s) for landlord %s.", sent, landlord.id)
@@ -145,24 +145,58 @@ def run_lease_expiry_notices(landlord) -> int:
         Tenant.lease_expiry_date >= date.today(),
     ).all()
     for t in tenants:
-        if t.user_id:
-            notify(
-                recipient_user_id=t.user_id,
-                category="lease_expiry",
-                title="Your lease is expiring soon",
-                body=f"Hi {t.first_name}, your lease expires on {t.lease_expiry_date}. Please contact us to renew.",
-                landlord_id=landlord.id,
-                entity_type="tenant",
-                entity_id=t.id,
-            )
+        # Address by tenant id so OTP-only tenants (no User row) receive it too.
+        notify(
+            recipient_user_id=None,
+            recipient_tenant_id=t.id,
+            category="lease_expiry",
+            title="Your lease is expiring soon",
+            body=f"Hi {t.first_name}, your lease expires on {t.lease_expiry_date}. Please contact us to renew.",
+            landlord_id=landlord.id,
+            link="/portal/profile",
+            entity_type="tenant",
+            entity_id=t.id,
+        )
         count += 1
     logger.info("Automation: lease-expiry notices sent for %s tenant(s), landlord %s.", count, landlord.id)
     return count
 
 
+def run_recurring_invoices(landlord) -> dict:
+    """
+    Generate this month's recurring charges for the landlord, honouring the two
+    toggles independently:
+      - auto_generate_recurring_invoices → month-end rent billing + rollover
+        (run_monthly_billing_task: the per-tenant monthly invoice).
+      - auto_generate_recurring_bills    → one invoice per active RecurringBill
+        (generate_recurring_invoices_task).
+    Both no-op when their toggle is off. Returns per-toggle created counts.
+    """
+    aut = _automation(landlord)
+    result = {"rent_invoices_created": 0, "recurring_bills_created": 0}
+    if not aut:
+        return result
+
+    from datetime import date as _date
+    from tasks.invoice_tasks import run_monthly_billing_task, generate_recurring_invoices_task
+
+    issue = _date.today().isoformat()
+    if getattr(aut, "auto_generate_recurring_invoices", False):
+        tally = run_monthly_billing_task(landlord.id, issue_date=issue)
+        result["rent_invoices_created"] = tally.get("created", 0)
+    if getattr(aut, "auto_generate_recurring_bills", False):
+        res = generate_recurring_invoices_task(landlord.id, issue_date=issue)
+        result["recurring_bills_created"] = res.get("created", 0)
+    logger.info("Automation: recurring invoices for landlord %s — %s.", landlord.id, result)
+    return result
+
+
 def run_all_scheduled(landlord) -> dict:
     """Run every ENABLED scheduled automation once; report what each did."""
+    recurring = run_recurring_invoices(landlord)
     return {
         "monthly_reminders_sent": run_monthly_reminders(landlord),
         "lease_expiry_notices_sent": run_lease_expiry_notices(landlord),
+        "rent_invoices_created": recurring["rent_invoices_created"],
+        "recurring_bills_created": recurring["recurring_bills_created"],
     }

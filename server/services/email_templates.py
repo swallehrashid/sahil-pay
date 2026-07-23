@@ -77,9 +77,9 @@ def credentials(rows: list[tuple[str, str]]) -> str:
     for label, value in rows:
         cells += (
             f'<tr>'
-            f'<td style="padding:9px 0;font-family:{FONT};font-size:12px;'
+            f'<td style="padding:9px 14px 9px 0;font-family:{FONT};font-size:12px;'
             f'letter-spacing:.04em;text-transform:uppercase;color:{MUTED};'
-            f'white-space:nowrap;vertical-align:top;width:130px;">{escape(label)}</td>'
+            f'vertical-align:top;width:150px;">{escape(label)}</td>'
             f'<td style="padding:9px 0;font-family:\'SFMono-Regular\',Consolas,monospace;'
             f'font-size:15px;color:#ffffff;font-weight:600;word-break:break-all;">'
             f'{escape(value)}</td>'

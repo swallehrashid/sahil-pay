@@ -155,6 +155,7 @@ export const STATUS_BADGE_MAP = {
   draft: { label: "Draft", color: "slate" },
   void: { label: "Void", color: "rose" },
   open: { label: "Open", color: "indigo" },
+  overdue: { label: "Overdue", color: "rose" },
   partial: { label: "Partial", color: "amber" },
   // #7 — a fully-cleared invoice reads as "Confirmed" (auto-flips to paid on full allocation).
   paid: { label: "Confirmed", color: "emerald" },

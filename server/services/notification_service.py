@@ -130,7 +130,7 @@ def render_template(template_key: str, **kwargs) -> tuple[str, str]:
 
 
 def notify(
-    recipient_user_id: int,
+    recipient_user_id: int | None,
     category: str,
     title: str | None = None,
     body: str | None = None,
@@ -141,12 +141,17 @@ def notify(
     link: str | None = None,
     entity_type: str | None = None,
     entity_id: int | None = None,
+    recipient_tenant_id: int | None = None,
 ):
     """
     Write one Notification row. Does NOT commit — same contract as
     services/audit_service.record_audit(): call this before your own
     commit() so the notification and the event it describes succeed or
     roll back together.
+
+    Target EITHER a User (recipient_user_id) OR a Tenant (recipient_tenant_id).
+    OTP-only tenants have no User row, so tenant-facing in-app notifications
+    MUST use recipient_tenant_id — otherwise they silently vanish.
 
     Either pass title+body directly, or template_key+template_kwargs to
     render from the registry.
@@ -159,6 +164,7 @@ def notify(
 
     note = Notification(
         recipient_user_id=recipient_user_id,
+        recipient_tenant_id=recipient_tenant_id,
         sender_user_id=sender_user_id,
         landlord_id=landlord_id,
         category=category,
@@ -174,8 +180,19 @@ def notify(
 
 
 def notify_many(recipient_user_ids: list[int], category: str, **kwargs) -> list:
-    """Fan-out helper — one row per recipient, same category/content."""
+    """Fan-out helper — one row per User recipient, same category/content."""
     return [
         notify(recipient_user_id=uid, category=category, **kwargs)
         for uid in recipient_user_ids
+    ]
+
+
+def notify_tenants(recipient_tenant_ids: list[int], category: str, **kwargs) -> list:
+    """
+    Fan-out helper addressing TENANTS directly by tenant id (not User.id), so
+    OTP-only tenants receive in-app notifications too. One row per tenant.
+    """
+    return [
+        notify(recipient_user_id=None, recipient_tenant_id=tid, category=category, **kwargs)
+        for tid in recipient_tenant_ids
     ]

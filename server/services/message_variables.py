@@ -29,6 +29,8 @@ UNIVERSAL_VARIABLES = [
     {"key": "{phone}",            "label": "Tenant phone number"},
     {"key": "{landlord}",         "label": "Your company name"},
     {"key": "{payment_method}",   "label": "Your payment instructions / M-Pesa details"},
+    {"key": "{breakdown}",        "label": "Itemised breakdown of the tenant's balance"},
+    {"key": "{landlord_details}", "label": "Your name, location, phone & email"},
 ]
 
 
@@ -52,6 +54,35 @@ def payment_method_for(landlord) -> str:
     return " | ".join(parts)
 
 
+def breakdown_text_for(tenant, landlord) -> str:
+    """A one-line-per-charge itemised breakdown + total (plain text)."""
+    if tenant is None:
+        return ""
+    from services.balance_breakdown import build_breakdown, breakdown_as_lines
+    currency = (getattr(landlord, "currency", None) or "KES") if landlord else "KES"
+    bd = build_breakdown(tenant)
+    lines = breakdown_as_lines(bd, currency)
+    if not lines:
+        return f"Total due: {currency} 0.00"
+    body = "; ".join(lines)
+    return f"{body}; TOTAL {currency} {bd['total_due']:,.2f}"
+
+
+def landlord_details_for(landlord) -> str:
+    """Landlord name, location, phone & email as a single plain-text line."""
+    if landlord is None:
+        return ""
+    user = getattr(landlord, "user", None)
+    from services import branding
+    parts = [
+        getattr(landlord, "company_name", "") or "",
+        getattr(landlord, "company_address", None) or branding.BRAND_LOCATION,
+        (getattr(user, "phone", None) if user else None) or "",
+        (getattr(user, "email", None) if user else None) or "",
+    ]
+    return " · ".join(p for p in parts if p)
+
+
 def build_context(tenant, landlord) -> dict:
     """Resolve every universal variable for one tenant + landlord."""
     unit = getattr(tenant, "unit", None)
@@ -69,6 +100,8 @@ def build_context(tenant, landlord) -> dict:
         "{phone}":            (getattr(tenant, "phone", None) or "") if tenant else "",
         "{landlord}":         (landlord.company_name if landlord else ""),
         "{payment_method}":   payment_method_for(landlord),
+        "{breakdown}":        breakdown_text_for(tenant, landlord),
+        "{landlord_details}": landlord_details_for(landlord),
     }
 
 
@@ -91,9 +124,10 @@ DEFAULT_TEMPLATES = [
         "template_type": "invoice_reminder",
         "channel": "sms",
         "body": (
-            "Dear {tenant_name}, your rent invoice for {unit} is ready. "
-            "Outstanding balance: KES {balance}. Pay via: {payment_method}. "
-            "Thank you, {landlord}."
+            "Dear {tenant_name}, a new invoice for {unit} is ready. "
+            "Breakdown: {breakdown}. "
+            "Pay via: {payment_method}. "
+            "{landlord_details}"
         ),
     },
     {
@@ -101,8 +135,10 @@ DEFAULT_TEMPLATES = [
         "template_type": "balance_reminder",
         "channel": "sms",
         "body": (
-            "Hi {tenant_name}, a friendly reminder that rent for {unit} is due. "
-            "Balance: KES {balance}. Kindly pay via: {payment_method}. {landlord}."
+            "Hi {tenant_name}, a friendly reminder for {unit}. "
+            "Breakdown: {breakdown}. "
+            "Kindly pay via: {payment_method}. "
+            "{landlord_details}"
         ),
     },
     {
@@ -111,8 +147,9 @@ DEFAULT_TEMPLATES = [
         "channel": "sms",
         "body": (
             "Dear {tenant_name}, your account for {unit} is overdue. "
-            "Outstanding: KES {balance}. Please settle via: {payment_method} to "
-            "avoid penalties. {landlord}."
+            "Breakdown: {breakdown}. "
+            "Please settle via: {payment_method} to avoid penalties. "
+            "{landlord_details}"
         ),
     },
 ]

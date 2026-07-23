@@ -577,32 +577,42 @@ def send_reminder(tenant_id):
     if not channels:
         return jsonify({"error": "Select at least one channel."}), 400
 
-    message = data.get("message") or (
-        f"Dear {tenant.first_name}, your outstanding balance is "
-        f"KES {abs(float(tenant.balance)):,.2f}. "
-        f"Please make your payment to avoid penalties."
-    )
+    # Build the default reminder content — ALWAYS itemised (breakdown) + landlord
+    # details + payment details, across every channel. A landlord-supplied custom
+    # `message` becomes the opening line but the breakdown/landlord/payment blocks
+    # are still appended so no reminder is ever "just a balance".
+    from models import Landlord
+    from services.reminder_content import build_reminder, KIND_OVERDUE, KIND_PAYMENT, KIND_INVOICE
+
+    landlord = db.session.get(Landlord, landlord_id)
+    kind_map = {"overdue_balance": KIND_OVERDUE, "invoice_notification": KIND_INVOICE, "payment_reminder": KIND_PAYMENT}
+    kind = kind_map.get(data.get("kind"), KIND_PAYMENT)
+    rc = build_reminder(kind, tenant, landlord, custom_message=data.get("message"))
 
     sent = []
     for channel in channels:
         if channel == "in_app":
-            # In-app notification — only deliverable if the tenant has a linked login.
-            if tenant.user_id:
-                from services.notification_service import notify
-                notify(
-                    recipient_user_id=tenant.user_id,
-                    category="broadcast",
-                    title="Balance reminder",
-                    body=message,
-                    landlord_id=landlord_id,
-                    link="/portal/statement",
-                    entity_type="tenant",
-                    entity_id=tenant.id,
-                )
-                db.session.commit()  # notify() only flushes — persist the notification row
-                sent.append("in_app")
+            # In-app notification — addressed by tenant id so OTP-only tenants
+            # (no linked User) still receive it.
+            from services.notification_service import notify
+            notify(
+                recipient_user_id=None,
+                recipient_tenant_id=tenant.id,
+                category="broadcast",
+                title=rc.title,
+                body=rc.text,
+                landlord_id=landlord_id,
+                link="/portal/statement",
+                entity_type="tenant",
+                entity_id=tenant.id,
+            )
+            db.session.commit()  # notify() only flushes — persist the notification row
+            sent.append("in_app")
         else:
-            dispatch_message(landlord_id=landlord_id, tenant=tenant, channel=channel, content=message)
+            dispatch_message(
+                landlord_id=landlord_id, tenant=tenant, channel=channel,
+                content=rc.text, email_subject=rc.subject, email_html=rc.html,
+            )
             sent.append(channel)
 
     return jsonify({

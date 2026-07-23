@@ -39,6 +39,10 @@ export const settingsApiSlice = apiSlice.injectEndpoints({
       query: () => ({ url: "/settings/account/agent-code", method: "POST" }),
       invalidatesTags: ["Settings"],
     }),
+    // Dedicated, verified change-password flow (current → new → confirm).
+    changePassword: builder.mutation({
+      query: (body) => ({ url: "/settings/account/change-password", method: "POST", body }),
+    }),
     generateBackup: builder.mutation({
       query: (body) => ({ url: "/settings/backup", method: "POST", body }),
       invalidatesTags: ["Backup"],
@@ -68,6 +72,7 @@ export const {
   useUpdateAlertSettingsMutation,
   useGetAccountSettingsQuery,
   useUpdateAccountSettingsMutation,
+  useChangePasswordMutation,
   useGenerateAgentCodeMutation,
   useGenerateBackupMutation,
   useGetBackupsQuery,

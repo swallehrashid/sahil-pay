@@ -21,7 +21,7 @@ from extensions import db
 from models import (
     Notification, Tenant, TeamMember, Landlord, Property, Unit, UserRole,
 )
-from services.notification_service import notify, notify_many, TEMPLATES
+from services.notification_service import notify, notify_many, notify_tenants, TEMPLATES
 from services.audit_service import record_audit
 
 notification_bp = Blueprint("notifications", __name__, url_prefix="/api/notifications")
@@ -48,6 +48,24 @@ def _current_role() -> str:
     return get_jwt().get("role")
 
 
+def _current_tenant_id():
+    """The tenant_id claim for a tenant token, else None."""
+    return get_jwt().get("tenant_id")
+
+
+def _scope_to_recipient(query):
+    """
+    Scope a Notification query to the caller's own rows. A tenant caller reads
+    their recipient_tenant_id rows; every other caller reads their
+    recipient_user_id rows.
+    """
+    from models import Notification
+    tenant_id = _current_tenant_id()
+    if tenant_id:
+        return query.filter(Notification.recipient_tenant_id == tenant_id)
+    return query.filter(Notification.recipient_user_id == _current_user_id())
+
+
 # ---------------------------------------------------------------------------
 # GET /api/notifications/
 # ---------------------------------------------------------------------------
@@ -64,11 +82,10 @@ def list_notifications():
     responses:
       200: {description: Paginated notifications for the current user.}
     """
-    user_id  = _current_user_id()
     page     = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    query = Notification.query.filter_by(recipient_user_id=user_id)
+    query = _scope_to_recipient(Notification.query)
     if (v := request.args.get("is_read")) is not None:
         query = query.filter(Notification.is_read == (v.lower() == "true"))
 
@@ -91,8 +108,7 @@ def list_notifications():
 @jwt_required()
 def unread_count():
     """Return the authenticated user's unread notification count (for a navbar badge)."""
-    user_id = _current_user_id()
-    count = Notification.query.filter_by(recipient_user_id=user_id, is_read=False).count()
+    count = _scope_to_recipient(Notification.query).filter(Notification.is_read.is_(False)).count()
     return jsonify({"unread_count": count}), 200
 
 
@@ -105,8 +121,7 @@ def mark_read(notification_id):
     """Mark one of the caller's own notifications as read."""
     from datetime import datetime
 
-    user_id = _current_user_id()
-    note = Notification.query.filter_by(id=notification_id, recipient_user_id=user_id).first()
+    note = _scope_to_recipient(Notification.query.filter(Notification.id == notification_id)).first()
     if not note:
         return jsonify({"error": "Notification not found."}), 404
 
@@ -127,10 +142,9 @@ def mark_all_read():
     """Mark every one of the caller's unread notifications as read."""
     from datetime import datetime
 
-    user_id = _current_user_id()
-    updated = Notification.query.filter_by(recipient_user_id=user_id, is_read=False).update(
-        {"is_read": True, "read_at": datetime.utcnow()}
-    )
+    updated = _scope_to_recipient(
+        Notification.query.filter(Notification.is_read.is_(False))
+    ).update({"is_read": True, "read_at": datetime.utcnow()}, synchronize_session=False)
     db.session.commit()
     return jsonify({"message": f"{updated} notification(s) marked as read."}), 200
 
@@ -238,11 +252,15 @@ def send_notification():
         from decorators import get_current_landlord_id
         caller_landlord_id = get_current_landlord_id()
 
+    # Tenants are addressed by TENANT id (they may have no User row); everyone
+    # else is addressed by User id. We collect into the matching bucket so an
+    # OTP-only tenant is never silently dropped for lacking a user_id.
     recipient_user_ids: list[int] = []
+    recipient_tenant_ids: list[int] = []
     scope_landlord_id = caller_landlord_id
 
     if audience == "all_landlords":
-        recipient_user_ids = [u for (u,) in db.session.query(Landlord.user_id).all()]
+        recipient_user_ids = [u for (u,) in db.session.query(Landlord.user_id).all() if u]
 
     elif audience == "landlord":
         if not target_id:
@@ -250,16 +268,16 @@ def send_notification():
         landlord = db.session.get(Landlord, target_id)
         if not landlord:
             return jsonify({"error": "Landlord not found."}), 404
-        recipient_user_ids = [landlord.user_id]
+        recipient_user_ids = [landlord.user_id] if landlord.user_id else []
         scope_landlord_id = landlord.id
 
     elif audience == "all_tenants":
         landlord_id = target_id if is_admin and target_id else caller_landlord_id
-        query = db.session.query(Tenant.user_id).filter(Tenant.is_deleted.is_(False))
+        query = db.session.query(Tenant.id).filter(Tenant.is_deleted.is_(False))
         if landlord_id:
             query = query.filter(Tenant.landlord_id == landlord_id)
             scope_landlord_id = landlord_id
-        recipient_user_ids = [u for (u,) in query.all() if u]
+        recipient_tenant_ids = [t for (t,) in query.all()]
 
     elif audience == "all_team_members":
         landlord_id = target_id if is_admin and target_id else caller_landlord_id
@@ -277,11 +295,11 @@ def send_notification():
             return jsonify({"error": "Property not found."}), 404
         if not is_admin and prop.landlord_id != caller_landlord_id:
             abort(403, description="That property does not belong to your account.")
-        recipient_user_ids = [
-            u for (u,) in db.session.query(Tenant.user_id)
+        recipient_tenant_ids = [
+            t for (t,) in db.session.query(Tenant.id)
             .join(Unit, Unit.id == Tenant.unit_id)
             .filter(Unit.property_id == prop.id, Tenant.is_deleted.is_(False))
-            .all() if u
+            .all()
         ]
         scope_landlord_id = prop.landlord_id
 
@@ -294,28 +312,35 @@ def send_notification():
             row = TeamMember.query.filter_by(id=target_id).first()
         else:
             row = Landlord.query.filter_by(id=target_id).first()
-        if not row or not row.user_id:
+        if not row:
             return jsonify({"error": f"{target_type.title()} not found."}), 404
         # A landlord caller may only message their own tenant/team-member;
         # they can never target another landlord's account this way.
         row_landlord_id = row.id if target_type == "landlord" else row.landlord_id
         if not is_admin and (target_type == "landlord" or row_landlord_id != caller_landlord_id):
             abort(403, description="That recipient does not belong to your account.")
-        recipient_user_ids = [row.user_id]
+        # Tenants are addressed by tenant id (no User needed); others by user id.
+        if target_type == "tenant":
+            recipient_tenant_ids = [row.id]
+        elif row.user_id:
+            recipient_user_ids = [row.user_id]
+        else:
+            return jsonify({"error": f"{target_type.title()} has no login account to notify."}), 400
         scope_landlord_id = row_landlord_id
 
-    if not recipient_user_ids:
+    if not recipient_user_ids and not recipient_tenant_ids:
         return jsonify({"error": "No recipients matched that audience."}), 400
 
-    notes = notify_many(
-        recipient_user_ids,
+    common = dict(
         category=template_key if template_key in TEMPLATES else "broadcast",
         title=title, body=body,
         template_key=template_key, template_kwargs=template_kwargs,
-        sender_user_id=_current_user_id(),
+        sender_user_id=_current_user_id() if _current_user_id() != -1 else None,
         landlord_id=scope_landlord_id,
         link=link,
     )
+    notes = notify_many(recipient_user_ids, **common) if recipient_user_ids else []
+    notes += notify_tenants(recipient_tenant_ids, **common) if recipient_tenant_ids else []
     db.session.commit()
 
     record_audit(

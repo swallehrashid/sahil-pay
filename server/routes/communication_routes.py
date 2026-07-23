@@ -100,6 +100,81 @@ def list_logs():
 
 
 # ---------------------------------------------------------------------------
+# POST /api/communications/quote  — pre-send SMS cost calculator
+# ---------------------------------------------------------------------------
+@comms_bp.route("/quote", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("messages", "view")
+def quote_message():
+    """
+    Estimate the CREDIT cost of an SMS send BEFORE sending, so the landlord sees
+    exactly how many credits it will use (email/in-app are free — quote SMS only).
+    Body:
+      { content?: str, template_id?: int, tenant_ids?: [int] }
+    When tenant_ids are given, the message is resolved per tenant (so {breakdown},
+    {landlord_details}, … expand) and credits are summed per-recipient, since a
+    longer personalised message can cost more credits than a shorter one.
+    Returns per-message breakdown + totals and the landlord's current balance.
+    ---
+    tags: [Communications]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Credit-cost quote.}
+    """
+    from services.sms_billing import price_sms, load_credit_ranges
+
+    landlord_id = get_current_landlord_id()
+    landlord    = db.session.get(Landlord, landlord_id)
+    settings    = landlord.landlord_settings if landlord else None
+    data        = request.get_json(silent=True) or {}
+
+    content     = (data.get("content") or "").strip()
+    template_id = data.get("template_id")
+    tenant_ids  = data.get("tenant_ids") or []
+
+    if template_id:
+        tmpl = MessageTemplate.query.filter_by(id=template_id, landlord_id=landlord_id).first()
+        if tmpl:
+            content = tmpl.body
+
+    ranges = load_credit_ranges()
+    per_recipient = []
+    total_credits = 0
+
+    if tenant_ids:
+        tenants = Tenant.query.filter(
+            Tenant.id.in_(tenant_ids), Tenant.landlord_id == landlord_id,
+            Tenant.is_deleted.is_(False),
+        ).all()
+        for t in tenants:
+            resolved = render_message(content, t, landlord) if content else ""
+            econ = price_sms(resolved, settings, ranges=ranges)
+            per_recipient.append({
+                "tenant_id": t.id,
+                "name": f"{t.first_name} {t.last_name}",
+                "words": econ["words"], "credits": econ["credits"],
+            })
+            total_credits += econ["credits"]
+    else:
+        econ = price_sms(content, settings, ranges=ranges)
+        per_recipient.append({"tenant_id": None, "name": None,
+                              "words": econ["words"], "credits": econ["credits"]})
+        total_credits = econ["credits"]
+
+    return jsonify({
+        "recipients":     len(per_recipient),
+        "per_recipient":  per_recipient,
+        "total_credits":  total_credits,
+        "sms_balance":    landlord.sms_balance if landlord else 0,
+        "sufficient":     (landlord.sms_balance if landlord else 0) >= total_credits,
+        "ranges":         ranges,
+        "uses_own_sender": bool(settings and settings.sms_connected and settings.sms_sender_id),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # POST /api/communications/send
 # ---------------------------------------------------------------------------
 @comms_bp.route("/send", methods=["POST"])
@@ -147,14 +222,7 @@ def send_message():
     if not content:
         return jsonify({"error": "content or a valid template_id is required."}), 400
 
-    # SMS balance check
     landlord = db.session.get(Landlord, landlord_id)
-    if channel == MessageChannel.sms.value:
-        cost = _SMS_COST_PER_MESSAGE * len(tenant_ids)
-        if landlord.sms_balance < cost:
-            return jsonify({
-                "error": f"Insufficient SMS balance. Required: {cost}, Available: {landlord.sms_balance}."
-            }), 400
 
     # Fetch tenants
     tenants = Tenant.query.filter(
@@ -162,6 +230,21 @@ def send_message():
         Tenant.landlord_id == landlord_id,
         Tenant.is_deleted.is_(False),
     ).all()
+
+    # SMS balance check — cost is the sum of each message's CREDIT cost (from the
+    # admin word→credit tiers), not a flat 1-per-recipient, so a batch of long
+    # messages is correctly gated up-front.
+    if channel == MessageChannel.sms.value:
+        from services.sms_billing import price_sms
+        settings = landlord.landlord_settings if landlord else None
+        cost = 0
+        for t in tenants:
+            resolved = render_message(content, t, landlord) if content else content
+            cost += price_sms(resolved, settings)["credits"]
+        if landlord.sms_balance < cost:
+            return jsonify({
+                "error": f"Insufficient SMS balance. Required: {cost} credit(s), Available: {landlord.sms_balance}."
+            }), 400
 
     simulate = current_app.config.get("COMMS_SIMULATION_MODE", True)
 

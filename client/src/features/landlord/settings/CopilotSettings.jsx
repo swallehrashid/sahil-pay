@@ -10,15 +10,14 @@ import EmptyState from "@/components/ui/EmptyState";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 import { formatDateTime } from "@/utils/dateFormatter";
-import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import {
   useGetCopilotSettingsQuery,
   useUpdateCopilotSettingsMutation,
   useRevokeCopilotDeviceMutation,
-  useGetCopilotMessagesQuery,
 } from "./copilotApiSlice";
 import { useGenerateAgentCodeMutation } from "./settingsApiSlice";
+import CopilotInboxTab from "@/features/landlord/payments/CopilotInboxTab";
 
 // COPILOT_PLATFORM_SPEC.md §6.1 — consent + master switch, allocation mode,
 // agent code, paired devices, recent activity.
@@ -27,7 +26,6 @@ export default function CopilotSettings() {
   const [updateSettings, { isLoading: isSaving }] = useUpdateCopilotSettingsMutation();
   const [generateAgentCode, { isLoading: isGeneratingCode }] = useGenerateAgentCodeMutation();
   const [revokeDevice] = useRevokeCopilotDeviceMutation();
-  const { data: messagesData, isLoading: isMessagesLoading } = useGetCopilotMessagesQuery({ per_page: 20 });
 
   const [pendingEnable, setPendingEnable] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState(null);
@@ -37,7 +35,6 @@ export default function CopilotSettings() {
 
   const code = agentCode ?? data.agent_code;
   const devices = toRows(data.devices);
-  const messages = toRows(messagesData);
 
   const handleToggleEnabled = async (next) => {
     if (next && !data.copilot_enabled) {
@@ -273,27 +270,14 @@ export default function CopilotSettings() {
 
       <div className="glass space-y-3 p-6">
         <h3 className="text-base font-medium text-white">Recent activity</h3>
-        {isMessagesLoading ? (
-          <SkeletonForm fields={3} />
-        ) : messages.length === 0 ? (
-          <EmptyState title="No Co-pilot activity yet" description="Forwarded SMSs will show up here." />
-        ) : (
-          <div className="divide-y divide-white/10">
-            {messages.map((m) => (
-              <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
-                <div className="flex items-center gap-3">
-                  <Badge color="third">{m.sender_id}</Badge>
-                  <span className="text-white/50">{formatDateTime(m.created_at)}</span>
-                  {m.parsed_amount != null && <span className="text-white/80">{formatCurrency(m.parsed_amount)}</span>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusBadge status={m.parse_status} />
-                  {m.parse_status === "parsed" && <StatusBadge status={m.match_status} />}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <p className="text-sm text-white/50">
+          Every forwarded SMS. Click any parsed payment to review &amp; allocate it — auto-allocated ones open
+          already saved (you can re-allocate); review-first ones open pre-filled for you to save.
+        </p>
+        {/* CAT4b/CAT4c — the full paginated, scrollable, clickable Co-Pilot
+            inbox (same table + review flow as the Payments page), so a parsed
+            message can be opened and allocated from Settings too. */}
+        <CopilotInboxTab />
       </div>
 
       <ConfirmDialog

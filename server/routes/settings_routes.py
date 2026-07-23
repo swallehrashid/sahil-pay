@@ -563,6 +563,62 @@ def account_settings():
 
 
 # ---------------------------------------------------------------------------
+# POST /api/settings/account/change-password  — dedicated change-password flow
+# ---------------------------------------------------------------------------
+@settings_bp.route("/account/change-password", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+def change_password():
+    """
+    Dedicated, verified change-password pipeline (separate from the profile
+    save): requires the CURRENT password (proves identity), a NEW password
+    (min 8 chars, must differ from the current one), and a CONFIRM that must
+    match. The stored password is never returned anywhere; this endpoint only
+    ever verifies hashes.
+    ---
+    tags: [Settings]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Password changed.}
+      400: {description: Validation error.}
+    """
+    user_id = int(get_jwt_identity())
+    user    = db.session.get(User, user_id)
+    data    = request.get_json(silent=True) or {}
+
+    current_pw = data.get("current_password") or ""
+    new_pw     = data.get("new_password") or ""
+    confirm_pw = data.get("confirm_password") or ""
+
+    if not current_pw or not new_pw or not confirm_pw:
+        return jsonify({"error": "Current, new, and confirm password are all required."}), 400
+    if not check_password_hash(user.password_hash or "", current_pw):
+        return jsonify({"error": "Current password is incorrect."}), 400
+    if len(new_pw) < 8:
+        return jsonify({"error": "New password must be at least 8 characters."}), 400
+    if new_pw != confirm_pw:
+        return jsonify({"error": "New password and confirmation do not match."}), 400
+    if check_password_hash(user.password_hash or "", new_pw):
+        return jsonify({"error": "New password must be different from your current password."}), 400
+
+    user.password_hash = generate_password_hash(new_pw)
+    user.must_change_password = False
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=user_id,
+        landlord_id=get_current_landlord_id(),
+        action="change_password",
+        entity_type="account",
+        entity_id=user_id,
+        description="Account password changed.",
+    )
+    db.session.commit()
+    return jsonify({"message": "Password changed successfully."}), 200
+
+
+# ---------------------------------------------------------------------------
 # POST /api/settings/account/agent-code
 # ---------------------------------------------------------------------------
 @settings_bp.route("/account/agent-code", methods=["POST"])

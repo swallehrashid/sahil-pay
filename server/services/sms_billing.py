@@ -39,6 +39,17 @@ PLATFORM_COST_PER_SMS = Decimal("0.65")   # KES/SMS SahilPay pays the provider
 
 DEFAULT_PLATFORM_SENDER = "SAHILPAY"
 
+# Market-aligned default word→credit tiers (FluxSMS/GSM: ~26 words ≈ one 160-char
+# SMS segment). Seeded into sms_credit_ranges on first use; fully admin-editable
+# thereafter. (min_words, max_words|None, credits).
+DEFAULT_CREDIT_RANGES = [
+    (1, 25, 1),
+    (26, 50, 2),
+    (51, 75, 3),
+    (76, 100, 4),
+    (101, None, 5),
+]
+
 
 def count_segments(text: str) -> int:
     """How many SMS segments `text` occupies (min 1)."""
@@ -47,6 +58,68 @@ def count_segments(text: str) -> int:
         return 1
     # Concatenated message: every segment is 153 chars.
     return -(-length // MULTI_SEGMENT_LEN)  # ceil division
+
+
+def count_words(text: str) -> int:
+    """Number of whitespace-separated words in `text` (min 0)."""
+    return len((text or "").split())
+
+
+def _seed_default_ranges():
+    """
+    Create the default credit ranges if none exist, committing so the first-use
+    seed persists (read paths call this; without a commit the seeded rows would
+    roll back at request end and be re-created — and re-numbered — every call).
+    Guards against a race by re-checking after acquiring rows.
+    """
+    from extensions import db
+    from models import SmsCreditRange
+    if SmsCreditRange.query.count() == 0:
+        for mn, mx, cr in DEFAULT_CREDIT_RANGES:
+            db.session.add(SmsCreditRange(min_words=mn, max_words=mx, credits=cr))
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return SmsCreditRange.query.order_by(SmsCreditRange.min_words).all()
+
+
+def load_credit_ranges() -> list[dict]:
+    """
+    Return the admin-defined word→credit tiers (seeding market defaults on first
+    use), sorted ascending. Falls back to the module defaults with no db context.
+    """
+    try:
+        from models import SmsCreditRange
+        rows = SmsCreditRange.query.order_by(SmsCreditRange.min_words).all()
+        if not rows:
+            rows = _seed_default_ranges()
+        return [r.to_dict() for r in rows]
+    except Exception:
+        return [{"id": None, "min_words": mn, "max_words": mx, "credits": cr}
+                for (mn, mx, cr) in DEFAULT_CREDIT_RANGES]
+
+
+def credits_for_words(word_count: int, ranges: list[dict] | None = None) -> int:
+    """
+    Credits charged for a message of `word_count` words, per the tier table.
+    Uses the first tier whose [min_words, max_words] contains the count; if the
+    count exceeds every closed tier and the last tier is open-ended (max=None),
+    that tier's credits apply. Falls back to 1 credit if no tier matches.
+    """
+    ranges = ranges if ranges is not None else load_credit_ranges()
+    wc = max(1, int(word_count or 0))
+    for r in ranges:
+        mn = r["min_words"]
+        mx = r["max_words"]
+        if wc >= mn and (mx is None or wc <= mx):
+            return int(r["credits"])
+    return 1
+
+
+def credits_for_text(text: str, ranges: list[dict] | None = None) -> int:
+    """Credits for the given message text (word-count based)."""
+    return credits_for_words(count_words(text), ranges)
 
 
 def load_rates() -> dict:
@@ -119,20 +192,31 @@ def compute_platform_cost(text: str, uses_own_sender_id: bool, rates: dict | Non
     return (rates["platform_cost"] * count_segments(text)).quantize(Decimal("0.01"))
 
 
-def price_sms(text: str, settings, rates: dict | None = None) -> dict:
+def price_sms(text: str, settings, rates: dict | None = None,
+              ranges: list[dict] | None = None) -> dict:
     """
     Full economics for a single send — the one call dispatch_message needs:
-    sender, own-vs-shared, segments, resale charge, and SahilPay's cost.
+    sender, own-vs-shared, credits (from the admin word→credit tiers), resale
+    charge, and SahilPay's cost.
+
+    `credits` (not raw segments) is now the billed unit: it is what the
+    landlord's balance is decremented by and what the resale/platform price
+    multiplies. `segments` is retained for diagnostics/GSM reference.
     """
     rates = rates or load_rates()
     sender_id, uses_own = resolve_sender(settings)
     segments = count_segments(text)
-    charge = compute_sms_charge(text, uses_own, rates)
-    cost = compute_platform_cost(text, uses_own, rates)
+    words = count_words(text)
+    credits = credits_for_words(words, ranges)
+    unit_price = rates["custom_price"] if uses_own else rates["default_price"]
+    charge = (unit_price * credits).quantize(Decimal("0.01"))
+    cost = Decimal("0.00") if uses_own else (rates["platform_cost"] * credits).quantize(Decimal("0.01"))
     return {
         "sender_id":          sender_id,
         "uses_own_sender_id": uses_own,
         "segments":           segments,
+        "words":              words,
+        "credits":            credits,
         "length":             len(text or ""),
         "charge":             charge,
         "platform_cost":      cost,
@@ -140,12 +224,14 @@ def price_sms(text: str, settings, rates: dict | None = None) -> dict:
 
 
 def quote_sms(text: str, settings) -> dict:
-    """A previewable quote for a send: sender, segments, and cost (floats)."""
+    """A previewable quote for a send: sender, credits, and cost (floats)."""
     q = price_sms(text, settings)
     return {
         "sender_id":          q["sender_id"],
         "uses_own_sender_id": q["uses_own_sender_id"],
         "segments":           q["segments"],
+        "words":              q["words"],
+        "credits":            q["credits"],
         "charge":             float(q["charge"]),
         "platform_cost":      float(q["platform_cost"]),
         "length":             q["length"],
