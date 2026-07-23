@@ -56,7 +56,7 @@ export default function NotificationBell({ notificationsPath }) {
       </button>
 
       {isOpen && (
-        <div className="glass-dark absolute right-0 z-30 mt-2 w-80 origin-top animate-scale-in overflow-hidden p-2">
+        <div className="fixed inset-x-4 top-20 z-30 mt-0 origin-top animate-scale-in overflow-hidden rounded-2xl border border-white/10 bg-primary-900/95 p-2 shadow-2xl backdrop-blur-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-80">
           <div className="flex items-center justify-between px-2 py-1.5">
             <span className="text-sm font-medium text-white">Notifications</span>
             {unreadCount > 0 && (

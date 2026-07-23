@@ -84,23 +84,30 @@ def portal_dashboard():
     """
     tenant, landlord_id = _require_tenant()
 
+    from services.balance_breakdown import build_breakdown
+
     open_invoices = [
         inv for inv in tenant.invoices
         if not inv.is_deleted
         and inv.status in (InvoiceStatus.open.value, InvoiceStatus.partial.value)
     ]
 
-    rent_types    = {"rent"}
-    utility_types = {"water", "electricity", "garbage", "security", "utility"}
+    # Itemised, line-level breakdown — the single source of truth for "where the
+    # balance came from" (shared with reminder communications). This replaces the
+    # old 3-bucket rent/utility/other split, which silently dropped whole invoice
+    # types (e.g. a water DEPOSIT) that fell outside its hard-coded type sets.
+    breakdown = build_breakdown(tenant)
 
-    rent_due     = sum(float(inv.balance) for inv in open_invoices
-                       if (inv.invoice_type or "").lower() in rent_types)
-    utility_due  = sum(float(inv.balance) for inv in open_invoices
-                       if (inv.invoice_type or "").lower() in utility_types)
-
-    # All other open amounts (custom, penalty, recurring)
-    other_due = sum(float(inv.balance) for inv in open_invoices
-                    if (inv.invoice_type or "").lower() not in rent_types | utility_types)
+    # Legacy summary buckets kept for any older client, now derived from the same
+    # itemised source so they always reconcile with `breakdown`.
+    rent_due    = sum(it["amount"] for it in breakdown["items"]
+                      if "rent" in it["label"].lower() and not it["is_deposit"])
+    utility_due = sum(it["amount"] for it in breakdown["items"]
+                      if any(u in it["label"].lower()
+                             for u in ("water", "electricity", "garbage", "security"))
+                      and not it["is_deposit"])
+    deposit_due = breakdown["deposits_due"]
+    other_due   = round(breakdown["total_due"] - rent_due - utility_due - deposit_due, 2)
 
     unit     = tenant.unit
     property = unit.property if unit else None
@@ -126,22 +133,32 @@ def portal_dashboard():
         "tenant_name":     f"{tenant.first_name} {tenant.last_name}",
         "current_balance": float(tenant.balance),
         "previous_balance": round(previous_balance, 2),
+        "total_due":       round(breakdown["total_due"], 2),
         "rent_due":        round(rent_due, 2),
         "utility_due":     round(utility_due, 2),
+        "deposit_due":     round(deposit_due, 2),
         "other_due":       round(other_due, 2),
+        # Full itemised breakdown — the tenant sees exactly what makes up the total.
+        "breakdown_items": breakdown["items"],
+        "arrears_due":     round(breakdown["arrears_due"], 2),
+        "deposits_due":    round(breakdown["deposits_due"], 2),
         "unit_name":       unit.name     if unit     else None,
         "property_name":   property.name if property else None,
         "lease_expiry":    str(tenant.lease_expiry_date) if tenant.lease_expiry_date else None,
         "open_invoices": [
             {
-                "id":           inv.id,
-                "invoice_number": inv.invoice_number,
-                "type":         inv.invoice_type,
-                "due_date":     str(inv.due_date) if inv.due_date else None,
-                "balance":      float(inv.balance),
-                "status":       inv.status,
+                "id":             inv["id"],
+                "invoice_number": inv["invoice_number"],
+                "title":          inv["title"],
+                "type":           inv["type"],
+                "issue_date":     inv["issue_date"],
+                "due_date":       inv["due_date"],
+                "balance":        inv["balance"],
+                "is_overdue":     inv["is_overdue"],
+                "status":         "partial" if any(l["amount"] < inv["balance"] for l in inv["lines"]) else "open",
+                "lines":          inv["lines"],
             }
-            for inv in sorted(open_invoices, key=lambda x: x.issue_date)
+            for inv in breakdown["invoices"]
         ],
     }), 200
 

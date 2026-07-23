@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Mail, Lock } from "lucide-react";
 import AuthLayout from "@/components/layout/AuthLayout";
 import Input from "@/components/ui/Input";
+import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useLoginMutation } from "./authApiSlice";
@@ -17,7 +18,7 @@ export default function Login() {
   const location = useLocation();
   const { login } = useAuth();
   const [loginMutation, { isLoading }] = useLoginMutation();
-  const [form, setForm] = useState({ email: "", password: "" });
+  const [form, setForm] = useState({ email: "", password: "", remember_me: false });
   const [errors, setErrors] = useState({});
 
   const handleSubmit = async (e) => {
@@ -83,7 +84,12 @@ export default function Login() {
           error={errors.password}
           required
         />
-        <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-3">
+          <Checkbox
+            label="Keep me logged in (24 hours)"
+            checked={form.remember_me}
+            onChange={(e) => setForm((f) => ({ ...f, remember_me: e.target.checked }))}
+          />
           <Link to={AUTH_ROUTES.forgotPassword} className="text-sm text-secondary hover:underline">
             Forgot password?
           </Link>

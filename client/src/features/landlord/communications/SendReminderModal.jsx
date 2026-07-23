@@ -73,7 +73,7 @@ export default function SendReminderModal({ tenant, onClose, defaultChannels }) 
             </div>
             {channels.includes("sms") && smsProvider && (
               <p className="mt-2 text-xs text-white/40">
-                SMS balance: {smsProvider.sms_balance ?? 0} · fixed {smsProvider.currency ?? "KES"} {smsProvider.price_per_sms}/SMS
+                SMS balance: {smsProvider.sms_balance ?? 0} credit(s) · cost depends on message length (words → credits)
               </p>
             )}
           </div>

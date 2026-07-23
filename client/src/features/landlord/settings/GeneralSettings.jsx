@@ -60,7 +60,8 @@ export default function GeneralSettings() {
       const res = await runAutomations().unwrap();
       const r = res.result ?? {};
       toast(
-        `Automations run — ${r.monthly_reminders_sent ?? 0} reminder(s), ${r.lease_expiry_notices_sent ?? 0} lease notice(s) sent.`,
+        `Automations run — ${r.rent_invoices_created ?? 0} rent invoice(s), ${r.recurring_bills_created ?? 0} recurring bill(s), ` +
+          `${r.monthly_reminders_sent ?? 0} reminder(s), ${r.lease_expiry_notices_sent ?? 0} lease notice(s).`,
         { type: "success" }
       );
     } catch {

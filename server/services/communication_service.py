@@ -20,11 +20,17 @@ logger = logging.getLogger(__name__)
 _SMS_UNIT_CHARGE = Decimal("1.00")
 
 
-def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
+def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
+                     *, email_subject: str | None = None, email_html: str | None = None):
     """
     Send *content* to *tenant* over *channel* ("sms" | "whatsapp" | "email"),
     decrementing the landlord's SMS balance for SMS sends, and writing one
     communication_logs row regardless of channel or outcome.
+
+    For the email channel, `email_html` (a full themed HTML body, e.g. from
+    reminder_content / email_templates.render_email) and `email_subject` are
+    used when provided; otherwise `content` is wrapped in the branded shell so
+    NO landlord→tenant email ever goes out as plain, unstyled text.
 
     For SMS, the landlord's own credit balance is checked BEFORE attempting a
     send (regardless of default vs custom sender — a custom sender still
@@ -61,6 +67,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
     sms_charge = Decimal("0.00")
     platform_cost = Decimal("0.00")
     sms_segments = None
+    sms_credits = None
     uses_own = False
     sender_id = None
     sms_api_key = None
@@ -82,10 +89,13 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         sender_id    = econ["sender_id"]
         uses_own     = econ["uses_own_sender_id"]
         sms_segments = econ["segments"]
+        # Credits (from the admin word→credit tiers) are the billed/decremented
+        # unit — a long message can cost several credits.
+        sms_credits  = econ["credits"]
         if uses_own and settings is not None:
             sms_api_key = settings.sms_api_key
 
-        if landlord is not None and not is_demo and (landlord.sms_balance or 0) < sms_segments:
+        if landlord is not None and not is_demo and (landlord.sms_balance or 0) < sms_credits:
             blocked = "Insufficient SMS balance — top up to keep sending."
 
         if not blocked and not uses_own and not is_demo:
@@ -96,7 +106,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
             cfg = SmsPricingConfig.get_singleton()
             if not rates["shared_enabled"]:
                 blocked = "Shared-sender sending is disabled by the administrator."
-            elif cfg.pool_balance < sms_segments:
+            elif cfg.pool_balance < sms_credits:
                 blocked = "Sahil Pay shared SMS pool is exhausted."
 
     if channel == "sms" and blocked:
@@ -117,7 +127,22 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
         provider_message_id = send_sms(tenant.phone, content, sender_id=sender_id, api_key=sms_api_key)
         status = "delivered" if provider_message_id else "failed"
     elif channel == "email":
-        status = "delivered" if _send_email(tenant.email, "Message from your landlord", f"<p>{content}</p>") else "failed"
+        # Every landlord→tenant email is Sahil-themed: use the caller's themed
+        # HTML when given, else wrap the plain content in the branded shell.
+        from services.email_templates import render_email, paragraph, escape
+        landlord_for_email = landlord or db.session.get(Landlord, landlord_id)
+        subject = email_subject or "A message from your landlord"
+        if email_html:
+            html_body = email_html
+        else:
+            sender_name = getattr(landlord_for_email, "company_name", None) or "your landlord"
+            html_body = render_email(
+                heading="A message from your landlord",
+                blocks=[paragraph(escape(content).replace("\n", "<br>"))],
+                preheader=content[:90],
+                footer_note=f"Sent by {sender_name} via Sahil Pay.",
+            )
+        status = "delivered" if _send_email(tenant.email, subject, html_body) else "failed"
     elif channel == "whatsapp":
         # Real WhatsApp Business API not wired yet — nothing is delivered until
         # it is; simulation mode above is the working path for now.
@@ -132,11 +157,12 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str):
             sms_charge    = econ["charge"]
             platform_cost = econ["platform_cost"]
         if landlord is not None:
-            # Decrement one balance credit per segment (balance is a credit
-            # count; the resale price only affects KES billed at purchase).
-            decrement_sms_balance(landlord, sms_segments)
+            # Decrement the landlord's balance by the message's CREDIT cost
+            # (from the admin word→credit tiers); the resale price only affects
+            # KES billed at purchase.
+            decrement_sms_balance(landlord, sms_credits)
         if not uses_own and cfg is not None:
-            cfg.pool_balance = max(0, cfg.pool_balance - sms_segments)
+            cfg.pool_balance = max(0, cfg.pool_balance - sms_credits)
 
     unit = getattr(tenant, "unit", None)
     log = CommunicationLog(
@@ -164,11 +190,19 @@ def dispatch_invoice(invoice, channel: str):
     """
     Build the invoice-notification content and send it to the invoice's
     tenant over *channel*. Used by invoice_routes.py's "send invoice" action.
+
+    Uses the default themed reminder content (itemised breakdown + landlord
+    details + payment details) so an invoice notification is never a bare
+    "balance is X" line — the same guarantee as every other reminder.
     """
+    from extensions import db
+    from models import Landlord
+    from services.reminder_content import build_reminder, KIND_INVOICE
+
     tenant = invoice.tenant
-    due = invoice.due_date.isoformat() if invoice.due_date else "immediately"
-    content = (
-        f"Dear {tenant.first_name}, your {invoice.invoice_type} invoice {invoice.invoice_number} "
-        f"for KES {invoice.total_amount} is due {due}. Outstanding balance: KES {invoice.balance}."
+    landlord = db.session.get(Landlord, invoice.landlord_id)
+    rc = build_reminder(KIND_INVOICE, tenant, landlord)
+    return dispatch_message(
+        landlord_id=invoice.landlord_id, tenant=tenant, channel=channel,
+        content=rc.text, email_subject=rc.subject, email_html=rc.html,
     )
-    return dispatch_message(landlord_id=invoice.landlord_id, tenant=tenant, channel=channel, content=content)
