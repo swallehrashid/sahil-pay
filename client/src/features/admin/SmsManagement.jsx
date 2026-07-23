@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Wallet, TrendingUp, Coins, Percent, Gauge, Plus, RefreshCw, MessageSquare, Link2, Unlink } from "lucide-react";
+import { Wallet, TrendingUp, Coins, Percent, Gauge, Plus, RefreshCw, MessageSquare, Link2, Unlink, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import Tabs from "@/components/ui/Tabs";
@@ -21,6 +21,8 @@ import { ADMIN_ROUTES } from "@/config/routePaths";
 import {
   useGetSmsPricingQuery,
   useUpdateSmsPricingMutation,
+  useGetSmsCreditRangesQuery,
+  useUpdateSmsCreditRangesMutation,
   useGetSmsOverviewQuery,
   useGetSmsPoolHistoryQuery,
   useTopUpSmsPoolMutation,
@@ -256,7 +258,8 @@ function PricingTab() {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   return (
-    <form onSubmit={submit} className="glass max-w-2xl space-y-5 p-6">
+    <div className="max-w-2xl space-y-6">
+    <form onSubmit={submit} className="glass space-y-5 p-6">
       <div>
         <h3 className="text-base font-medium text-white">Price per SMS</h3>
         <p className="mt-1 text-sm text-white/50">
@@ -307,6 +310,122 @@ function PricingTab() {
         <Button type="submit" isLoading={isSaving}>Save pricing</Button>
       </div>
     </form>
+
+      <CreditRangesEditor />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Word → credit tiers (admin-editable, no overlaps)
+// ---------------------------------------------------------------------------
+function CreditRangesEditor() {
+  const { data, isLoading } = useGetSmsCreditRangesQuery();
+  const [update, { isLoading: isSaving }] = useUpdateSmsCreditRangesMutation();
+
+  const [prev, setPrev] = useState();
+  const [rows, setRows] = useState([]);
+  if (data && data !== prev) {
+    setPrev(data);
+    setRows((data.ranges ?? []).map((r) => ({ ...r })));
+  }
+
+  if (isLoading) return <Spinner className="mx-auto my-6" />;
+
+  const setCell = (i, key) => (e) => {
+    const v = e.target.value;
+    setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, [key]: v === "" ? "" : Number(v) } : r)));
+  };
+  const addRow = () => {
+    const last = rows[rows.length - 1];
+    const nextMin = last?.max_words ? Number(last.max_words) + 1 : 1;
+    setRows((rs) => [...rs, { min_words: nextMin, max_words: nextMin + 24, credits: 1 }]);
+  };
+  const removeRow = (i) => setRows((rs) => rs.filter((_, idx) => idx !== i));
+  const setOpenEnded = (i) => setRows((rs) => rs.map((r, idx) => (idx === i ? { ...r, max_words: null } : r)));
+
+  // Client-side overlap/validity hint (server is authoritative).
+  const sorted = [...rows].sort((a, b) => a.min_words - b.min_words);
+  let overlapWarning = null;
+  for (let i = 1; i < sorted.length; i++) {
+    const prevMax = sorted[i - 1].max_words;
+    if (prevMax == null || sorted[i].min_words <= Number(prevMax)) {
+      overlapWarning = "Ranges overlap or a non-final tier is open-ended — fix before saving.";
+      break;
+    }
+  }
+
+  const save = async () => {
+    try {
+      await update({
+        ranges: rows.map((r) => ({
+          min_words: Number(r.min_words),
+          max_words: r.max_words === null || r.max_words === "" ? null : Number(r.max_words),
+          credits: Number(r.credits),
+        })),
+      }).unwrap();
+      toast("Credit tiers saved.", { type: "success" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not save credit tiers.", { type: "error" });
+    }
+  };
+
+  return (
+    <div className="glass space-y-4 p-6">
+      <div>
+        <h3 className="text-base font-medium text-white">SMS credit tiers (words → credits)</h3>
+        <p className="mt-1 text-sm text-white/50">
+          How many credits a landlord&apos;s SMS costs, by word count. Longer messages cost more.
+          One credit = the default price above. Ranges must not overlap; the last tier can be
+          open-ended (&ldquo;and above&rdquo;).
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <div className="grid grid-cols-[1fr_1fr_1fr_auto] gap-3 text-xs uppercase tracking-wide text-white/40">
+          <span>Min words</span>
+          <span>Max words</span>
+          <span>Credits</span>
+          <span />
+        </div>
+        {rows.map((r, i) => (
+          <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] items-center gap-3">
+            <Input type="number" min="1" value={r.min_words ?? ""} onChange={setCell(i, "min_words")} />
+            {r.max_words === null ? (
+              <button
+                type="button"
+                onClick={() => setCell(i, "max_words")({ target: { value: "" } })}
+                className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-left text-sm text-white/60"
+              >
+                and above (tap to set)
+              </button>
+            ) : (
+              <div className="flex items-center gap-1">
+                <Input type="number" min="1" value={r.max_words ?? ""} onChange={setCell(i, "max_words")} />
+                <button type="button" onClick={() => setOpenEnded(i)} title="Make open-ended" className="text-xs text-secondary hover:underline">
+                  ∞
+                </button>
+              </div>
+            )}
+            <Input type="number" min="1" value={r.credits ?? ""} onChange={setCell(i, "credits")} />
+            <button type="button" onClick={() => removeRow(i)} className="rounded-lg p-2 text-white/50 hover:bg-white/10 hover:text-rose-300" title="Remove tier">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {overlapWarning && <p className="text-xs text-rose-300">{overlapWarning}</p>}
+
+      <div className="flex items-center justify-between">
+        <Button type="button" variant="ghost" size="sm" leftIcon={<Plus className="h-4 w-4" />} onClick={addRow}>
+          Add tier
+        </Button>
+        <Button type="button" isLoading={isSaving} disabled={Boolean(overlapWarning) || rows.length === 0} onClick={save}>
+          Save credit tiers
+        </Button>
+      </div>
+    </div>
   );
 }
 

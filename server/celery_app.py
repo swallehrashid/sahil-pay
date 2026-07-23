@@ -62,6 +62,7 @@ TASK_MODULES = [
     "tasks.invoice_tasks",
     "tasks.mpesa_reconciliation_tasks",
     "tasks.payment_tasks",
+    "tasks.sms_dlr_tasks",
 ]
 
 celery = Celery(
@@ -138,5 +139,12 @@ celery.conf.beat_schedule = {
     "reconcile-pending-mpesa": {
         "task": "tasks.mpesa_reconciliation_tasks.reconcile_pending_mpesa",
         "schedule": crontab(minute="*/5"),
+    },
+    # Every 10 minutes — poll FluxSMS delivery reports for recently-sent SMS
+    # that aren't yet terminal (delivered/failed), flipping SCHEDULED/
+    # SentToNetwork rows once the provider reports DeliveredToTerminal.
+    "reconcile-sms-delivery": {
+        "task": "tasks.sms_dlr_tasks.reconcile_sms_delivery",
+        "schedule": crontab(minute="*/10"),
     },
 }

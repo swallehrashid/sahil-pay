@@ -184,6 +184,7 @@ def login():
     data     = request.get_json(silent=True) or {}
     email    = (data.get("email") or "").strip().lower()
     password = data.get("password", "")
+    remember_me = bool(data.get("remember_me"))
 
     user = User.query.filter_by(email=email).first()
 
@@ -231,7 +232,16 @@ def login():
             additional_claims["affiliate_id"] = af.id
             additional_claims["affiliate_status"] = af.status
 
-    access_token  = create_access_token(identity=str(user.id), additional_claims=additional_claims)
+    # "Keep me logged in (24h)": issue a 24-hour access token so the session
+    # survives across a working day without re-login. Unchecked keeps the short
+    # default expiry (config JWT_ACCESS_TOKEN_EXPIRES) so shared/public devices
+    # time out quickly. The refresh token lifetime is unchanged.
+    from datetime import timedelta
+    access_expires = timedelta(hours=24) if remember_me else None
+    access_token  = create_access_token(
+        identity=str(user.id), additional_claims=additional_claims,
+        expires_delta=access_expires,
+    )
     refresh_token = create_refresh_token(identity=str(user.id), additional_claims=additional_claims)
 
     return jsonify({
@@ -239,6 +249,7 @@ def login():
         "refresh_token": refresh_token,
         "role":          user.role,
         "must_change_password": user.must_change_password,
+        "remember_me":   remember_me,
     }), 200
 
 

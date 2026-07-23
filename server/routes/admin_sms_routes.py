@@ -98,6 +98,87 @@ def update_pricing():
 
 
 # ---------------------------------------------------------------------------
+# GET / PUT  /api/admin/sms/credit-ranges  — word→credit pricing tiers
+# ---------------------------------------------------------------------------
+@admin_sms_bp.route("/credit-ranges", methods=["GET"])
+@jwt_required()
+def get_credit_ranges():
+    """Return the admin-editable word→credit tiers (seeded on first use). ---
+    tags: [Admin — SMS]
+    responses: {200: {description: Credit ranges.}}"""
+    _require_admin()
+    from services.sms_billing import load_credit_ranges
+    ranges = load_credit_ranges()
+    db.session.commit()  # persist any first-use seeding
+    return jsonify({"ranges": ranges}), 200
+
+
+@admin_sms_bp.route("/credit-ranges", methods=["PUT"])
+@jwt_required()
+def update_credit_ranges():
+    """
+    Replace the whole set of word→credit tiers atomically. Body:
+      { "ranges": [ { "min_words": int, "max_words": int|null, "credits": int }, ... ] }
+    Validation: each min_words>=1, credits>=1, max_words>=min_words (or null for
+    the single open-ended top tier), and NO overlaps between tiers.
+    ---
+    tags: [Admin — SMS]
+    responses: {200: {description: Updated.}, 400: {description: Invalid ranges.}}
+    """
+    _require_admin()
+    from models import SmsCreditRange
+
+    data = request.get_json(silent=True) or {}
+    items = data.get("ranges")
+    if not isinstance(items, list) or not items:
+        return jsonify({"error": "ranges must be a non-empty list."}), 400
+
+    parsed = []
+    open_ended = 0
+    for it in items:
+        try:
+            mn = int(it["min_words"])
+            cr = int(it["credits"])
+            mx = it.get("max_words")
+            mx = int(mx) if mx not in (None, "") else None
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "Each range needs integer min_words, credits, and max_words (or null)."}), 400
+        if mn < 1 or cr < 1:
+            return jsonify({"error": "min_words and credits must be at least 1."}), 400
+        if mx is not None and mx < mn:
+            return jsonify({"error": f"max_words ({mx}) cannot be less than min_words ({mn})."}), 400
+        if mx is None:
+            open_ended += 1
+        parsed.append((mn, mx, cr))
+
+    if open_ended > 1:
+        return jsonify({"error": "Only one open-ended tier (no max) is allowed."}), 400
+
+    # Overlap check — sort by min_words and ensure each starts after the prior ends.
+    parsed.sort(key=lambda t: t[0])
+    for i in range(1, len(parsed)):
+        prev_mx = parsed[i - 1][1]
+        if prev_mx is None or parsed[i][0] <= prev_mx:
+            return jsonify({"error": "Ranges must not overlap and only the last tier may be open-ended."}), 400
+
+    # Replace all rows.
+    SmsCreditRange.query.delete()
+    db.session.flush()
+    for mn, mx, cr in parsed:
+        db.session.add(SmsCreditRange(min_words=mn, max_words=mx, credits=cr))
+    db.session.flush()
+
+    record_audit(
+        actor_user_id=_admin_id(), landlord_id=None,
+        action="update_sms_credit_ranges", entity_type="sms", entity_id=None,
+        description=f"Updated SMS word→credit tiers ({len(parsed)} range(s)).",
+        after_data={"ranges": [{"min_words": mn, "max_words": mx, "credits": cr} for mn, mx, cr in parsed]},
+    )
+    db.session.commit()
+    return jsonify({"ranges": [r.to_dict() for r in SmsCreditRange.query.order_by(SmsCreditRange.min_words).all()]}), 200
+
+
+# ---------------------------------------------------------------------------
 # POST /api/admin/sms/pool/top-up   |   GET /api/admin/sms/pool/history
 # ---------------------------------------------------------------------------
 @admin_sms_bp.route("/pool/top-up", methods=["POST"])

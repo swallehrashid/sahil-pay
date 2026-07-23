@@ -3156,7 +3156,12 @@ class Notification(TimestampMixin, Base):
     __tablename__ = "notifications"
 
     id                 = Column(Integer, primary_key=True, autoincrement=True)
-    recipient_user_id  = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    # A notification targets EITHER a User (landlord/team-member/admin) OR a
+    # Tenant. OTP-only tenants have no User row, so they must be addressed by
+    # tenant id — that is why recipient_user_id is nullable and a parallel
+    # recipient_tenant_id exists. Exactly one of the two is set per row.
+    recipient_user_id  = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    recipient_tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
     sender_user_id     = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     landlord_id        = Column(Integer, ForeignKey("landlords.id"), nullable=True, index=True)
     category           = Column(String(40), nullable=False)    # enum NotificationCategory
@@ -3171,9 +3176,11 @@ class Notification(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_notifications_recipient_created", "recipient_user_id", "created_at"),
         Index("ix_notifications_recipient_is_read", "recipient_user_id", "is_read"),
+        Index("ix_notifications_tenant_is_read", "recipient_tenant_id", "is_read"),
     )
 
     recipient = relationship("User", foreign_keys=[recipient_user_id])
+    recipient_tenant = relationship("Tenant", foreign_keys=[recipient_tenant_id])
     sender    = relationship("User", foreign_keys=[sender_user_id])
     landlord  = relationship("Landlord", foreign_keys=[landlord_id])
 
@@ -3181,6 +3188,7 @@ class Notification(TimestampMixin, Base):
         return {
             "id":                self.id,
             "recipient_user_id": self.recipient_user_id,
+            "recipient_tenant_id": self.recipient_tenant_id,
             "sender_user_id":    self.sender_user_id,
             "landlord_id":       self.landlord_id,
             "category":          self.category,
@@ -3239,6 +3247,38 @@ class SmsPricingConfig(TimestampMixin, Base):
             "shared_sending_enabled": self.shared_sending_enabled,
             "created_at":             _serialise(self.created_at),
             "updated_at":             _serialise(self.updated_at),
+        }
+
+
+class SmsCreditRange(TimestampMixin, Base):
+    """
+    Admin-editable word-count → credits pricing tiers for landlord SMS sends.
+
+    A landlord's message costs `credits` when its word count falls in
+    [min_words, max_words] (inclusive). Ranges must NOT overlap. The final,
+    open-ended tier uses max_words = NULL ("and above"). One credit is worth
+    SmsPricingConfig.default_price_per_sms (KES), so longer messages cost more
+    credits — matching FluxSMS/GSM segmenting where longer text spans more SMS
+    segments. Replaces the old flat "1 credit per 160-char segment" assumption
+    with a transparent, operator-tunable table.
+    """
+    __tablename__ = "sms_credit_ranges"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    min_words  = Column(Integer, nullable=False)
+    max_words  = Column(Integer, nullable=True)   # NULL = open-ended ("and above")
+    credits    = Column(Integer, nullable=False)
+
+    __table_args__ = (
+        Index("ix_sms_credit_ranges_min", "min_words"),
+    )
+
+    def to_dict(self):
+        return {
+            "id":        self.id,
+            "min_words": self.min_words,
+            "max_words": self.max_words,
+            "credits":   self.credits,
         }
 
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Plus, Wallet, Upload, Pencil, Trash2, Send, Download, ArrowRightLeft, FileBarChart, CheckCircle2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
@@ -21,7 +21,7 @@ import ReassignTenantModal from "./ReassignTenantModal";
 import ConfirmPaymentModal from "./ConfirmPaymentModal";
 import CopilotInboxTab from "./CopilotInboxTab";
 import SendReminderModal from "../communications/SendReminderModal";
-import { useGetPaymentsQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
+import { useGetPaymentsQuery, useGetPaymentQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
 import { useGetCopilotInboxSummaryQuery } from "./copilotInboxApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetInvoicesQuery } from "../invoices/invoiceApiSlice";
@@ -42,6 +42,7 @@ export default function PaymentsPage() {
   const tenantIdFromQuery = searchParams.get("tenant_id");
   const statusFromQuery = searchParams.get("status");   // deep-link from the "payment awaiting confirmation" notification
   const tabFromQuery = searchParams.get("tab");
+  const reviewIdFromQuery = searchParams.get("review"); // deep-link from a Co-pilot "review & allocate" notification
 
   const [tab, setTab] = useState(tabFromQuery === "copilot" ? "copilot" : "payments");
   const [filters, setFilters] = useState({ status: statusFromQuery || "", source: "", date_from: "", date_to: "" });
@@ -65,6 +66,15 @@ export default function PaymentsPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [reviewPayment, setReviewPayment] = useState(null);
   const [reminderTenant, setReminderTenant] = useState(null); // #4
+
+  // Deep-link: a Co-pilot "review & allocate" notification carries ?review=<id>.
+  // Fetch that payment and open the review modal so the notification opens the
+  // exact same review-and-allocate flow as clicking a parsed message.
+  const { data: deepLinkPayment } = useGetPaymentQuery(reviewIdFromQuery, { skip: !reviewIdFromQuery });
+  useEffect(() => {
+    if (deepLinkPayment && !reviewPayment) setReviewPayment(deepLinkPayment);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkPayment]);
 
   const payments = toRows(data);
   const meta = toPaginationMeta(data);
