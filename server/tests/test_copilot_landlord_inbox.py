@@ -276,6 +276,63 @@ def test_unmatched_creates_mpesa_transaction_no_payment(db_session):
     assert msg.payment_id is None
 
 
+def test_prepare_payment_materialises_pending_payment_for_unmatched(db_session, client):
+    """A parsed-but-unmatched message (template matched, but no tenant) has no
+    Payment. prepare-payment must create a PENDING payment (no tenant, nothing
+    allocated) and link it back, so the landlord can open the shared review flow
+    and allocate manually. Idempotent: a second call returns the same payment."""
+    from models import Payment, PaymentStatus, PaymentSource
+
+    user, landlord = make_landlord(db_session)
+    make_template(db_session, sender_id="MPESA", template_text=PAYBILL_TEMPLATE_TEXT)
+    device = make_device(db_session, landlord)
+
+    msg = svc.process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=paybill_sms(account="NOTREAL", amount="1200.00"),
+    )
+    db_session.commit()
+    assert msg.match_status == CopilotMatchStatus.unmatched.value
+    assert msg.payment_id is None
+
+    resp = client.post(f"/api/copilot/messages/{msg.id}/prepare-payment", headers=auth_header(user))
+    assert resp.status_code == 200
+    payment_id = resp.get_json()["payment_id"]
+
+    payment = db_session.get(Payment, payment_id)
+    assert payment is not None
+    assert payment.status == PaymentStatus.pending.value
+    assert payment.source == PaymentSource.co_pilot.value
+    assert payment.tenant_id is None
+    assert float(payment.amount) == 1200.00
+
+    db_session.refresh(msg)
+    assert msg.payment_id == payment_id
+
+    # Idempotent — a second call hands back the same payment, never a duplicate.
+    reset_request_globals()
+    resp2 = client.post(f"/api/copilot/messages/{msg.id}/prepare-payment", headers=auth_header(user))
+    assert resp2.status_code == 200
+    assert resp2.get_json()["payment_id"] == payment_id
+
+
+def test_prepare_payment_rejected_for_unparsed_message(db_session, client):
+    """An unparsed (not-a-payment) message can't be turned into a payment — 409."""
+    user, landlord = make_landlord(db_session)
+    make_template(db_session, sender_id="MPESA", template_text=PAYBILL_TEMPLATE_TEXT)
+    device = make_device(db_session, landlord)
+
+    msg = svc.process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=PERSONAL_TRANSFER_SMS,  # no template matches -> unparsed
+    )
+    db_session.commit()
+    assert msg.parse_status == CopilotParseStatus.unparsed.value
+
+    resp = client.post(f"/api/copilot/messages/{msg.id}/prepare-payment", headers=auth_header(user))
+    assert resp.status_code == 409
+
+
 def test_redaction_on_unmatched_template_message(db_session):
     """§5.5 — a personal-transfer SMS that no active template covers must be
     stored only as a redacted shape stub: no digits, no name survives."""
@@ -317,10 +374,12 @@ def test_redaction_opt_out_preserves_raw_text(db_session):
     assert msg.raw_text == PERSONAL_TRANSFER_SMS
 
 
-def test_dedupe_survives_redaction(db_session):
-    """§5.7/§2.4 — dedupe_hash is computed from the TRUE body before
-    redaction runs; forwarding the same unmatched SMS twice must still yield
-    `duplicate` on the second, even though the first is now redacted."""
+def test_reforwarded_unparsed_message_is_not_a_duplicate(db_session):
+    """A duplicate is decided by the REFERENCE NUMBER of a confirmed payment —
+    NOT by matching message text. An unparsed personal-transfer SMS (not a
+    payment at all) forwarded twice must therefore stay `unparsed` both times;
+    it must never be mis-labelled a duplicate. (Old behaviour flagged the second
+    on a text hash — a false positive the landlord complained about.)"""
     user, landlord = make_landlord(db_session)
     make_template(db_session, sender_id="MPESA", template_text=PAYBILL_TEMPLATE_TEXT)
     device = make_device(db_session, landlord)
@@ -339,8 +398,43 @@ def test_dedupe_survives_redaction(db_session):
     )
     db_session.commit()
 
-    assert msg2.parse_status == CopilotParseStatus.duplicate.value
+    assert msg2.parse_status == CopilotParseStatus.unparsed.value
     assert msg2.id != msg1.id
+
+
+def test_duplicate_only_when_ref_matches_confirmed_payment(db_session):
+    """The real duplicate rule: a parsed payment whose reference number already
+    belongs to a CONFIRMED (recorded) transaction is a duplicate; a second
+    parsed payment with a DIFFERENT ref — even same amount/name — is not."""
+    user, landlord = make_landlord(db_session, auto_allocate=True)
+    _, unit = make_property_unit(db_session, landlord)
+    tenant = make_tenant(db_session, landlord, unit, account_number="f2")
+    make_template(db_session, sender_id="MPESA", template_text=PAYBILL_TEMPLATE_TEXT)
+    device = make_device(db_session, landlord)
+
+    # First payment — recorded (auto-allocate → confirmed).
+    m1 = svc.process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=paybill_sms(ref="AAA111AAA1", account="f2"),
+    )
+    db_session.commit()
+    assert m1.parse_status == CopilotParseStatus.parsed.value
+
+    # Same reference again → duplicate.
+    m2 = svc.process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=paybill_sms(ref="AAA111AAA1", account="f2"),
+    )
+    db_session.commit()
+    assert m2.parse_status == CopilotParseStatus.duplicate.value
+
+    # Different reference, same amount/account → NOT a duplicate.
+    m3 = svc.process_copilot_message(
+        device, client_uuid=str(uuid.uuid4()), sender_id="MPESA",
+        raw_text=paybill_sms(ref="BBB222BBB2", account="f2"),
+    )
+    db_session.commit()
+    assert m3.parse_status == CopilotParseStatus.parsed.value
 
 
 # ===========================================================================

@@ -43,6 +43,7 @@ export default function PaymentsPage() {
   const statusFromQuery = searchParams.get("status");   // deep-link from the "payment awaiting confirmation" notification
   const tabFromQuery = searchParams.get("tab");
   const reviewIdFromQuery = searchParams.get("review"); // deep-link from a Co-pilot "review & allocate" notification
+  const copilotMessageFromQuery = searchParams.get("message"); // deep-link from a Co-pilot "unmatched payment" notification
 
   const [tab, setTab] = useState(tabFromQuery === "copilot" ? "copilot" : "payments");
   const [filters, setFilters] = useState({ status: statusFromQuery || "", source: "", date_from: "", date_to: "" });
@@ -81,9 +82,13 @@ export default function PaymentsPage() {
   const tenants = toRows(tenantsData);
   const invoices = toRows(invoicesData);
 
+  // Total received = CONFIRMED payments only (the backend's summary.total_confirmed
+  // already excludes pending/declined and co-pilot payments that haven't been
+  // confirmed+allocated). Never sum the visible rows — that would count pending
+  // and unallocated co-pilot payments as "received".
   const totals = {
-    total: data?.total_amount ?? payments.reduce((sum, p) => sum + Number(p.amount ?? 0), 0),
-    count: data?.total_count ?? payments.length,
+    total: data?.summary?.total_confirmed ?? 0,
+    count: meta.total ?? payments.length,
   };
 
   const openCreate = () => {
@@ -192,7 +197,7 @@ export default function PaymentsPage() {
       />
 
       {tab === "copilot" ? (
-        <CopilotInboxTab />
+        <CopilotInboxTab openMessageId={copilotMessageFromQuery} />
       ) : (
         <>
           {isLoading ? (

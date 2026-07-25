@@ -45,6 +45,7 @@ Usage
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -1221,10 +1222,28 @@ def seed() -> None:
     db.session.add(m.SystemAdmin(user_id=admin_user.id, first_name="Platform", last_name="Admin"))
     print("  System Admin: admin@sahilpay.test")
 
+    # Operator admin — the platform owner's login. Email and password come from
+    # the environment so no real credential is ever committed to this file; the
+    # fallback is an obvious throwaway for local dev only. Production is seeded
+    # by seed_production.py, never by this script.
+    owner_email = os.environ.get("OWNER_ADMIN_EMAIL", "owner@sahilpay.test").strip().lower()
+    owner_password = os.environ.get("OWNER_ADMIN_PASSWORD", "ChangeMe@Local123")
+    owner_admin = m.User(
+        email=owner_email, role=m.UserRole.system_admin.value,
+        password_hash=hash_password(owner_password), is_verified=True, is_active=True,
+    )
+    db.session.add(owner_admin)
+    db.session.flush()
+    db.session.add(m.SystemAdmin(user_id=owner_admin.id, first_name="Sahil", last_name="Pay"))
+    print(f"  System Admin: {owner_email}")
+
     db.session.flush()
 
     # ===== Landlords =====
-    credentials = [("SYSTEM ADMIN", "admin@sahilpay.test", "Admin@123")]
+    credentials = [
+        ("SYSTEM ADMIN", "admin@sahilpay.test", "Admin@123"),
+        ("SYSTEM ADMIN (owner)", owner_email, owner_password),
+    ]
     landlords_by_key = {}
 
     for spec in _landlord_specs(today):

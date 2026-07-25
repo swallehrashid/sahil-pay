@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { TENANT_ROUTES } from "@/config/routePaths";
 import { ArrowRight, ArrowLeft, Wallet, Clock, CheckCircle2, XCircle, ReceiptText, Building2 } from "lucide-react";
 import Input from "@/components/ui/Input";
 import Textarea from "@/components/ui/Textarea";
@@ -23,6 +24,7 @@ import TenantReceiptModal from "./TenantReceiptModal";
 // their receipts) only appear once the landlord confirms.
 export default function TenantPayments() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const startStep = searchParams.get("start") === "1" ? "amount" : "history";
 
   const { data: details, isLoading: detailsLoading } = useGetPaymentDetailsQuery();
@@ -62,8 +64,12 @@ export default function TenantPayments() {
     if (proof) form.append("proof", proof);
     try {
       await submitPayment(form).unwrap();
-      toast("Payment submitted for confirmation.", { type: "success" });
+      toast("Payment submitted! Your landlord will confirm it shortly.", { type: "success" });
       setAmount(""); setMpesaRef(""); setNote(""); setProof(null);
+      // Land on the payments page (history view), clearing any ?start=1 deep-link
+      // so a refresh doesn't reopen the form. The just-submitted payment shows
+      // under "Awaiting confirmation" (the history query is invalidated on submit).
+      navigate(TENANT_ROUTES.pay, { replace: true });
       setStep("history");
     } catch (err) {
       toast(err?.data?.error || "Could not submit your payment.", { type: "error" });

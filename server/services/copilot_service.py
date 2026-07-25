@@ -403,27 +403,14 @@ def process_copilot_message(device, *, client_uuid: str, sender_id: str,
 
     dedupe_hash = _dedupe_hash(landlord_id, sender_id, raw_text)
 
-    # Step 1b — same landlord + sender + text within 7 days, different uuid
-    # (e.g. re-forwarded after a code regeneration) is still a duplicate.
-    cutoff = datetime.utcnow() - timedelta(days=7)
-    dup = (
-        CopilotMessage.query
-        .filter_by(landlord_id=landlord_id, dedupe_hash=dedupe_hash)
-        .filter(CopilotMessage.created_at >= cutoff)
-        .first()
-    )
-    if dup is not None:
-        msg = CopilotMessage(
-            landlord_id=landlord_id, device_id=device.id, client_uuid=client_uuid,
-            sender_id=sender_id, raw_text=raw_text, sms_received_at=received_at,
-            dedupe_hash=dedupe_hash,
-            parse_status=CopilotParseStatus.duplicate.value,
-            match_status=CopilotMatchStatus.n_a.value,
-            error_reason="Identical message already received in the last 7 days.",
-        )
-        db.session.add(msg)
-        db.session.flush()
-        return msg
+    # NOTE: we deliberately do NOT flag a message as a "duplicate" on matching
+    # message TEXT. Two genuinely different payments can share an amount, a payer
+    # name, even the full wording — only the REFERENCE NUMBER is unique per
+    # transaction. A true retry of the exact same SMS is already caught by the
+    # client_uuid idempotency check above. The real duplicate test — parsed
+    # reference number matching an already-confirmed transaction — happens after
+    # parsing in _finalize_message (Step 4). dedupe_hash is still stored for
+    # diagnostics, but never on its own marks a message duplicate.
 
     landlord = db.session.get(Landlord, landlord_id)
     ls = landlord.landlord_settings if landlord else None
@@ -526,21 +513,38 @@ def _finalize_message(msg, landlord, ls, device) -> None:
     parsed_account = fields.get("account")
     parsed_phone   = fields.get("phone")
 
-    # Step 4 — ref dedupe against MpesaTransaction (guards a re-forward of a
-    # payment already recorded, whether by Co-pilot or any other source).
+    # Step 4 — the REAL duplicate test: this reference number already belongs to
+    # a CONFIRMED transaction (one that was recorded/applied, or is linked to a
+    # confirmed Payment). The reference number is the only truly unique field per
+    # transaction, so it — and only it — decides a duplicate. A ref that appears
+    # only on an unmatched/pending row that never became a real payment does NOT
+    # block this one (it may be the same money finally being allocated).
     if parsed_ref:
         dupe_q = MpesaTransaction.query.filter_by(
             landlord_id=landlord.id, reference_number=parsed_ref
         )
         if msg.mpesa_transaction_id:
             dupe_q = dupe_q.filter(MpesaTransaction.id != msg.mpesa_transaction_id)
-        if dupe_q.first() is not None:
+
+        confirmed_dupe = None
+        for txn in dupe_q.all():
+            is_recorded = txn.status == MpesaTransactionStatus.recorded.value
+            payment_confirmed = (
+                txn.payment_id is not None
+                and txn.payment is not None
+                and txn.payment.status == PaymentStatus.confirmed.value
+            )
+            if is_recorded or payment_confirmed:
+                confirmed_dupe = txn
+                break
+
+        if confirmed_dupe is not None:
             msg.parse_status = CopilotParseStatus.duplicate.value
             msg.match_status = CopilotMatchStatus.n_a.value
             msg.template_id = template.id
             msg.parsed_ref, msg.parsed_amount = parsed_ref, amount
             msg.parsed_name, msg.parsed_account, msg.parsed_phone = parsed_name, parsed_account, parsed_phone
-            msg.error_reason = "A transaction with this reference has already been recorded."
+            msg.error_reason = "A confirmed transaction with this reference has already been recorded."
             db.session.flush()
             return
 
@@ -598,8 +602,12 @@ def _finalize_message(msg, landlord, ls, device) -> None:
                 template_key="copilot_payment_unmatched",
                 template_kwargs={"amount": f"{amount:,.2f}", "sender_id": msg.sender_id},
                 landlord_id=landlord.id,
-                link="/landlord/payments?tab=mpesa&status=unmatched",
-                entity_type="mpesa_transaction", entity_id=mpesa_txn.id,
+                # Deep-link into the Co-pilot inbox and auto-open THIS message so
+                # the landlord can review it and pick a tenant to allocate to —
+                # even though it stayed unmatched (no payment yet). Clicking the
+                # notification opens the same review flow as clicking the message.
+                link=f"/landlord/payments?tab=copilot&message={msg.id}",
+                entity_type="copilot", entity_id=msg.id,
             )
         record_audit(
             actor_user_id=None, landlord_id=landlord.id, action="copilot_ingest",

@@ -2024,8 +2024,11 @@ class UtilityReading(TimestampMixin, Base):
     unit_id          = Column(Integer, ForeignKey("units.id"),      nullable=False, index=True)
     utility_item     = Column(String(80), nullable=False)     # enum UtilityItem or a landlord utility-type name
     # The utility ChargeCategory this reading bills — its invoice line inherits this
-    # category with subcategory=current (spec §1.7).
+    # category with the reading's `subcategory` (spec §1.7). Landlords can record
+    # against any of the category's subcategories: `current` (this month's charge),
+    # `balance` (arrears/adjustment), or `deposit` (money held — never metered).
     category_id      = Column(Integer, ForeignKey("charge_categories.id"), nullable=True, index=True)
+    subcategory      = Column(String(10), nullable=False, server_default="current")  # enum SubCategory
     previous_reading = Column(Numeric(12, 2), nullable=True)
     # #8 — nullable: non-metered utilities (garbage, security, custom flat charges) carry
     # no meter readings and are billed as a flat `amount` instead.
@@ -2036,8 +2039,10 @@ class UtilityReading(TimestampMixin, Base):
     invoice_id       = Column(Integer, ForeignKey("invoices.id"), nullable=True, index=True)
 
     __table_args__ = (
-        UniqueConstraint("unit_id", "utility_item", "reading_month",
-                         name="uq_utility_readings_unit_item_month"),
+        # One reading per (unit, utility_item, subcategory, month) — so a unit can
+        # carry e.g. a Water current AND a Water deposit in the same month.
+        UniqueConstraint("unit_id", "utility_item", "subcategory", "reading_month",
+                         name="uq_utility_readings_unit_item_sub_month"),
         CheckConstraint(
             "(previous_reading IS NULL) OR (current_reading IS NULL) OR (current_reading >= previous_reading)",
             name="ck_utility_readings_current_gte_previous",
@@ -2059,6 +2064,7 @@ class UtilityReading(TimestampMixin, Base):
             "unit_id":          self.unit_id,
             "utility_item":     self.utility_item,
             "category_id":      self.category_id,
+            "subcategory":      self.subcategory,
             "previous_reading": _serialise(self.previous_reading),
             "current_reading":  _serialise(self.current_reading),
             "amount":           _serialise(self.amount),

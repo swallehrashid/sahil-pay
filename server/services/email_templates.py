@@ -72,23 +72,30 @@ def button(label: str, url: str) -> str:
 
 
 def credentials(rows: list[tuple[str, str]]) -> str:
-    """A dark inset panel listing label/value pairs (e.g. login credentials)."""
+    """A dark inset panel listing label/value pairs (e.g. login credentials,
+    a reminder breakdown, payment details).
+
+    Mobile-first: label and value stack VERTICALLY (label above value) in each
+    row, each on its own full-width line. A side-by-side two-column layout on a
+    narrow phone forces a fixed-width label column that squeezes long values
+    (M-Pesa numbers, emails, amounts) off-screen — the exact reason reminder
+    emails read badly on phones. Stacked rows never overflow, and read fine on
+    desktop too."""
     cells = ""
     for label, value in rows:
         cells += (
-            f'<tr>'
-            f'<td style="padding:9px 14px 9px 0;font-family:{FONT};font-size:12px;'
-            f'letter-spacing:.04em;text-transform:uppercase;color:{MUTED};'
-            f'vertical-align:top;width:150px;">{escape(label)}</td>'
-            f'<td style="padding:9px 0;font-family:\'SFMono-Regular\',Consolas,monospace;'
-            f'font-size:15px;color:#ffffff;font-weight:600;word-break:break-all;">'
-            f'{escape(value)}</td>'
-            f'</tr>'
+            f'<tr><td style="padding:10px 0 4px;font-family:{FONT};font-size:11px;'
+            f'letter-spacing:.05em;text-transform:uppercase;color:{MUTED};">'
+            f'{escape(label)}</td></tr>'
+            f'<tr><td style="padding:0 0 12px;font-family:\'SFMono-Regular\',Consolas,monospace;'
+            f'font-size:15px;line-height:1.4;color:#ffffff;font-weight:600;'
+            f'word-break:break-word;overflow-wrap:anywhere;border-bottom:1px solid {BORDER};">'
+            f'{escape(value)}</td></tr>'
         )
     return (
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
         f'style="margin:4px 0 20px;background:{PANEL};border:1px solid {BORDER};'
-        f'border-radius:14px;padding:8px 22px;"><tr><td style="padding:6px 0;">'
+        f'border-radius:14px;"><tr><td style="padding:6px 18px 8px;">'
         f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
         f'{cells}</table></td></tr></table>'
     )
@@ -154,20 +161,37 @@ def render_email(
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="color-scheme" content="dark">
-<title>{escape(heading)}</title></head>
-<body style="margin:0;padding:0;background:{BG};">
+<meta name="format-detection" content="telephone=no">
+<title>{escape(heading)}</title>
+<style>
+  /* Mobile-first: inline styles below already fit a narrow phone; these media
+     queries only WIDEN the layout on larger screens (Gmail/Apple Mail honour
+     them, everyone else falls back to the roomy-enough inline defaults).
+     100% width so the card never overflows a 320px viewport. */
+  .sp-wrap {{ padding:20px 10px !important; }}
+  .sp-card {{ padding:24px 18px !important; }}
+  .sp-h1   {{ font-size:20px !important; }}
+  @media only screen and (min-width:480px) {{
+    .sp-wrap {{ padding:32px 12px !important; }}
+    .sp-card {{ padding:34px 32px !important; }}
+    .sp-h1   {{ font-size:22px !important; }}
+  }}
+  img {{ max-width:100%; height:auto; }}
+</style>
+</head>
+<body style="margin:0;padding:0;background:{BG};width:100%;-webkit-text-size-adjust:100%;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;color:{BG};">{escape(preheader)}</span>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:{BG};padding:32px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="sp-wrap" style="background:{BG};padding:24px 12px;">
 <tr><td align="center">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;">
     <!-- Brand header (styled text only — Gmail/Outlook strip embedded SVG) -->
-    <tr><td style="padding:4px 6px 20px;">
+    <tr><td style="padding:4px 6px 18px;">
       <div style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:700;letter-spacing:.14em;color:#ffffff;">SAHIL&nbsp;PAY</div>
       <div style="margin-top:2px;font-family:{FONT};font-size:9px;font-weight:600;letter-spacing:.35em;color:{MUTED};">SMART&nbsp;RENT&nbsp;COLLECTION</div>
     </td></tr>
     <!-- Card -->
-    <tr><td style="background:{CARD_BOT};background:linear-gradient(160deg,{CARD_TOP} 0%,{CARD_BOT} 100%);border:1px solid {BORDER};border-radius:20px;padding:34px 32px;">
-      <h1 style="margin:0 0 18px;font-family:{FONT};font-size:21px;line-height:1.3;font-weight:700;color:#ffffff;">{escape(heading)}</h1>
+    <tr><td class="sp-card" style="background:{CARD_BOT};background:linear-gradient(160deg,{CARD_TOP} 0%,{CARD_BOT} 100%);border:1px solid {BORDER};border-radius:20px;padding:24px 18px;">
+      <h1 class="sp-h1" style="margin:0 0 18px;font-family:{FONT};font-size:20px;line-height:1.3;font-weight:700;color:#ffffff;">{escape(heading)}</h1>
       {body}
     </td></tr>
     <!-- Footer -->
