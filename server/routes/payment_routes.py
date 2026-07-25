@@ -710,19 +710,30 @@ def send_receipt(payment_id):
         f"Receipt {pay.payment_ref}: payment of KES {pay.amount} received "
         f"on {pay.payment_date}. Thank you."
     )
+    # SMS carries a tappable link: opening it downloads the receipt and emails a
+    # copy to the tenant (no login needed).
+    from services.receipt_service import receipt_link_for
+    sms_summary = (
+        f"Payment received: KES {pay.amount} ({pay.payment_ref}). "
+        f"Get your receipt: {receipt_link_for(pay)}"
+    )
 
     sent, skipped = [], []
     for ch in channels:
         if ch == "email":
             if tenant.email:
-                pdf_bytes = generate_receipt_pdf(pay)
+                # Same detailed, branded, line-item-itemised receipt the tenant
+                # portal download uses — NOT the plain pdf_service one — so the
+                # emailed receipt is identical to the downloaded one.
+                from services.receipt_service import render_receipt_pdf
+                pdf_bytes = render_receipt_pdf(pay)
                 send_receipt_email.delay(tenant.email, tenant.first_name, pdf_bytes, pay.payment_ref)
                 sent.append("email")
             else:
                 skipped.append("email (no email on file)")
         elif ch == "sms":
             if tenant.phone:
-                log = dispatch_message(landlord_id=landlord_id, tenant=tenant, channel="sms", content=summary)
+                log = dispatch_message(landlord_id=landlord_id, tenant=tenant, channel="sms", content=sms_summary)
                 if log and log.status == "delivered":
                     sent.append("sms")
                 else:
@@ -782,6 +793,50 @@ def download_receipt(payment_id):
         mimetype="application/pdf",
         headers={"Content-Disposition": f"attachment; filename=receipt_{pay.payment_ref}.pdf"},
     ), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/payments/receipts/public/<token>   (no auth — signed link from SMS)
+# ---------------------------------------------------------------------------
+# NOTE: registered on the receipts_bp blueprint below so its URL is
+# /api/receipts/public/<token> (short, no auth, safe to text to a tenant).
+def public_receipt(token):
+    """
+    Public receipt download from the SMS link. The token is a signed, expiring
+    reference to a confirmed payment (no login). Streams the same detailed PDF
+    AND emails a copy to the tenant on file. Invalid/expired tokens 404.
+    """
+    from services.receipt_service import verify_receipt_token, render_receipt_pdf
+
+    pid = verify_receipt_token(token or "")
+    if not pid:
+        return jsonify({"error": "This receipt link is invalid or has expired."}), 404
+
+    pay = Payment.query.filter_by(id=pid, is_deleted=False).first()
+    if not pay or pay.status != PaymentStatus.confirmed.value:
+        return jsonify({"error": "Receipt not available."}), 404
+
+    pdf_bytes = render_receipt_pdf(pay)
+
+    # Email a copy to the tenant on file (best effort).
+    tenant = pay.tenant
+    if tenant and tenant.email:
+        try:
+            send_receipt_email.delay(tenant.email, tenant.first_name, pdf_bytes, pay.payment_ref)
+        except Exception:
+            pass
+
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename=receipt_{pay.payment_ref}.pdf"},
+    ), 200
+
+
+# A tiny second blueprint so the public link is /api/receipts/... (not under the
+# /api/payments prefix), keeping the tenant-facing URL short and tidy.
+receipts_bp = Blueprint("receipts", __name__, url_prefix="/api/receipts")
+receipts_bp.add_url_rule("/public/<token>", view_func=public_receipt, methods=["GET"])
 
 
 # ---------------------------------------------------------------------------

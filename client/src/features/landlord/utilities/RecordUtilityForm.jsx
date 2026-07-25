@@ -16,7 +16,11 @@ export default function RecordUtilityForm({ initialValues, properties = [], unit
   const [form, setForm] = useState({
     property_id: "",
     unit_id: "",
-    category_id: "",
+    // The dropdown value is "<category_id>:<subcategory>" so a landlord can pick a
+    // specific subcategory (e.g. "Water Deposit", "Water Balance", "Water").
+    category_key: initialValues?.category_id
+      ? `${initialValues.category_id}:${initialValues.subcategory || "current"}`
+      : "",
     current_reading: "",
     previous_reading: "",
     amount: "",
@@ -27,17 +31,25 @@ export default function RecordUtilityForm({ initialValues, properties = [], unit
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const unitOptions = units.filter((u) => !form.property_id || String(u.property_id) === String(form.property_id));
+
+  const [selCategoryId, selSubcategory] = useMemo(() => {
+    const [id, sub] = String(form.category_key || "").split(":");
+    return [id || "", sub || ""];
+  }, [form.category_key]);
+
   const selectedType = useMemo(
-    () => utilityTypes.find((t) => String(t.id) === String(form.category_id)),
-    [utilityTypes, form.category_id]
+    () => utilityTypes.find((t) => String(t.id) === String(selCategoryId)),
+    [utilityTypes, selCategoryId]
   );
-  const isMetered = selectedType?.is_metered ?? false;
+  // A deposit is money held — never metered. Otherwise a metered category's
+  // balance/current subcategories take meter readings.
+  const isMetered = (selectedType?.is_metered ?? false) && selSubcategory !== "deposit";
 
   const handleSubmit = (e) => {
     e.preventDefault();
     const nextErrors = {};
     if (!isRequired(form.unit_id)) nextErrors.unit_id = "Select a unit";
-    if (!isRequired(form.category_id)) nextErrors.category_id = "Select a utility";
+    if (!isRequired(selCategoryId)) nextErrors.category_key = "Select a utility";
     if (isMetered) {
       if (!isRequired(form.current_reading)) nextErrors.current_reading = "Current reading is required for a metered utility";
       if (form.previous_reading && Number(form.current_reading) < Number(form.previous_reading)) {
@@ -53,7 +65,8 @@ export default function RecordUtilityForm({ initialValues, properties = [], unit
     const payload = {
       property_id: form.property_id,
       unit_id: form.unit_id,
-      category_id: form.category_id,
+      category_id: selCategoryId,
+      subcategory: selSubcategory || "current",
       reading_month: form.reading_month,
     };
     if (isMetered) {
@@ -65,10 +78,23 @@ export default function RecordUtilityForm({ initialValues, properties = [], unit
     onSubmit(payload);
   };
 
-  const typeOptions = utilityTypes.map((t) => ({
-    value: t.id,
-    label: `${t.name}${t.is_metered ? " (metered)" : ""}`,
-  }));
+  // Every category expands into its three subcategories, in the natural order a
+  // landlord thinks about them: this month's charge, then any balance, then a
+  // deposit. Metered categories mark the metered (non-deposit) rows.
+  const SUBS = [
+    { key: "current", suffix: "" },
+    { key: "balance", suffix: " Balance" },
+    { key: "deposit", suffix: " Deposit" },
+  ];
+  const typeOptions = utilityTypes.flatMap((t) =>
+    SUBS.map(({ key, suffix }) => {
+      const metered = t.is_metered && key !== "deposit";
+      return {
+        value: `${t.id}:${key}`,
+        label: `${t.name}${suffix}${metered ? " (metered)" : ""}`,
+      };
+    })
+  );
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -85,11 +111,11 @@ export default function RecordUtilityForm({ initialValues, properties = [], unit
       </div>
       <Select
         label="Utility"
-        value={form.category_id}
-        onChange={update("category_id")}
-        error={errors.category_id}
+        value={form.category_key}
+        onChange={update("category_key")}
+        error={errors.category_key}
         options={typeOptions}
-        hint="Manage the list under Utilities → Utility categories"
+        hint="Pick the category and subcategory (charge, balance, or deposit). Manage the list under Utilities → Utility categories."
         required
       />
 

@@ -39,6 +39,7 @@ ZERO = Decimal("0.00")
 #   • a "credit"-sourced payment is a re-application of money already received — it
 #     must NOT count again as cash collected.
 _BALANCE_SUB = "balance"                     # models.SubCategory.balance
+_DEPOSIT_SUB = "deposit"                      # models.SubCategory.deposit
 _NON_CASH_SOURCES = frozenset({"credit"})    # models.NON_CASH_PAYMENT_SOURCES
 
 
@@ -313,17 +314,42 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
                 amount_paid += pay.amount or ZERO
         total_collected += amount_paid
 
-        # balance carried forward = net ledger movement BEFORE the period start
+        # Balance carried forward = what the tenant OWED entering the period
+        # (net of pre-period charges and payments), shown OWED-POSITIVE to match
+        # the "Balance" column (a negative here would read as an advance/credit).
+        # A first-month tenant with no pre-period activity correctly shows 0.
+        # Only computed when a period start is given; over "all time" everything
+        # is in-range so there is nothing carried forward.
         balance_cf = ZERO
         if start:
+            pre_charges = ZERO
+            pre_payments = ZERO
             for inv in live_invoices:
                 if inv.issue_date and inv.issue_date < start:
-                    balance_cf -= _invoice_charge(inv)
+                    pre_charges += _invoice_charge(inv)
             for pay in confirmed_payments:
                 if pay.payment_date and pay.payment_date < start:
-                    balance_cf += pay.amount or ZERO
+                    pre_payments += pay.amount or ZERO
+            balance_cf = pre_charges - pre_payments   # owed-positive; may be negative (advance)
 
-        deposit_held = (t.deposit_paid or ZERO) - (t.deposit_returned or ZERO)
+        # Deposit HELD = refundable deposit money the tenant has actually PAID,
+        # from BOTH sources: (a) the onboarding deposit captured on the tenant
+        # record (t.deposit_paid — the security/rent deposit taken at move-in),
+        # and (b) any deposit-subcategory invoice LINE ITEMS billed later (e.g. a
+        # water deposit) that have been paid. An UNPAID deposit line (a kept-unpaid
+        # water deposit) contributes nothing to held — only amount_paid counts.
+        # Invoiced deposit = onboarding deposit + all deposit lines billed.
+        deposit_invoiced_li = ZERO
+        deposit_paid_li = ZERO
+        for inv in live_invoices:
+            for li in (inv.line_items or []):
+                if li.subcategory == _DEPOSIT_SUB:
+                    deposit_invoiced_li += li.amount or ZERO
+                    deposit_paid_li += li.amount_paid or ZERO
+        onboarding_deposit_paid = t.deposit_paid or ZERO
+        onboarding_deposit_invoiced = t.deposit_amount or ZERO
+        deposit_invoiced = onboarding_deposit_invoiced + deposit_invoiced_li
+        deposit_held = (onboarding_deposit_paid + deposit_paid_li) - (t.deposit_returned or ZERO)
         rent_charged = cats["rent"]
         tax_deducted = (rent_charged * tax_rate / Decimal(100)).quantize(Decimal("0.01"))
         other_bills = cats["other"] + cats["electricity"]
@@ -344,7 +370,7 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
             "garbage": cats["garbage"],
             "service_charge": cats["service_charge"],
             "security": cats["security"],
-            "deposit_invoice": t.deposit_amount or ZERO,
+            "deposit_invoice": deposit_invoiced,
             "deposit_held": deposit_held,
             "other_bills": other_bills,
             "amount_due": amount_due,

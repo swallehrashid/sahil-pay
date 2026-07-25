@@ -127,6 +127,12 @@ def create_reading():
     reading_month    = data.get("reading_month")
     previous_reading = data.get("previous_reading")
     amount           = data.get("amount")
+    subcategory      = (data.get("subcategory") or "current").strip().lower()
+
+    from models import SubCategory
+    valid_subs = {s.value for s in SubCategory}
+    if subcategory not in valid_subs:
+        return jsonify({"error": f"subcategory must be one of {sorted(valid_subs)}."}), 400
 
     # Resolve the utility ChargeCategory (preferred). utility_item name is derived from it.
     utype = None
@@ -143,8 +149,14 @@ def create_reading():
 
     # #8 — readings are OPTIONAL. A metered utility supplies current/previous readings;
     # a flat (non-metered) utility supplies a straight `amount` and no readings.
+    # A DEPOSIT subcategory is money held — never metered — so it always takes a flat
+    # amount, regardless of whether the category itself is metered.
+    is_metered = bool(utype and utype.is_metered) and subcategory != SubCategory.deposit.value
     has_reading = current_reading not in (None, "")
     has_amount  = amount not in (None, "")
+
+    if subcategory == SubCategory.deposit.value and has_reading:
+        return jsonify({"error": "A deposit is not metered — record it as a flat amount, not a meter reading."}), 400
     if not has_reading and not has_amount:
         return jsonify({"error": "Provide either a current_reading (metered) or an amount (flat charge)."}), 400
 
@@ -152,12 +164,15 @@ def create_reading():
         if Decimal(str(current_reading)) < Decimal(str(previous_reading)):
             return jsonify({"error": "current_reading must be >= previous_reading."}), 400
 
-    # Uniqueness check
+    # Uniqueness check — now scoped per subcategory so a unit can carry e.g. both a
+    # Water current and a Water deposit in the same month.
     existing = UtilityReading.query.filter_by(
-        unit_id=unit_id, utility_item=utility_item, reading_month=reading_month
+        unit_id=unit_id, utility_item=utility_item,
+        subcategory=subcategory, reading_month=reading_month,
     ).first()
     if existing:
-        return jsonify({"error": f"A {utility_item} reading already exists for this unit in {reading_month}."}), 400
+        label = utype.subcategory_display().get(subcategory, utility_item) if utype else utility_item
+        return jsonify({"error": f"A {label} reading already exists for this unit in {reading_month}."}), 400
 
     consumption = None
     if has_reading and previous_reading is not None:
@@ -169,6 +184,7 @@ def create_reading():
         unit_id          = unit_id,
         utility_item     = utility_item,
         category_id      = utype.id if utype else None,
+        subcategory      = subcategory,
         previous_reading = previous_reading if has_reading else None,
         current_reading  = current_reading if has_reading else None,
         amount           = Decimal(str(amount)) if has_amount else None,
@@ -508,14 +524,19 @@ def add_reading_to_invoice(reading_id):
         except (ValueError, AttributeError):
             target = None
 
-    # A utility reading always bills the category's current-month subcategory.
+    # A utility reading bills the category's subcategory the reading was recorded
+    # against (current / balance / deposit).
     cat_id = reading.category_id
-    utility_name = reading.category.name if reading.category else reading.utility_item.capitalize()
+    sub = reading.subcategory or "current"
+    if reading.category:
+        utility_name = reading.category.subcategory_display().get(sub, reading.category.name)
+    else:
+        utility_name = reading.utility_item.capitalize()
     if target is not None:
         db.session.add(InvoiceLineItem(
-            invoice_id=target.id, item=reading.utility_item, description=description,
+            invoice_id=target.id, item=utility_name, description=description,
             quantity=Decimal("1"), unit_price=amount, amount=amount, utility_reading_id=reading.id,
-            category_id=cat_id, subcategory="current",
+            category_id=cat_id, subcategory=sub,
         ))
         target.total_amount = (target.total_amount or Decimal("0")) + amount
         target.balance      = target.total_amount - (target.amount_paid or Decimal("0"))
@@ -538,9 +559,9 @@ def add_reading_to_invoice(reading_id):
         invoice = _create_invoice(
             landlord_id, tenant, reading.unit, reading.property, "utility", issue_dt, None,
             [{
-                "item": reading.utility_item, "description": description,
+                "item": utility_name, "description": description,
                 "quantity": 1, "unit_price": amount, "utility_reading_id": reading.id,
-                "category_id": cat_id, "subcategory": "current",
+                "category_id": cat_id, "subcategory": sub,
             }],
             title=utility_name,
         )

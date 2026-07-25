@@ -17,6 +17,16 @@ export const copilotInboxApiSlice = apiSlice.injectEndpoints({
       query: () => "/copilot/messages/summary",
       providesTags: ["CopilotInbox"],
     }),
+    // Materialise a pending payment for a parsed-but-unmatched message so it
+    // can be opened in the shared review-and-allocate modal (ConfirmPaymentModal).
+    prepareCopilotPayment: builder.mutation({
+      query: (id) => ({ url: `/copilot/messages/${id}/prepare-payment`, method: "POST" }),
+      invalidatesTags: (result, error, id) => [
+        "CopilotInbox",
+        { type: "CopilotInbox", id },
+        "Payment",
+      ],
+    }),
   }),
 });
 
@@ -24,4 +34,5 @@ export const {
   useGetCopilotInboxMessagesQuery,
   useGetCopilotInboxMessageQuery,
   useGetCopilotInboxSummaryQuery,
+  usePrepareCopilotPaymentMutation,
 } = copilotInboxApiSlice;
