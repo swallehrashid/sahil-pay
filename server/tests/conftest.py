@@ -19,6 +19,20 @@ rely on the app-context scoping instead.
 Requires the sahilpay_test database to exist and be migrated:
     createdb -O sahilpay sahilpay_test
     APP_ENV=testing venv/bin/flask db upgrade
+
+TROUBLESHOOTING — a wave of unrelated failures with
+`UniqueViolation: duplicate key value violates unique constraint "users_email_key"`
+(or similar) means sahilpay_test has COMMITTED leftovers in it. The fixture
+below only rolls back, so anything a test (or a stray seed.py run pointed at
+this database) committed will survive and collide on the next run. It is not a
+code defect. Recreate the database and the suite goes green again:
+
+    psql -d postgres -c "DROP DATABASE IF EXISTS sahilpay_test;"
+    psql -d postgres -c "CREATE DATABASE sahilpay_test OWNER sahilpay;"
+    APP_ENV=testing venv/bin/flask db upgrade
+
+Never run seed.py without DATABASE_URL explicitly set — it defaults to the DEV
+database, and a mistyped override can land it on sahilpay_test.
 """
 
 import os

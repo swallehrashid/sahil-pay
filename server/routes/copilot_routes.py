@@ -474,6 +474,107 @@ def get_landlord_message(message_id):
     return jsonify(payload), 200
 
 
+@copilot_bp.route("/messages/<int:message_id>/prepare-payment", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "edit")
+def prepare_message_payment(message_id):
+    """
+    Materialise a *pending* Payment for a parsed Co-pilot message that doesn't
+    have one yet — i.e. a message that PARSED (a template matched, so we know
+    the amount) but stayed UNMATCHED because no tenant's account/phone lined up.
+
+    Before this, an unmatched-but-parsed message was a dead end in the inbox:
+    there was no Payment to open in the review flow, so the landlord could see
+    the amount/name but had no way to click through and allocate it manually.
+    This creates the pending Payment on demand (no tenant, nothing allocated),
+    links it back to the message + its MpesaTransaction, and returns its id so
+    the frontend opens the SAME ConfirmPaymentModal used everywhere else, where
+    the landlord picks the tenant and allocates.
+
+    Idempotent: if the message already has a payment, its id is returned as-is.
+    ---
+    tags: [Co-Pilot]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: "{payment_id} — open the review modal with it."}
+      404: {description: Message not found.}
+      409: {description: Message can't be turned into a payment (not parsed / no amount / duplicate).}
+    """
+    from models import (
+        Payment, PaymentStatus, PaymentSource, MpesaTransaction,
+        MpesaTransactionStatus, CopilotParseStatus,
+    )
+    from services.copilot_service import _copilot_payment_ref
+
+    landlord_id = get_current_landlord_id()
+    msg = CopilotMessage.query.filter_by(id=message_id, landlord_id=landlord_id).first()
+    if msg is None:
+        return jsonify({"error": "Message not found."}), 404
+
+    # Already has a payment (matched, or prepared earlier) — just hand it back.
+    if msg.payment_id:
+        return jsonify({"payment_id": msg.payment_id}), 200
+
+    if msg.parse_status != CopilotParseStatus.parsed.value:
+        return jsonify({
+            "error": "This message wasn't recognised as a payment, so it can't be "
+                     "reviewed and allocated. Only parsed payment messages can.",
+        }), 409
+    if msg.parsed_amount is None or msg.parsed_amount <= 0:
+        return jsonify({"error": "This message has no valid amount to allocate."}), 409
+
+    landlord = db.session.get(Landlord, landlord_id)
+
+    # Reuse the message's existing MpesaTransaction if it has one (the unmatched
+    # ingest path already created one), else create it now.
+    mpesa_txn = None
+    if msg.mpesa_transaction_id:
+        mpesa_txn = db.session.get(MpesaTransaction, msg.mpesa_transaction_id)
+    if mpesa_txn is None:
+        mpesa_txn = MpesaTransaction(
+            landlord_id=landlord_id,
+            reference_number=msg.parsed_ref or f"COP-{msg.id}",
+            status=MpesaTransactionStatus.unmatched.value,
+            amount=msg.parsed_amount,
+            description=f"Co-pilot | {msg.sender_id} | {msg.parsed_name or ''}",
+        )
+        db.session.add(mpesa_txn)
+        db.session.flush()
+        msg.mpesa_transaction_id = mpesa_txn.id
+
+    payment = Payment(
+        payment_ref     = _copilot_payment_ref(landlord_id),
+        landlord_id     = landlord_id,
+        tenant_id       = None,
+        amount          = msg.parsed_amount,
+        payment_date    = msg.sms_received_at.date() if msg.sms_received_at else datetime.utcnow().date(),
+        status          = PaymentStatus.pending.value,
+        source          = PaymentSource.co_pilot.value,
+        mpesa_reference = msg.parsed_ref,
+        notes           = f"Co-pilot via {msg.sender_id}. Payer: {msg.parsed_name or 'unknown'}. "
+                          "Awaiting manual tenant allocation.",
+    )
+    db.session.add(payment)
+    db.session.flush()
+
+    mpesa_txn.payment_id = payment.id
+    msg.payment_id = payment.id
+
+    record_audit(
+        actor_user_id=None, landlord_id=landlord_id, action="copilot_prepare_payment",
+        entity_type="payment", entity_id=payment.id,
+        description=(
+            f"Prepared a pending payment from Co-pilot message #{msg.id} "
+            f"({msg.sender_id}: KES {msg.parsed_amount}) for manual allocation."
+        ),
+    )
+    db.session.commit()
+
+    return jsonify({"payment_id": payment.id}), 200
+
+
 @copilot_bp.route("/messages/summary", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()

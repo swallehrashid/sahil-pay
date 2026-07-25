@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Smartphone } from "lucide-react";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import FilterPanel from "@/components/tables/FilterPanel";
@@ -13,9 +13,11 @@ import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDateTime } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
+import { toast } from "@/components/ui/Toast";
 import {
   useGetCopilotInboxMessagesQuery,
   useGetCopilotInboxMessageQuery,
+  usePrepareCopilotPaymentMutation,
 } from "./copilotInboxApiSlice";
 import { useGetPaymentQuery } from "./paymentApiSlice";
 import ConfirmPaymentModal from "./ConfirmPaymentModal";
@@ -54,12 +56,19 @@ function StatusChip({ row }) {
   return <Badge color={color}>{label}</Badge>;
 }
 
-export default function CopilotInboxTab() {
+export default function CopilotInboxTab({ openMessageId = null }) {
   const pg = usePagination(25);
   const [filters, setFilters] = useState({ status: "all", match: "all", q: "" });
   const [appliedFilters, setAppliedFilters] = useState({ status: "all", match: "all", q: "" });
   const { data, isLoading } = useGetCopilotInboxMessagesQuery({ ...appliedFilters, ...pg.params });
   const [viewingId, setViewingId] = useState(null);
+
+  // Deep-link: a Co-pilot "unmatched payment" notification carries ?message=<id>.
+  // Auto-open that message's detail so the notification opens the same review
+  // flow as clicking the row in the table.
+  useEffect(() => {
+    if (openMessageId) setViewingId(Number(openMessageId));
+  }, [openMessageId]);
 
   const rows = toRows(data);
 
@@ -157,6 +166,32 @@ export default function CopilotInboxTab() {
 function CopilotMessageDetailModal({ messageId, onClose }) {
   const { data: msg, isLoading } = useGetCopilotInboxMessageQuery(messageId, { skip: !messageId });
   const [reviewPaymentId, setReviewPaymentId] = useState(null);
+  const [preparePayment, { isLoading: isPreparing }] = usePrepareCopilotPaymentMutation();
+
+  // Open the shared review-and-allocate modal. If the message already has a
+  // payment (matched, or prepared earlier) use it; otherwise materialise a
+  // pending payment first so a parsed-but-unmatched message can still be
+  // reviewed and manually allocated — the whole point of "as long as it's been
+  // parsed, I want to be able to review it".
+  const handleReview = async () => {
+    if (msg?.payment?.id) {
+      setReviewPaymentId(msg.payment.id);
+      return;
+    }
+    try {
+      const res = await preparePayment(messageId).unwrap();
+      setReviewPaymentId(res.payment_id);
+    } catch (err) {
+      toast(err?.data?.error || "Could not open this message for review.", { type: "error" });
+    }
+  };
+
+  // A parsed message is reviewable whether or not a tenant matched.
+  const canReview =
+    msg &&
+    msg.parse_status === "parsed" &&
+    msg.parsed_amount != null &&
+    (msg.payment?.status !== "declined");
 
   return (
     <>
@@ -187,22 +222,35 @@ function CopilotMessageDetailModal({ messageId, onClose }) {
               <Field label="Error" value={msg.error_reason ?? "—"} />
             </div>
 
-            <div className="border-t border-white/10 pt-4">
-              {msg.payment?.status === "pending" && (
-                <Button onClick={() => setReviewPaymentId(msg.payment.id)}>Review &amp; allocate</Button>
-              )}
-              {msg.payment?.status === "confirmed" && (
-                <Button variant="ghost" onClick={() => setReviewPaymentId(msg.payment.id)}>View payment</Button>
-              )}
-              {!msg.payment && msg.parse_status === "parsed" && msg.match_status === "unmatched" && (
-                <p className="text-xs text-white/50">
-                  No tenant matched account <code className="rounded bg-white/10 px-1">{msg.parsed_account ?? "—"}</code>.
-                  Check that a tenant's account number matches the one in this message.
-                </p>
+            <div className="space-y-2 border-t border-white/10 pt-4">
+              {/* A parsed message can ALWAYS be reviewed & allocated — matched
+                  (payment exists) or unmatched (prepare one, then allocate). */}
+              {canReview && (
+                <>
+                  {msg.match_status === "unmatched" && !msg.payment && (
+                    <p className="text-xs text-white/50">
+                      No tenant matched account{" "}
+                      <code className="rounded bg-white/10 px-1">{msg.parsed_account ?? "—"}</code>.
+                      You can still review this payment and pick the tenant to allocate it to.
+                    </p>
+                  )}
+                  <Button
+                    variant={msg.payment?.status === "confirmed" ? "ghost" : "primary"}
+                    isLoading={isPreparing}
+                    onClick={handleReview}
+                  >
+                    {msg.payment?.status === "confirmed" ? "View / re-allocate payment" : "Review & allocate"}
+                  </Button>
+                </>
               )}
               {msg.parse_status === "unparsed" && (
                 <p className="text-xs text-white/50">
                   This message format isn't recognised yet. Contact support if this was a rent payment.
+                </p>
+              )}
+              {msg.parse_status === "duplicate" && (
+                <p className="text-xs text-white/50">
+                  This is a duplicate of a payment already recorded, so there's nothing to allocate.
                 </p>
               )}
             </div>
@@ -228,8 +276,21 @@ function Field({ label, value }) {
 // Payments list/detail endpoints return, not the slim summary embedded in a
 // CopilotMessage) and hands off to the EXISTING review flow — §3.4 forbids a
 // second allocation path, this only links to the one that already works.
+// ConfirmPaymentModal's own <Modal isOpen={!!payment}> stays closed until the
+// row resolves, so show a lightweight loading modal in the gap — otherwise a
+// click did "nothing visible" while the fetch was in flight (the exact symptom
+// of "I click but it doesn't open").
 function PaymentReviewBridge({ paymentId, onClose }) {
-  const { data: payment } = useGetPaymentQuery(paymentId, { skip: !paymentId });
+  const { data: payment, isFetching } = useGetPaymentQuery(paymentId, { skip: !paymentId });
   if (!paymentId) return null;
+  if (!payment) {
+    return (
+      <Modal isOpen onClose={onClose} title="Review submitted payment">
+        <p className="py-8 text-center text-sm text-white/50">
+          {isFetching ? "Loading payment…" : "Could not load this payment. Please try again."}
+        </p>
+      </Modal>
+    );
+  }
   return <ConfirmPaymentModal payment={payment} onClose={onClose} />;
 }

@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { CheckCheck, Send } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { CheckCheck, Send, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
@@ -20,11 +20,18 @@ import { ADMIN_ROUTES, LANDLORD_ROUTES } from "@/config/routePaths";
 // a "Send" shortcut — team members and tenants can only receive.
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const focusId = searchParams.get("focus");
   const { role } = useAuth();
   const [page, setPage] = useState(1);
   const { data, isLoading } = useGetNotificationsQuery({ page, per_page: 20 });
   const [markRead] = useMarkNotificationReadMutation();
   const [markAllRead, { isLoading: isMarkingAll }] = useMarkAllNotificationsReadMutation();
+
+  // The currently highlighted (clicked) notification — from the ?focus deep-link
+  // or from clicking a row here.
+  const [selectedId, setSelectedId] = useState(focusId ? Number(focusId) : null);
+  const rowRefs = useRef({});
 
   const notifications = data?.notifications ?? [];
   const sendPath =
@@ -32,9 +39,24 @@ export default function NotificationsPage() {
     : role === USER_ROLES.LANDLORD || role === USER_ROLES.PROPERTY_MANAGER ? LANDLORD_ROUTES.notificationsSend
     : null;
 
+  // Deep-link from the bell dropdown: scroll the focused notification into view
+  // and mark it read (it's now been "opened").
+  useEffect(() => {
+    if (!focusId || isLoading) return;
+    const id = Number(focusId);
+    setSelectedId(id);
+    const el = rowRefs.current[id];
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const note = notifications.find((n) => n.id === id);
+    if (note && !note.is_read) markRead(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusId, isLoading, data]);
+
+  // Clicking a notification in the list just highlights it (marks read); it does
+  // NOT navigate away. The linked entity, if any, is reachable via the arrow.
   const handleOpen = (note) => {
+    setSelectedId(note.id);
     if (!note.is_read) markRead(note.id);
-    if (note.link) navigate(note.link);
   };
 
   return (
@@ -63,12 +85,14 @@ export default function NotificationsPage() {
       ) : (
         <div className="glass divide-y divide-white/5 overflow-hidden">
           {notifications.map((note) => (
-            <button
+            <div
               key={note.id}
+              ref={(el) => { rowRefs.current[note.id] = el; }}
               onClick={() => handleOpen(note)}
               className={clsx(
-                "flex w-full items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-white/5",
-                !note.is_read && "bg-white/[0.03]"
+                "flex w-full cursor-pointer items-start gap-3 px-5 py-4 text-left transition-colors hover:bg-white/5",
+                !note.is_read && "bg-white/[0.03]",
+                selectedId === note.id && "bg-secondary/10 ring-1 ring-inset ring-secondary/40"
               )}
             >
               {!note.is_read && <span className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-secondary" />}
@@ -79,7 +103,17 @@ export default function NotificationsPage() {
                 </div>
                 <p className="mt-1 text-sm text-white/60">{note.body}</p>
               </div>
-            </button>
+              {note.link && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); if (!note.is_read) markRead(note.id); navigate(note.link); }}
+                  title="Open related page"
+                  className="mt-0.5 flex-shrink-0 rounded-lg p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}

@@ -35,7 +35,14 @@ export default function NotificationBell({ notificationsPath }) {
   const handleOpenNotification = (note) => {
     if (!note.is_read) markRead(note.id);
     setIsOpen(false);
-    if (note.link) navigate(note.link);
+    // Take the user to the full notifications list, focused on THIS notification
+    // (it scrolls to + highlights it there). Falling back to the entity deep-link
+    // only when there's no notifications list wired for this portal.
+    if (notificationsPath) {
+      navigate(`${notificationsPath}?focus=${note.id}`);
+    } else if (note.link) {
+      navigate(note.link);
+    }
   };
 
   return (

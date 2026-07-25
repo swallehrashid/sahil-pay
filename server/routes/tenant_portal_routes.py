@@ -109,6 +109,21 @@ def portal_dashboard():
     deposit_due = breakdown["deposits_due"]
     other_due   = round(breakdown["total_due"] - rent_due - utility_due - deposit_due, 2)
 
+    # Deposit HELD = refundable deposit money the tenant has actually PAID
+    # (confirmed) — the money the landlord is currently holding, NOT what was
+    # merely invoiced/owed. Sums BOTH the onboarding deposit captured on the
+    # tenant record and any PAID deposit-subcategory invoice line items; an
+    # unpaid deposit line contributes nothing.
+    from models import SubCategory, InvoiceStatus as _IS
+    deposits_held = float(tenant.deposit_paid or 0)
+    for inv in tenant.invoices:
+        if inv.is_deleted or inv.status == _IS.void.value:
+            continue
+        for li in inv.line_items:
+            if li.subcategory == SubCategory.deposit.value:
+                deposits_held += float(li.amount_paid or 0)
+    deposits_held = round(deposits_held - float(tenant.deposit_returned or 0), 2)
+
     unit     = tenant.unit
     property = unit.property if unit else None
 
@@ -142,6 +157,7 @@ def portal_dashboard():
         "breakdown_items": breakdown["items"],
         "arrears_due":     round(breakdown["arrears_due"], 2),
         "deposits_due":    round(breakdown["deposits_due"], 2),
+        "deposits_held":   deposits_held,   # confirmed/paid deposit money held
         "unit_name":       unit.name     if unit     else None,
         "property_name":   property.name if property else None,
         "lease_expiry":    str(tenant.lease_expiry_date) if tenant.lease_expiry_date else None,

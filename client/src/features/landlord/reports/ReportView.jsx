@@ -3,6 +3,7 @@ import { Columns3, FileText, FileSpreadsheet } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
+import Pagination from "@/components/ui/Pagination";
 import { SahilPayMark } from "@/components/branding/SahilPayLogo";
 import { downloadFile } from "@/utils/downloadFile";
 import { toast } from "@/components/ui/Toast";
@@ -77,47 +78,68 @@ function ColumnEditor({ section, visibleKeys, onToggle }) {
 
 function SectionTable({ section, visibleKeys, currency }) {
   const cols = section.columns.filter((c) => visibleKeys.includes(c.key));
+  // Paginate rows so a report with many tenants/payments stays readable and
+  // doesn't render one enormous table. The Totals row always reflects the whole
+  // section (server-computed), not just the visible page.
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+
   if (!cols.length) return <p className="py-6 text-center text-sm text-white/40">No columns selected.</p>;
   if (!section.rows.length) return <p className="py-6 text-center text-sm text-white/40">No records for this section.</p>;
 
+  const total = section.rows.length;
+  const start = (page - 1) * perPage;
+  const pageRows = section.rows.slice(start, start + perPage);
+
   return (
-    <div className="glass overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-white/10 text-white/40">
-            {cols.map((c) => (
-              <th key={c.key} className={`whitespace-nowrap px-4 py-3 font-medium ${c.align === "right" ? "text-right" : ""}`}>
-                {c.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {section.rows.map((row, i) => (
-            <tr key={i} className="border-b border-white/5 hover:bg-white/5">
+    <>
+      <div className="glass overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-white/10 text-white/40">
               {cols.map((c) => (
-                <td key={c.key} className={`whitespace-nowrap px-4 py-2.5 text-white/85 ${c.align === "right" ? "text-right" : ""}`}>
-                  {formatCell(row[c.key], c.kind, currency)}
-                </td>
+                <th key={c.key} className={`whitespace-nowrap px-4 py-3 font-medium ${c.align === "right" ? "text-right" : ""}`}>
+                  {c.label}
+                </th>
               ))}
             </tr>
-          ))}
-          {section.totals && Object.keys(section.totals).length > 0 && (
-            <tr className="border-t-2 border-white/20 font-semibold text-white">
-              {cols.map((c, idx) => (
-                <td key={c.key} className={`px-4 py-2.5 ${c.align === "right" ? "text-right" : ""}`}>
-                  {c.key in section.totals
-                    ? formatCell(section.totals[c.key], c.kind, currency)
-                    : idx === 0
-                    ? "Total"
-                    : ""}
-                </td>
-              ))}
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {pageRows.map((row, i) => (
+              <tr key={start + i} className="border-b border-white/5 hover:bg-white/5">
+                {cols.map((c) => (
+                  <td key={c.key} className={`whitespace-nowrap px-4 py-2.5 text-white/85 ${c.align === "right" ? "text-right" : ""}`}>
+                    {formatCell(row[c.key], c.kind, currency)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {section.totals && Object.keys(section.totals).length > 0 && (
+              <tr className="border-t-2 border-white/20 font-semibold text-white">
+                {cols.map((c, idx) => (
+                  <td key={c.key} className={`px-4 py-2.5 ${c.align === "right" ? "text-right" : ""}`}>
+                    {c.key in section.totals
+                      ? formatCell(section.totals[c.key], c.kind, currency)
+                      : idx === 0
+                      ? "Total"
+                      : ""}
+                  </td>
+                ))}
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+      {total > perPage && (
+        <Pagination
+          page={page}
+          perPage={perPage}
+          total={total}
+          onPageChange={setPage}
+          onPerPageChange={(n) => { setPerPage(n); setPage(1); }}
+        />
+      )}
+    </>
   );
 }
 

@@ -19,6 +19,9 @@ export default function TenantDashboard() {
   const items = data?.breakdown_items ?? [];
   const totalDue = data?.total_due ?? 0;
   const depositsDue = data?.deposits_due ?? 0;
+  // "Deposits held" = refundable deposit money the tenant has actually PAID
+  // (confirmed) and the landlord is holding — not what was merely invoiced.
+  const depositsHeld = data?.deposits_held ?? 0;
 
   const columns = [
     { key: "invoice_number", header: "Invoice" },
@@ -70,7 +73,7 @@ export default function TenantDashboard() {
           <SummaryCard label="Total outstanding" value={formatCurrency(totalDue)} icon={<Receipt className="h-5 w-5" />} />
           <SummaryCard label="Rent due" value={formatCurrency(data?.rent_due)} icon={<Receipt className="h-5 w-5" />} accent="third" />
           <SummaryCard label="Utilities due" value={formatCurrency(data?.utility_due)} icon={<Droplets className="h-5 w-5" />} accent="third" />
-          <SummaryCard label="Deposits held" value={formatCurrency(depositsDue)} icon={<ShieldCheck className="h-5 w-5" />} accent="third" />
+          <SummaryCard label="Deposits held" value={formatCurrency(depositsHeld)} icon={<ShieldCheck className="h-5 w-5" />} accent="third" />
         </div>
       )}
 

@@ -3,6 +3,7 @@ import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
 import Spinner from "@/components/ui/Spinner";
 import ExportButtons from "@/components/ui/ExportButtons";
+import Pagination from "@/components/ui/Pagination";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import {
   useGetChargeCategoriesQuery,
@@ -36,6 +37,12 @@ function Row({ cells, name, strong }) {
 }
 
 function CategorySection({ section }) {
+  // Paginate the per-tenant rows so a category with many tenants doesn't render
+  // an endless table (lots of payments are expected). The Total row always
+  // reflects the WHOLE category, not just the visible page.
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(25);
+
   if (!section.rows.length) {
     return (
       <div className="glass p-5">
@@ -44,6 +51,11 @@ function CategorySection({ section }) {
       </div>
     );
   }
+
+  const total = section.rows.length;
+  const start = (page - 1) * perPage;
+  const pageRows = section.rows.slice(start, start + perPage);
+
   return (
     <div className="glass overflow-hidden p-5">
       <div className="mb-3 flex items-center gap-2">
@@ -63,11 +75,11 @@ function CategorySection({ section }) {
             </tr>
           </thead>
           <tbody>
-            {section.rows.map((r) => (
+            {pageRows.map((r) => (
               <Row key={r.tenant_id} name={r.tenant_name} cells={r} />
             ))}
             <tr className="border-t-2 border-white/15 font-semibold text-white">
-              <td className="py-2 pr-3 text-sm">Total</td>
+              <td className="py-2 pr-3 text-sm">Total (all {total})</td>
               {COLUMNS.map((c) => (
                 <td key={c.key} className="py-2 pl-3 text-right text-sm">
                   {formatCurrency(section.totals[c.key] || 0)}
@@ -77,6 +89,15 @@ function CategorySection({ section }) {
           </tbody>
         </table>
       </div>
+      {total > perPage && (
+        <Pagination
+          page={page}
+          perPage={perPage}
+          total={total}
+          onPageChange={setPage}
+          onPerPageChange={(n) => { setPerPage(n); setPage(1); }}
+        />
+      )}
     </div>
   );
 }

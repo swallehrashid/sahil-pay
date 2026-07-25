@@ -15,7 +15,7 @@ from .property_group_routes   import group_bp
 from .tenant_routes           import tenant_bp
 from .invoice_routes          import invoice_bp
 from .charge_category_routes  import charge_category_bp
-from .payment_routes          import payment_bp
+from .payment_routes          import payment_bp, receipts_bp
 from .expense_routes          import expense_bp
 from .utility_routes          import utility_bp
 from .maintenance_routes      import maintenance_bp
@@ -62,6 +62,7 @@ def register_blueprints(app):
     app.register_blueprint(invoice_bp)            # /api/invoices
     app.register_blueprint(charge_category_bp)    # /api/charge-categories
     app.register_blueprint(payment_bp)            # /api/payments
+    app.register_blueprint(receipts_bp)           # /api/receipts (public SMS receipt link)
     app.register_blueprint(expense_bp)            # /api/expenses
     app.register_blueprint(utility_bp)            # /api/utilities
     app.register_blueprint(maintenance_bp)        # /api/maintenance
