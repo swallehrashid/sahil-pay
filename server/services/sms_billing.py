@@ -169,6 +169,35 @@ def _platform_sender() -> str:
         return DEFAULT_PLATFORM_SENDER
 
 
+def effective_price_per_sms(settings, uses_own_sender_id: bool,
+                            rates: dict | None = None) -> Decimal:
+    """
+    What THIS landlord pays per SMS credit.
+
+    Precedence:
+      1. landlords.sms_price_override — a negotiated per-landlord rate. Whether
+         they send under Sahil Pay's shared sender ID or their own registered
+         one, they are buying the same thing from us (the credit and the right
+         to send), so one override covers both paths.
+      2. the global SmsPricingConfig rate for their path — custom_price when
+         they send under their own sender ID, default_price on the shared one.
+
+    Kept here so the quote a landlord is shown, the balance decrement, and the
+    margin analytics can never disagree about the price.
+    """
+    rates = rates or load_rates()
+
+    landlord = getattr(settings, "landlord", None)
+    override = getattr(landlord, "sms_price_override", None) if landlord else None
+    if override is not None:
+        try:
+            return Decimal(str(override))
+        except (TypeError, ValueError, ArithmeticError):
+            pass
+
+    return rates["custom_price"] if uses_own_sender_id else rates["default_price"]
+
+
 def compute_sms_charge(text: str, uses_own_sender_id: bool, rates: dict | None = None) -> Decimal:
     """
     KES charged to the landlord for sending `text`:
@@ -208,7 +237,7 @@ def price_sms(text: str, settings, rates: dict | None = None,
     segments = count_segments(text)
     words = count_words(text)
     credits = credits_for_words(words, ranges)
-    unit_price = rates["custom_price"] if uses_own else rates["default_price"]
+    unit_price = effective_price_per_sms(settings, uses_own, rates)
     charge = (unit_price * credits).quantize(Decimal("0.01"))
     cost = Decimal("0.00") if uses_own else (rates["platform_cost"] * credits).quantize(Decimal("0.01"))
     return {

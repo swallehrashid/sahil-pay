@@ -136,15 +136,16 @@ def build_reminder(kind: str, tenant, landlord, *, custom_message: str | None = 
     if unit:
         loc = f"Unit {T.escape(unit.name)}" + (f" · {T.escape(prop.name)}" if prop else "")
         blocks.append(T.note(loc))
-    # Breakdown table
+    # Breakdown — the compact layered block, not credentials(): an invoice runs
+    # to six or more charges and credentials()' generous per-row spacing turned
+    # that into a wall of scrolling on a phone.
     breakdown_rows = [(it["label"] + (" (refundable deposit)" if it["is_deposit"] else ""),
                        f"{currency} {it['amount']:,.2f}") for it in breakdown["items"]]
-    breakdown_rows.append(("TOTAL DUE", f"{currency} {total:,.2f}"))
-    blocks.append(T.credentials(breakdown_rows))
+    blocks.append(T.breakdown(breakdown_rows, total=("Total due", f"{currency} {total:,.2f}")))
     # Payment details
     if pay_rows:
         blocks.append(T.note("<strong>How to pay</strong>"))
-        blocks.append(T.credentials(pay_rows))
+        blocks.append(T.breakdown(pay_rows))
     # Landlord contact
     contact_rows = [("From", contact["name"])]
     if contact["location"]:
@@ -153,7 +154,7 @@ def build_reminder(kind: str, tenant, landlord, *, custom_message: str | None = 
         contact_rows.append(("Phone", contact["phone"]))
     if contact["email"]:
         contact_rows.append(("Email", contact["email"]))
-    blocks.append(T.credentials(contact_rows))
+    blocks.append(T.breakdown(contact_rows))
 
     html = T.render_email(
         heading=f"{title} — {contact['name']}",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MoreVertical } from "lucide-react";
 import clsx from "clsx";
@@ -82,18 +82,41 @@ export default function Dropdown({ items = [], trigger, align = "right" }) {
     };
   }, [isOpen, close, place]);
 
-  return (
-    <>
+  const toggle = () => setIsOpen((open) => !open);
+
+  // When the caller supplies their own <Button> as the trigger, ADOPT it rather
+  // than wrapping it: wrapping produced <button><button>…</button></button>,
+  // which is invalid HTML that React warns about and browsers recover from
+  // unpredictably (a nested button is not reliably clickable). Cloning attaches
+  // the ref and the toggle to the caller's element, so the markup stays flat
+  // and the caller keeps their own styling. The bare-icon default still needs a
+  // real button of its own.
+  const triggerNode = isValidElement(trigger)
+    ? cloneElement(trigger, {
+        ref: buttonRef,
+        onClick: (event) => {
+          trigger.props?.onClick?.(event);
+          toggle();
+        },
+        "aria-haspopup": "menu",
+        "aria-expanded": isOpen,
+      })
+    : (
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={toggle}
         className="rounded-lg p-1.5 text-white/50 transition-colors duration-200 hover:bg-white/10 hover:text-white"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
         {trigger || <MoreVertical className="h-4 w-4" />}
       </button>
+    );
+
+  return (
+    <>
+      {triggerNode}
 
       {isOpen && coords &&
         createPortal(

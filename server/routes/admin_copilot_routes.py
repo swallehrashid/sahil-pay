@@ -31,10 +31,11 @@ admin_copilot_bp = Blueprint("admin_copilot", __name__, url_prefix="/api/admin/c
 
 
 def _require_admin():
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _admin_id() -> int:
     return int(get_jwt_identity())

@@ -8,15 +8,18 @@ means two lines here: import + register. Nothing else changes.
 
 from .auth_routes             import auth_bp
 from .otp_routes              import otp_bp
+from .twofa_routes            import twofa_bp
 from .landlord_dashboard_routes import dashboard_bp
 from .property_routes         import property_bp
 from .unit_routes             import unit_bp
 from .property_group_routes   import group_bp
 from .tenant_routes           import tenant_bp
+from .tenant_import_routes    import tenant_import_bp
 from .invoice_routes          import invoice_bp
 from .charge_category_routes  import charge_category_bp
 from .payment_routes          import payment_bp, receipts_bp
 from .expense_routes          import expense_bp
+from .owner_payout_routes     import owner_payout_bp
 from .utility_routes          import utility_bp
 from .maintenance_routes      import maintenance_bp
 from .report_routes           import report_bp
@@ -44,6 +47,11 @@ from .affiliate_routes        import affiliate_bp
 from .admin_affiliate_routes  import admin_affiliate_bp
 from .copilot_routes          import copilot_bp
 from .admin_copilot_routes    import admin_copilot_bp
+from .etims_routes            import etims_bp
+from .preference_routes       import preference_bp
+from .allocation_routes       import allocation_bp
+from .tutorial_routes         import tutorial_bp
+from .admin_tutorial_routes   import admin_tutorial_bp
 
 
 def register_blueprints(app):
@@ -52,6 +60,7 @@ def register_blueprints(app):
     # ── Auth ──────────────────────────────────────────────────────────────────
     app.register_blueprint(auth_bp)               # /api/auth
     app.register_blueprint(otp_bp)                # /api/otp
+    app.register_blueprint(twofa_bp)              # /api/auth/2fa
 
     # ── Landlord / PM portal ──────────────────────────────────────────────────
     app.register_blueprint(dashboard_bp)          # /api/dashboard
@@ -59,11 +68,13 @@ def register_blueprints(app):
     app.register_blueprint(unit_bp)               # /api/units
     app.register_blueprint(group_bp)              # /api/property-groups
     app.register_blueprint(tenant_bp)             # /api/tenants
+    app.register_blueprint(tenant_import_bp)      # /api/tenants/import
     app.register_blueprint(invoice_bp)            # /api/invoices
     app.register_blueprint(charge_category_bp)    # /api/charge-categories
     app.register_blueprint(payment_bp)            # /api/payments
     app.register_blueprint(receipts_bp)           # /api/receipts (public SMS receipt link)
     app.register_blueprint(expense_bp)            # /api/expenses
+    app.register_blueprint(owner_payout_bp)       # /api/owner-payouts
     app.register_blueprint(utility_bp)            # /api/utilities
     app.register_blueprint(maintenance_bp)        # /api/maintenance
     app.register_blueprint(report_bp)             # /api/reports
@@ -75,6 +86,8 @@ def register_blueprints(app):
     app.register_blueprint(billing_bp)            # /api/billing
     app.register_blueprint(mpesa_bp)              # /api/mpesa
     app.register_blueprint(audit_bp)              # /api/audit
+    app.register_blueprint(etims_bp)              # /api/etims + /api/reports/kra-monthly
+    app.register_blueprint(allocation_bp)         # /api/payments/review-queue, /api/payouts, …
 
     # ── Team Member portal (thin — session / permissions only) ─────────────────
     app.register_blueprint(teammember_bp)         # /api/team-member
@@ -92,6 +105,7 @@ def register_blueprints(app):
     app.register_blueprint(admin_billing_c2b_bp)  # /api/admin/billing/c2b-payments
     app.register_blueprint(admin_affiliate_bp)    # /api/admin/affiliates
     app.register_blueprint(admin_copilot_bp)      # /api/admin/copilot
+    app.register_blueprint(admin_tutorial_bp)     # /api/admin/tutorial-*
 
     # ── Affiliate portal (self-registration + authenticated portal) ────────────
     app.register_blueprint(affiliate_bp)          # /api/affiliate
@@ -99,6 +113,12 @@ def register_blueprints(app):
     # ── Notifications (every role) ─────────────────────────────────────────────
     app.register_blueprint(notification_bp)       # /api/notifications
     app.register_blueprint(tenant_message_bp)     # /api/tenant-messages
+
+    # ── Help & Tutorials (read-only, every signed-in role) ─────────────────────
+    app.register_blueprint(tutorial_bp)           # /api/tutorials
+
+    # ── Per-user UI preferences (every role) ───────────────────────────────────
+    app.register_blueprint(preference_bp)         # /api/preferences
 
     # ── Public marketing site (unauthenticated) ────────────────────────────────
     app.register_blueprint(public_bp)             # /api/public

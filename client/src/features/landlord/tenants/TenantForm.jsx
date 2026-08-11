@@ -3,6 +3,7 @@ import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
 import Textarea from "@/components/ui/Textarea";
+import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
 import { isRequired, isValidPhone, isValidEmail, isDateOnOrAfter } from "@/utils/validators";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
@@ -28,6 +29,9 @@ const EMPTY_FORM = {
   move_in_date: "",
   move_out_date: "",
   notes: "",
+  // Off by default: sending costs the landlord SMS credits, and a message
+  // going out unasked is not a pleasant surprise.
+  send_welcome_message: false,
 };
 
 // Only property/unit, first/last name and phone are required — every other field is
@@ -137,6 +141,25 @@ export default function TenantForm({ initialValues, properties = [], units = [],
       <Input label="Rent payment penalty" type="number" step="0.01" value={form.rent_payment_penalty} onChange={update("rent_payment_penalty")} />
       <Input label="Bank payer name" value={form.bank_payer_name} onChange={update("bank_payer_name")} />
       <Textarea label="Notes" value={form.notes} onChange={update("notes")} />
+
+      {/* Only offered when creating — an existing tenant has already been
+          welcomed, and re-sending belongs on the Communications page. */}
+      {!initialValues?.id && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <Checkbox
+            label="Send a welcome message to this tenant"
+            checked={form.send_welcome_message}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, send_welcome_message: e.target.checked }))
+            }
+          />
+          <p className="mt-1.5 pl-7 text-xs leading-relaxed text-white/45">
+            A short, warm SMS with their unit, how to pay and who to call — plus
+            an email copy if you've given an address. Uses your SMS credits.
+            Edit the wording under Communications → Message templates.
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>

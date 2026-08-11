@@ -59,6 +59,7 @@ TASK_MODULES = [
     "tasks.admin_tasks",
     "tasks.backup_tasks",
     "tasks.communication_tasks",
+    "tasks.etims_tasks",
     "tasks.invoice_tasks",
     "tasks.mpesa_reconciliation_tasks",
     "tasks.payment_tasks",
@@ -146,5 +147,32 @@ celery.conf.beat_schedule = {
     "reconcile-sms-delivery": {
         "task": "tasks.sms_dlr_tasks.reconcile_sms_delivery",
         "schedule": crontab(minute="*/10"),
+    },
+    # Daily at 06:00 — email property owners last month's statement for each of
+    # their properties. Only fires for landlords whose owner_reports_day is
+    # today (the task itself does that filtering).
+    "send-owner-monthly-statements": {
+        "task": "tasks.communication_tasks.send_owner_monthly_statements",
+        "schedule": crontab(hour="6", minute="0"),
+    },
+    # Nightly at 01:15 — recompute every tenant's payment score. Payment-time
+    # refreshes keep scores live during the day; this backstops months rolling
+    # over (an unpaid month must start counting even with no new payment).
+    "refresh-tenant-scores": {
+        "task": "tasks.payment_tasks.refresh_all_tenant_scores",
+        "schedule": crontab(hour="1", minute="15"),
+    },
+    # 5th of the month at 09:00 — soft nudge that this month's rent has started
+    # arriving and the eTIMS Register is there when they want it. Fires ONLY for
+    # accounts that opted into the KRA layer (ETIMS spec §4.5).
+    "etims-record-reminders": {
+        "task": "tasks.etims_tasks.send_etims_record_reminders",
+        "schedule": crontab(day_of_month="5", hour="9", minute="0"),
+    },
+    # 15th at 09:00 — last month's 7.5% MRI is due at KRA by the 20th. Same
+    # opt-in gate, separately mutable.
+    "etims-mri-filing-reminders": {
+        "task": "tasks.etims_tasks.send_mri_filing_reminders",
+        "schedule": crontab(day_of_month="15", hour="9", minute="0"),
     },
 }

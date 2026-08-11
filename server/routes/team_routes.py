@@ -29,11 +29,14 @@ from werkzeug.security import generate_password_hash
 from extensions import db
 from models import (
     TeamMember, TeamMemberPermission, TeamMemberPropertyAccess,
-    User, Property, UserRole, Landlord,
+    User, Property, UserRole, Landlord, PermissionModule,
 )
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service   import record_audit
 from services.email_service   import send_team_credentials_email
+from services.team_preset_service import (
+    PRESETS, apply_preset_permissions, normalise_preset, to_public_list,
+)
 
 team_bp = Blueprint("team", __name__, url_prefix="/api/team")
 
@@ -50,6 +53,31 @@ def _generate_temp_password(length: int = 12) -> str:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/team/presets
+# ---------------------------------------------------------------------------
+@team_bp.route("/presets", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "view")
+def list_presets():
+    """
+    The role-preset catalogue (owner / caretaker / accountant / secretary /
+    custom) with the permission rows each one grants.
+
+    The client renders these as one-click starting points when creating a team
+    member; serving them from here keeps the frontend and backend definitions
+    from drifting apart.
+    ---
+    tags: [Team]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Preset catalogue.}
+    """
+    return jsonify({"presets": to_public_list()}), 200
+
+
+# ---------------------------------------------------------------------------
 # GET /api/team/
 # ---------------------------------------------------------------------------
 @team_bp.route("/", methods=["GET"])
@@ -60,7 +88,13 @@ def list_team_members():
     """
     List all team members for this landlord.
     Returns each member's role, active status, and brief permission summary.
-    Filters: ?is_active=true|false, ?role=
+    Filters: ?is_active=true|false, ?role=, ?preset=, ?search= (username/name/phone)
+    Paginated: ?page=, ?per_page= (default 20, max 100).
+
+    A property manager runs one team member per owner plus two per block, so
+    this list reaches the high hundreds — it is paginated, and the permission /
+    property-access rows are eager-loaded to keep it at a constant few queries
+    instead of 2 per member.
     ---
     tags: [Team]
     security:
@@ -68,18 +102,42 @@ def list_team_members():
     responses:
       200: {description: Team member list.}
     """
+    from sqlalchemy.orm import selectinload
+
     landlord_id = get_current_landlord_id()
-    query       = TeamMember.query.filter_by(landlord_id=landlord_id)
+    page        = request.args.get("page", 1, type=int)
+    per_page     = min(request.args.get("per_page", 20, type=int), 100)
+
+    query = (
+        TeamMember.query
+        .options(
+            selectinload(TeamMember.permissions),
+            selectinload(TeamMember.property_accesses),
+        )
+        .filter_by(landlord_id=landlord_id)
+    )
 
     if v := request.args.get("is_active"):
         query = query.filter(TeamMember.is_active == (v.lower() == "true"))
     if v := request.args.get("role"):
         query = query.filter(TeamMember.role == v)
+    if v := request.args.get("preset"):
+        query = query.filter(TeamMember.preset == v)
+    if v := (request.args.get("search") or "").strip():
+        like = f"%{v}%"
+        query = query.filter(db.or_(
+            TeamMember.username.ilike(like),
+            TeamMember.first_name.ilike(like),
+            TeamMember.last_name.ilike(like),
+            TeamMember.phone.ilike(like),
+        ))
 
-    members = query.order_by(TeamMember.username).all()
+    paginated = query.order_by(TeamMember.username).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
 
     items = []
-    for tm in members:
+    for tm in paginated.items:
         d = tm.to_dict()
         d["permissions"] = [p.to_dict() for p in tm.permissions]
         d["property_access"] = (
@@ -88,7 +146,12 @@ def list_team_members():
         )
         items.append(d)
 
-    return jsonify({"team_members": items, "total": len(items)}), 200
+    return jsonify({
+        "team_members": items,
+        "total":        paginated.total,
+        "pages":        paginated.pages,
+        "current_page": paginated.page,
+    }), 200
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +183,9 @@ def create_team_member():
 
     email    = (data.get("email") or "").strip().lower()
     username = (data.get("username") or "").strip()
-    role     = data.get("role")
+    preset   = normalise_preset(data.get("preset"))
+    # A preset carries a sensible viewer/editor role; an explicit role still wins.
+    role     = data.get("role") or (PRESETS[preset]["role"] if preset else None)
 
     if not email or not username:
         return jsonify({"error": "email and username are required."}), 400
@@ -152,11 +217,20 @@ def create_team_member():
         last_name           = data.get("last_name"),
         phone               = data.get("phone"),
         role                = role,
+        preset              = preset,
         property_access_all = data.get("property_access_all", False),
         activation_token    = None,
         is_active           = True,
     )
     db.session.add(tm)
+    db.session.flush()
+
+    # A preset bootstraps the permission matrix so creating 100 owner logins or
+    # 200 caretakers doesn't mean ticking 12 modules each. Everything it sets
+    # stays editable afterwards via PUT /api/team/<id>/permissions.
+    if preset:
+        apply_preset_permissions(tm, preset)
+
     db.session.commit()
 
     # Email the member their credentials + change-password instructions.
@@ -245,6 +319,14 @@ def update_team_member(member_id):
         if field in data:
             setattr(tm, field, data[field])
 
+    # Changing the preset re-labels the member. It only rewrites the permission
+    # matrix when the caller explicitly asks (apply_preset_permissions: true) —
+    # otherwise a rename would silently wipe permissions the landlord hand-tuned.
+    if "preset" in data:
+        tm.preset = normalise_preset(data["preset"])
+        if tm.preset and data.get("apply_preset_permissions"):
+            apply_preset_permissions(tm, tm.preset)
+
     db.session.commit()
 
     record_audit(
@@ -317,8 +399,11 @@ def set_permissions(member_id):
     Body:
       { permissions: [{ module: str, can_view: bool, can_edit: bool }] }
 
-    Modules (PermissionModule enum): tenants, invoices, payments, expenses,
-    utilities, maintenance, properties, reports, messages, settings.
+    Modules — the PermissionModule enum ONLY: payments, invoices, utilities,
+    unit_utilities, tenants, units, properties, messages, expenses,
+    maintenance, reports, groups. Anything else is rejected with 400.
+    ("settings" is deliberately NOT grantable — it is the marker landlord-only
+    routes guard themselves with; see the validation below.)
 
     App rule: if can_edit=True → can_view is forced True.
     Existing rows for modules NOT in the payload are left unchanged.
@@ -338,6 +423,8 @@ def set_permissions(member_id):
     # Delete all existing permission rows then re-insert
     TeamMemberPermission.query.filter_by(team_member_id=tm.id).delete()
 
+    valid_modules = {m.value for m in PermissionModule}
+
     inserted = []
     for p in perms_data:
         module    = p.get("module")
@@ -345,6 +432,18 @@ def set_permissions(member_id):
         can_view  = True if can_edit else bool(p.get("can_view", False))
         if not module:
             continue
+        # Only real PermissionModule values may be granted. Without this check a
+        # landlord could POST a made-up module — notably "settings", the marker
+        # the landlord-only routes (billing, account profile, team management)
+        # guard themselves with — and hand a team member the keys to the
+        # account's money. Unknown modules are rejected outright rather than
+        # silently dropped, so a typo surfaces instead of quietly granting less.
+        if module not in valid_modules:
+            db.session.rollback()
+            return jsonify({
+                "error": f"Unknown permission module '{module}'.",
+                "valid_modules": sorted(valid_modules),
+            }), 400
         row = TeamMemberPermission(
             team_member_id = tm.id,
             module         = module,

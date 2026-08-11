@@ -35,19 +35,34 @@ def _resolve_actor_full_name(user, landlord_id: int | None) -> str | None:
         full = f"{first} {last}".strip()
         return full or None
 
-    # Prefer a landlord-scoped profile match when we know the landlord.
+    # Prefer a landlord-scoped profile match when we know the landlord. One
+    # login can hold SEVERAL tenant profiles (a person renting units from more
+    # than one landlord), so the tenant side is searched by landlord rather than
+    # taking whichever row came back first — picking the first is exactly how a
+    # payment once showed the wrong tenant's name (issue #18).
     if landlord_id is not None:
-        for attr in ("tenant_profile", "team_member_profile", "landlord_profile"):
+        for profile in (user.tenant_profiles or []):
+            if getattr(profile, "landlord_id", None) == landlord_id:
+                name = _name(profile)
+                if name:
+                    return name
+        for attr in ("team_member_profile", "landlord_profile"):
             profile = getattr(user, attr, None)
             if profile is not None and getattr(profile, "landlord_id", None) == landlord_id:
                 name = _name(profile)
                 if name:
                     return name
 
-    for attr in ("landlord_profile", "team_member_profile", "admin_profile", "tenant_profile"):
+    for attr in ("landlord_profile", "team_member_profile", "admin_profile"):
         name = _name(getattr(user, attr, None))
         if name:
             return name
+
+    # Only fall back to an unscoped tenant profile when the user has exactly
+    # one — with several, any choice would be a guess that mislabels the actor.
+    tenant_profiles = user.tenant_profiles or []
+    if len(tenant_profiles) == 1:
+        return _name(tenant_profiles[0])
     return None
 
 

@@ -103,7 +103,7 @@ def create_template():
     else:
         data      = request.form.to_dict()
         file      = request.files.get("file")
-        file_url  = upload_to_s3(file, folder=f"documents/{landlord_id}") if file else None
+        file_url  = upload_to_s3(file, folder=f"documents/{landlord_id}", profile="document") if file else None
         content = None
 
     name = (data.get("name") or "").strip()

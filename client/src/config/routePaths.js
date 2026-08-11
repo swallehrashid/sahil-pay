@@ -38,12 +38,23 @@ const SHARED_MODULES = {
   tenantTransactions: "tenants/:id/transactions",
   invoices: "invoices",
   payments: "payments",
+  ownerPayouts: "owner-payouts",
+  // Suspense/review queue — money that arrived but could not be attributed
+  // with certainty (sahilpay_payment_allocation_spec.md §4.7).
+  reviewQueue: "payments/review-queue",
   expenses: "expenses",
   utilities: "utilities",
   maintenance: "maintenance",
   groups: "groups",
   reportsStatements: "reports/statements",
   reportsInsights: "reports/insights",
+  // KRA / eTIMS. Both are rendered ONLY when /api/etims/scope reports at least
+  // one enabled property — an account that never opted in has no such links.
+  etimsRegister: "etims-register",
+  kraMonthly: "reports/kra-monthly",
+  // The admin-authored help library (distinct from the first-run product tour
+  // at /landlord/tutorials).
+  help: "help",
   communications: "communications",
   messages: "messages",
   notifications: "notifications",
@@ -55,6 +66,9 @@ function buildPortalRoutes(rootPrefix) {
     routes[key] = `${rootPrefix}/${suffix}`;
   }
   routes.tenantTransactionsPath = (id) => `${rootPrefix}/tenants/${id}/transactions`;
+  // Help articles are addressed by SLUG, which stays stable when the admin
+  // rewrites a title — so dashboard nudges and settings links never rot.
+  routes.helpArticle = (slug) => `${rootPrefix}/help/${slug}`;
   return routes;
 }
 
@@ -71,11 +85,14 @@ export const LANDLORD_ROUTES = {
     alerts: "/landlord/settings/alerts",
     account: "/landlord/settings/account",
     documents: "/landlord/settings/documents",
+    receiptLayout: "/landlord/settings/receipt-layout",
     team: "/landlord/settings/team",
     billing: "/landlord/settings/billing",
     smsProvider: "/landlord/settings/sms-provider",
     mpesa: "/landlord/settings/mpesa",
     copilot: "/landlord/settings/copilot",
+    taxCompliance: "/landlord/settings/tax-compliance",
+    allocation: "/landlord/settings/allocation",
     audit: "/landlord/settings/audit",
     impersonationRequests: "/landlord/settings/impersonation-requests",
   },
@@ -142,6 +159,9 @@ export const ADMIN_ROUTES = {
   affiliateDetail: "/admin/affiliates/:id",
   affiliateDetailPath: (id) => `/admin/affiliates/${id}`,
   copilot: "/admin/copilot",
+  helpContent: "/admin/help-content",
+  helpArticleEdit: "/admin/help-content/articles/:id",
+  helpArticleEditPath: (id) => `/admin/help-content/articles/${id}`,
 };
 
 export const NOT_FOUND_ROUTE = "*";

@@ -1,0 +1,31 @@
+# Sahil Pay — https://sahilpay.co.ke
+#
+# The marketing pages are open to crawlers. Everything behind a login is not:
+# those pages hold tenant names, phone numbers and balances, and even though
+# they are API-guarded, there is no reason to invite a crawler to try.
+
+User-agent: *
+Allow: /
+
+# Signed-in application areas
+Disallow: /landlord
+Disallow: /admin
+Disallow: /tenant
+Disallow: /team
+Disallow: /affiliate
+
+# Authentication flows — nothing here is useful in a search result, and the
+# token-bearing URLs must never be indexed.
+Disallow: /login
+Disallow: /register
+Disallow: /verify-email
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /team-activate
+Disallow: /tenant-login
+Disallow: /change-password
+
+# The API is not content.
+Disallow: /api/
+
+Sitemap: https://sahilpay.co.ke/sitemap.xml

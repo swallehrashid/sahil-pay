@@ -548,23 +548,35 @@ def _finalize_message(msg, landlord, ls, device) -> None:
             db.session.flush()
             return
 
-    # Step 5 — match tenant: account number first, then phone. Never fuzzy.
+    # Step 5 — identify. Account number and unit pay-code name exactly one
+    # lease, so they are tried first and are always safe. A PHONE is different:
+    # it identifies a PERSON, and one person can rent four units, so a phone
+    # that resolves to several live tenancies is deliberately NOT resolved here
+    # — it goes to suspense with a suggested split for the manager to confirm
+    # (sahilpay_payment_allocation_spec.md §4.5). Guessing `.first()` used to
+    # credit one lease and silently leave the others in arrears.
+    from services import pay_code_service, payment_resolver
+
     tenant = None
+    multi_lease_candidates: list = []
+
     if parsed_account:
         tenant = Tenant.query.filter_by(
             landlord_id=landlord.id, account_number=parsed_account, is_deleted=False
         ).first()
+
+    if tenant is None and parsed_account:
+        unit = pay_code_service.resolve_unit(landlord.id, parsed_account)
+        if unit is not None:
+            tenant = payment_resolver._active_tenant_for_unit(unit)
+
     if tenant is None and parsed_phone:
-        # Tenant.phone is stored inconsistently across the app (some rows keep
-        # a leading '+', some don't — see mpesa_routes.py's own phone
-        # normalisation) so match against every plausible form rather than
-        # assuming one.
-        phone_candidates = {parsed_phone, "+" + parsed_phone}
-        if parsed_phone.startswith("254") and len(parsed_phone) == 12:
-            phone_candidates.add("0" + parsed_phone[3:])
-        tenant = Tenant.query.filter_by(
-            landlord_id=landlord.id, is_deleted=False
-        ).filter(Tenant.phone.in_(phone_candidates)).first()
+        candidates = payment_resolver.active_leases_for_tenant_phone(
+            landlord.id, parsed_phone)
+        if len(candidates) == 1:
+            tenant = candidates[0]
+        elif len(candidates) > 1:
+            multi_lease_candidates = candidates
 
     tenant_name = f"{tenant.first_name} {tenant.last_name}" if tenant else None
 
@@ -584,7 +596,9 @@ def _finalize_message(msg, landlord, ls, device) -> None:
     mpesa_txn = MpesaTransaction(
         landlord_id=landlord.id,
         reference_number=parsed_ref or f"COP-{msg.id}",
-        status=(MpesaTransactionStatus.recorded.value if tenant else MpesaTransactionStatus.unmatched.value),
+        status=(MpesaTransactionStatus.recorded.value
+                if (tenant or multi_lease_candidates)
+                else MpesaTransactionStatus.unmatched.value),
         amount=amount,
         tenant_id=tenant.id if tenant else None,
         description=f"Co-pilot | {msg.sender_id} | {parsed_name or ''} | {msg.raw_text[:120]}",
@@ -592,6 +606,43 @@ def _finalize_message(msg, landlord, ls, device) -> None:
     db.session.add(mpesa_txn)
     db.session.flush()
     msg.mpesa_transaction_id = mpesa_txn.id
+
+    if tenant is None and multi_lease_candidates:
+        # Step 7b — the core multi-unit case. We know WHO paid but not WHICH of
+        # their units, so a real Payment is created and parked in suspense with
+        # an arrears-first suggestion. The money is visible and auditable; it
+        # simply is not allocated until a human says how.
+        payment = Payment(
+            payment_ref     = _copilot_payment_ref(landlord.id),
+            landlord_id     = landlord.id,
+            amount          = amount,
+            payment_date    = msg.sms_received_at.date() if msg.sms_received_at else date.today(),
+            source          = PaymentSource.co_pilot.value,
+            mpesa_reference = parsed_ref,
+            reference_text  = parsed_account or parsed_phone,
+            payer_phone     = parsed_phone,
+            notes           = f"Co-pilot via {msg.sender_id}. Payer: {parsed_name or 'unknown'}.",
+        )
+        db.session.add(payment)
+        db.session.flush()
+
+        mpesa_txn.payment_id = payment.id
+        msg.payment_id = payment.id
+
+        payment_resolver.to_suspense(
+            payment,
+            payment_resolver.SuspenseReason.multi_lease.value,
+            suggestion=payment_resolver.suggest_split(amount, multi_lease_candidates),
+        )
+        record_audit(
+            actor_user_id=None, landlord_id=landlord.id, action="copilot_ingest",
+            entity_type="copilot", entity_id=msg.id,
+            description=(f"Co-pilot [{device_label}] {msg.sender_id}: KES {amount} — "
+                         f"held for review ({len(multi_lease_candidates)} units for "
+                         f"this tenant)."),
+        )
+        db.session.flush()
+        return
 
     if tenant is None:
         # Step 8 — unmatched: notify, audit, stop. No Payment yet.
@@ -631,6 +682,8 @@ def _finalize_message(msg, landlord, ls, device) -> None:
         status          = PaymentStatus.confirmed.value if ls.copilot_auto_allocate else PaymentStatus.pending.value,
         source          = PaymentSource.co_pilot.value,
         mpesa_reference = parsed_ref,
+        reference_text  = parsed_account or parsed_phone,
+        payer_phone     = parsed_phone,
         notes           = f"Co-pilot via {msg.sender_id}. Payer: {parsed_name or 'unknown'}.",
     )
     db.session.add(payment)

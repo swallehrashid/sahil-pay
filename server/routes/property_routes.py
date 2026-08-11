@@ -91,17 +91,41 @@ def list_properties():
         page=page, per_page=per_page, error_out=False
     )
 
+    # Unit counts and manager assignments for the whole page in two queries
+    # rather than three per row — at 100 properties that was the difference
+    # between 6 queries and 300.
+    page_ids = [p.id for p in paginated.items]
+
+    unit_counts = {}
+    if page_ids:
+        for row in (
+            db.session.query(
+                Unit.property_id,
+                db.func.count(Unit.id).label("total"),
+                db.func.sum(db.cast(Unit.is_occupied.is_(False), db.Integer)).label("vacant"),
+            )
+            .filter(Unit.property_id.in_(page_ids), Unit.is_deleted.is_(False))
+            .group_by(Unit.property_id)
+            .all()
+        ):
+            unit_counts[row.property_id] = (row.total or 0, row.vacant or 0)
+
+    managers_by_property = {}
+    if page_ids:
+        for a in ManagerAssignment.query.filter(
+            ManagerAssignment.property_id.in_(page_ids)
+        ).all():
+            managers_by_property.setdefault(a.property_id, []).append(
+                {"team_member_id": a.team_member_id, "scope_type": a.scope_type}
+            )
+
     items = []
     for p in paginated.items:
         d = p.to_dict()
-        d["unit_count"]   = Unit.query.filter_by(property_id=p.id, is_deleted=False).count()
-        d["vacant_count"] = Unit.query.filter_by(property_id=p.id, is_deleted=False, is_occupied=False).count()
-        # Assigned managers for this property
-        assignments = ManagerAssignment.query.filter_by(property_id=p.id).all()
-        d["managers"] = [
-            {"team_member_id": a.team_member_id, "scope_type": a.scope_type}
-            for a in assignments
-        ]
+        total, vacant = unit_counts.get(p.id, (0, 0))
+        d["unit_count"]   = total
+        d["vacant_count"] = vacant
+        d["managers"]     = managers_by_property.get(p.id, [])
         items.append(d)
 
     return jsonify({
@@ -129,7 +153,7 @@ def create_property():
     Create a new property.
     Required: name, number_of_units, city.
     Optional: water_rate, electricity_rate, mpesa_details,
-              rent_payment_penalty, tax_rate, management_fee,
+              rent_payment_penalty, tax_rate, management_fee, commission_rate,
               owner_phone, notes, street_name, property_group_id.
     ---
     tags: [Properties]
@@ -163,6 +187,7 @@ def create_property():
         rent_payment_penalty = data.get("rent_payment_penalty"),
         tax_rate            = data.get("tax_rate", 7.50),
         management_fee      = data.get("management_fee"),
+        commission_rate     = data.get("commission_rate"),
         owner_phone         = data.get("owner_phone"),
         notes               = data.get("notes"),
         property_group_id   = data.get("property_group_id"),
@@ -244,7 +269,7 @@ def update_property(property_id):
     editable = [
         "name", "number_of_units", "city", "street_name",
         "water_rate", "electricity_rate", "mpesa_details",
-        "rent_payment_penalty", "tax_rate", "management_fee",
+        "rent_payment_penalty", "tax_rate", "management_fee", "commission_rate",
         "owner_phone", "notes", "property_group_id",
     ]
     for field in editable:

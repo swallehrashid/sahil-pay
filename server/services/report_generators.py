@@ -124,7 +124,8 @@ def _not_found(report_key: str, title: str, landlord, message: str) -> ReportDoc
 # ===========================================================================
 
 
-def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end_date: str | None) -> ReportDocument:
+def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end_date: str | None,
+                           include_etims: bool = False) -> ReportDocument:
     from models import Invoice, Payment, Tenant
 
     tenant = Tenant.query.filter_by(id=tenant_id, landlord_id=landlord.id).first()
@@ -161,10 +162,20 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
             events.append((_key(inv.issue_date, inv.created_at, inv.id), inv.issue_date,
                            inv.title or f"Invoice {inv.invoice_number}", inv.invoice_type or "",
                            inv.total_amount or ZERO, ZERO))
+    # eTIMS numbers ride along per payment event, so the column below can be
+    # decided AFTER the rows are built — see the note where `columns` is
+    # assembled. Invoice events carry None, never a blank string, so an
+    # invoice line can't be mistaken for a payment with a missing number.
+    etims_by_event: dict = {}
     for pay in payments:
         desc = pay.payment_method or pay.source or "Payment"
-        events.append((_key(pay.payment_date, pay.created_at, pay.id), pay.payment_date,
+        key = _key(pay.payment_date, pay.created_at, pay.id)
+        events.append((key, pay.payment_date,
                        f"Payment {pay.payment_ref}", desc, ZERO, pay.amount or ZERO))
+        prop = pay.property
+        if (include_etims and prop is not None and prop.etims_shows("statements")
+                and pay.etims_invoice_number):
+            etims_by_event[key] = pay.etims_invoice_number
 
     events.sort(key=lambda e: e[0])
 
@@ -181,12 +192,15 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
     if opening != ZERO and start is not None:
         rows.append({"date": start, "item": "Opening balance", "description": "Brought forward",
                      "due": ZERO, "paid": ZERO, "running_balance": running})
+    any_etims = False
     for _k, d, item, desc, due, paid in events:
         if not _in_range(d, start, end):
             continue
         running += (due or ZERO) - (paid or ZERO)  # owed increases with charges, drops with payments
         total_due += due or ZERO
         total_paid += paid or ZERO
+        etims_number = etims_by_event.get(_k)
+        any_etims = any_etims or bool(etims_number)
         rows.append(
             {
                 "date": d,
@@ -195,6 +209,7 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
                 "due": due,
                 "paid": paid,
                 "running_balance": running,
+                "etims_invoice_number": etims_number,
             }
         )
 
@@ -206,6 +221,13 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
         Column("paid", "Money paid", MONEY),
         Column("running_balance", "Running balance", MONEY),
     ]
+    # The eTIMS column appears only when at least one line in THIS statement
+    # actually has a number (spec §3.2). A column of blanks would read as a
+    # list of things the landlord failed to do, which is exactly what this
+    # feature must never produce — so when nothing was recorded the statement
+    # is byte-identical to its pre-feature layout.
+    if any_etims:
+        columns.append(Column("etims_invoice_number", "eTIMS No.", TEXT))
     section = Section(
         "transactions",
         "Statement of account",
@@ -234,7 +256,9 @@ def build_tenant_statement(landlord, tenant_id: int, start_date: str | None, end
 # ===========================================================================
 
 
-def build_property_statement(landlord, property_id: int, start_date: str | None, end_date: str | None) -> ReportDocument:
+def build_property_statement(landlord, property_id: int, start_date: str | None, end_date: str | None,
+                            gross_basis: str | None = None,
+                            include_etims: bool = False) -> ReportDocument:
     from models import Expense, Invoice, Payment, Property, Tenant, Unit
 
     prop = Property.query.filter_by(id=property_id, landlord_id=landlord.id).first()
@@ -444,25 +468,89 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
     )
 
     # ---- Section D: Summary (net income) ----------------------------------
-    earnings_before_tax = total_collected - total_expenses
+    # The gross a manager may net against depends on WHO is reading:
+    #   "all"       every collection that is income (rent + utilities/other)
+    #   "rent_only" rent current + rent arrears alone — the only lawful base for
+    #               a Kenyan managing agent's commission
+    # Deposits are excluded from both: held, refundable money is never income.
+    from services.commission_service import (
+        GROSS_BASIS_RENT_ONLY, collections_breakdown, commission_for, gross_for,
+        owner_payouts_total, resolve_basis,
+    )
+
+    basis = resolve_basis(landlord, gross_basis)
+    breakdown = collections_breakdown(landlord.id, prop.id, start, end)
+    gross = gross_for(breakdown, basis)
+    commission = commission_for(breakdown, prop.commission_rate)
+    remitted = owner_payouts_total(landlord.id, prop.id, start, end)
+
+    earnings_before_tax = gross - commission - total_expenses
     total_tax = (earnings_before_tax * tax_rate / Decimal(100)).quantize(Decimal("0.01")) if earnings_before_tax > 0 else ZERO
     net_income = earnings_before_tax - total_tax
+    retained = net_income - remitted
     currency = getattr(landlord, "currency", "KES") or "KES"
 
     def _kv(label, value):
         return {"label": label, "value": float(value), "display": f"{currency} {float(value):,.2f}"}
 
+    gross_label = (
+        "Gross — rent collected (current + arrears)"
+        if basis == GROSS_BASIS_RENT_ONLY
+        else "Total amount collected"
+    )
+    summary_rows = [_kv(gross_label, gross)]
+
+    if basis == GROSS_BASIS_RENT_ONLY and breakdown["other_collected"] > 0:
+        summary_rows.append(
+            _kv("Other collections — not commissionable", breakdown["other_collected"])
+        )
+    if breakdown["deposits_collected"] > 0:
+        summary_rows.append(_kv("Deposits held — not income", breakdown["deposits_collected"]))
+    if commission > 0:
+        summary_rows.append({
+            "label": f"Commission ({prop.commission_rate}% of rent collected)",
+            "value": float(commission),
+            "display": f"{currency} {float(commission):,.2f}",
+        })
+
+    summary_rows += [
+        _kv("Total expenses", total_expenses),
+        _kv("Earnings before tax", earnings_before_tax),
+        {"label": f"Total tax deducted ({tax_rate}%)", "value": float(total_tax), "display": f"{currency} {float(total_tax):,.2f}"},
+        _kv("Net income", net_income),
+    ]
+    if remitted > 0:
+        summary_rows.append(_kv("Remitted to owner", remitted))
+        summary_rows.append(_kv("Retained", retained))
+
+    # The managing agent's OWN eTIMS invoice to the owner, for the commission
+    # deducted from the payouts in this window (spec §3.3). Only rendered when
+    # the property opted in AND a number was actually recorded — a payout with
+    # none contributes nothing, exactly like everywhere else.
+    if include_etims and prop.etims_shows("statements"):
+        from models import OwnerPayout
+
+        payout_query = OwnerPayout.query.filter(
+            OwnerPayout.landlord_id == landlord.id,
+            OwnerPayout.property_id == prop.id,
+            OwnerPayout.etims_invoice_number.isnot(None),
+        )
+        if start:
+            payout_query = payout_query.filter(OwnerPayout.payout_date >= start)
+        if end:
+            payout_query = payout_query.filter(OwnerPayout.payout_date <= end)
+        for payout in payout_query.order_by(OwnerPayout.payout_date.asc()).all():
+            summary_rows.append({
+                "label": "Commission eTIMS invoice no.",
+                "value": None,
+                "display": payout.etims_invoice_number,
+            })
+
     summary_section = Section(
         "summary",
         "Summary",
         [Column("label", "Item", TEXT), Column("value", "Amount", MONEY)],
-        [
-            _kv("Total amount collected", total_collected),
-            _kv("Total expenses", total_expenses),
-            _kv("Earnings before tax", earnings_before_tax),
-            {"label": f"Total tax deducted ({tax_rate}%)", "value": float(total_tax), "display": f"{currency} {float(total_tax):,.2f}"},
-            _kv("Net income", net_income),
-        ],
+        summary_rows,
         kind="keyvalue",
     )
 
@@ -472,7 +560,31 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         property_name=prop.name,
         subject=f"{prop.name} — {prop.city}",
         period=_period_label(start_date, end_date),
-        extra={"tax_rate": float(tax_rate)},
+        # The basis is printed in the letterhead so a PRINTED statement always
+        # says which gross it was built on — otherwise two copies of the same
+        # month disagree and nobody can tell why.
+        extra={
+            "tax_rate": float(tax_rate),
+            "gross_basis": basis,
+            "gross_basis_label": (
+                "Rent only (excl. deposits)" if basis == GROSS_BASIS_RENT_ONLY
+                else "All collections"
+            ),
+            "commission_rate": float(prop.commission_rate or 0),
+            # Footer PINs (spec §3.2/§3.3). Both keys are omitted entirely
+            # rather than set to None when there's nothing to show, so the
+            # letterhead renderer has no empty value to lay out.
+            **(
+                {
+                    k: v for k, v in {
+                        "owner_kra_pin": prop.effective_kra_pin,
+                        "agent_kra_pin": (landlord.user.kra_pin
+                                          if landlord.user else None),
+                    }.items() if v
+                }
+                if include_etims and prop.etims_shows("statements") else {}
+            ),
+        },
     )
     return ReportDocument(
         "property_statement",
@@ -487,15 +599,20 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
 # ===========================================================================
 
 
-def build_arrears_report(landlord, property_id: int | None, as_of_date: str | None) -> ReportDocument:
+def build_arrears_report(landlord, property_id: int | None, as_of_date: str | None,
+                         allowed_property_ids: set[int] | None = None) -> ReportDocument:
     from models import Invoice, Tenant, Unit
 
     as_of = parse_date(as_of_date) or date.today()
     month_start = as_of.replace(day=1)
 
     query = Tenant.query.filter(Tenant.landlord_id == landlord.id, Tenant.is_deleted.is_(False), Tenant.balance < 0)
+    if property_id or allowed_property_ids is not None:
+        query = query.join(Unit, Unit.id == Tenant.unit_id)
     if property_id:
-        query = query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id == property_id)
+        query = query.filter(Unit.property_id == property_id)
+    if allowed_property_ids is not None:
+        query = query.filter(Unit.property_id.in_(allowed_property_ids))
 
     columns = [
         Column("unit", "Unit", TEXT),
@@ -506,6 +623,16 @@ def build_arrears_report(landlord, property_id: int | None, as_of_date: str | No
         Column("total_arrears", "Total arrears", MONEY),
         Column("days_in_arrears", "Days in arrears", NUMBER),
     ]
+
+    from sqlalchemy.orm import joinedload, selectinload
+
+    # Each row reads the tenant's unit and walks their invoices — without
+    # eager loading that is 2 queries per tenant in arrears, which on a
+    # 1,000-tenant estate is the whole report's cost.
+    query = query.options(
+        joinedload(Tenant.unit),
+        selectinload(Tenant.invoices),
+    )
 
     rows = []
     total_arrears_sum = ZERO
@@ -551,13 +678,16 @@ def build_arrears_report(landlord, property_id: int | None, as_of_date: str | No
 # ===========================================================================
 
 
-def build_expenses_report(landlord, property_id: int | None, start_date: str | None, end_date: str | None) -> ReportDocument:
+def build_expenses_report(landlord, property_id: int | None, start_date: str | None, end_date: str | None,
+                          allowed_property_ids: set[int] | None = None) -> ReportDocument:
     from models import Expense
 
     start, end = parse_date(start_date), parse_date(end_date)
     query = Expense.query.filter_by(landlord_id=landlord.id)
     if property_id:
         query = query.filter(Expense.property_id == property_id)
+    if allowed_property_ids is not None:
+        query = query.filter(Expense.property_id.in_(allowed_property_ids))
 
     columns = [
         Column("date", "Date", DATE),
@@ -595,7 +725,8 @@ def build_expenses_report(landlord, property_id: int | None, start_date: str | N
 # ===========================================================================
 
 
-def build_deleted_tenants_report(landlord, property_id: int | None) -> ReportDocument:
+def build_deleted_tenants_report(landlord, property_id: int | None,
+                                 allowed_property_ids: set[int] | None = None) -> ReportDocument:
     from extensions import db
     from models import Tenant, Unit
 
@@ -604,8 +735,12 @@ def build_deleted_tenants_report(landlord, property_id: int | None) -> ReportDoc
         .execution_options(include_deleted=True)
         .filter(Tenant.landlord_id == landlord.id, Tenant.is_deleted.is_(True))
     )
+    if property_id or allowed_property_ids is not None:
+        query = query.join(Unit, Unit.id == Tenant.unit_id)
     if property_id:
-        query = query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id == property_id)
+        query = query.filter(Unit.property_id == property_id)
+    if allowed_property_ids is not None:
+        query = query.filter(Unit.property_id.in_(allowed_property_ids))
 
     columns = [
         Column("unit", "Unit", TEXT),
@@ -733,7 +868,7 @@ def _window_metrics(invoices, payments, expenses, units, histories, start, end, 
     }
 
 
-def _load_comparative_data(landlord, property_id):
+def _load_comparative_data(landlord, property_id, allowed_property_ids=None):
     from models import Expense, Invoice, Payment, Property, TenantUnitHistory, Unit
 
     inv_q = Invoice.query.filter_by(landlord_id=landlord.id)
@@ -747,6 +882,14 @@ def _load_comparative_data(landlord, property_id):
         pay_q = pay_q.filter(Payment.property_id == property_id)
         exp_q = exp_q.filter(Expense.property_id == property_id)
         unit_q = unit_q.filter(Unit.property_id == property_id)
+    # A team member restricted to certain properties gets figures built ONLY
+    # from those properties — including when they ask for "all", which for them
+    # means all they may see.
+    if allowed_property_ids is not None:
+        inv_q = inv_q.filter(Invoice.property_id.in_(allowed_property_ids))
+        pay_q = pay_q.filter(Payment.property_id.in_(allowed_property_ids))
+        exp_q = exp_q.filter(Expense.property_id.in_(allowed_property_ids))
+        unit_q = unit_q.filter(Unit.property_id.in_(allowed_property_ids))
 
     invoices, payments, expenses, units = inv_q.all(), pay_q.all(), exp_q.all(), unit_q.all()
     unit_ids = {u.id for u in units}
@@ -754,8 +897,11 @@ def _load_comparative_data(landlord, property_id):
     return invoices, payments, expenses, units, histories
 
 
-def _comparative(landlord, property_id, year, period: str) -> ReportDocument:
-    invoices, payments, expenses, units, histories = _load_comparative_data(landlord, property_id)
+def _comparative(landlord, property_id, year, period: str,
+                 allowed_property_ids: set[int] | None = None,
+                 gross_basis: str | None = None) -> ReportDocument:
+    invoices, payments, expenses, units, histories = _load_comparative_data(
+        landlord, property_id, allowed_property_ids)
     total_units = len(units)
 
     # discover buckets from invoice + payment dates
@@ -769,16 +915,44 @@ def _comparative(landlord, property_id, year, period: str) -> ReportDocument:
             keys.add(pay.payment_date.strftime(fmt))
     buckets = sorted(keys)
 
-    columns = [Column("period", "Period", TEXT)] + [Column(k, label, kind) for k, label, kind in _COMPARATIVE_METRICS]
+    from services.commission_service import (
+        GROSS_BASIS_RENT_ONLY, collections_breakdown, resolve_basis,
+    )
+
+    basis = resolve_basis(landlord, gross_basis)
+    rent_only = basis == GROSS_BASIS_RENT_ONLY
+
+    # On the rent-only basis "Total paid" must mean rent collected, not every
+    # shilling banked — otherwise the column a manager reads their commission
+    # off silently includes deposits and utilities they may not charge on.
+    metrics = list(_COMPARATIVE_METRICS)
+    if rent_only:
+        metrics = [
+            (k, "Rent collected" if k == "total_paid" else label, kind)
+            for k, label, kind in metrics
+        ]
+
+    columns = [Column("period", "Period", TEXT)] + [Column(k, label, kind) for k, label, kind in metrics]
     rows = []
     for key in buckets:
         start, end = _bucket_bounds(key, period)
         m = _window_metrics(invoices, payments, expenses, units, histories, start, end, total_units)
+        if rent_only:
+            # One extra query per bucket (12 at most) — the allocation rows are
+            # the only place that knows which charge a payment actually paid.
+            breakdown = collections_breakdown(
+                landlord.id, property_id, start, end, allowed_property_ids,
+            )
+            m["total_paid"] = breakdown["rent_collected"]
+            m["percentage_paid"] = (
+                round(float(m["total_paid"]) / float(m["total_bills"]) * 100, 1)
+                if m["total_bills"] else 0
+            )
         rows.append({"period": key, **m})
 
     charts = [
         {"key": k, "title": label, "type": "bar", "x": "period", "y": k}
-        for k, label, _ in _COMPARATIVE_METRICS
+        for k, label, _ in metrics
     ]
     section = Section(
         "comparative",
@@ -789,16 +963,29 @@ def _comparative(landlord, property_id, year, period: str) -> ReportDocument:
         note="Add any metric's graph to the download using the chart toggles.",
     )
     title = "Month-on-Month Report" if period == "month" else "Year-on-Year Report"
-    meta = build_meta(landlord, report_title=title, period=(f"Year {year}" if (period == "month" and year) else "All periods"))
+    meta = build_meta(
+        landlord, report_title=title,
+        period=(f"Year {year}" if (period == "month" and year) else "All periods"),
+        extra={
+            "gross_basis": basis,
+            "gross_basis_label": (
+                "Rent only (excl. deposits)" if rent_only else "All collections"
+            ),
+        },
+    )
     return ReportDocument("month_on_month" if period == "month" else "year_on_year", title, meta, [section])
 
 
-def build_mom_report(landlord, property_id: int | None, year: int | None) -> ReportDocument:
-    return _comparative(landlord, property_id, year, "month")
+def build_mom_report(landlord, property_id: int | None, year: int | None,
+                     allowed_property_ids: set[int] | None = None,
+                     gross_basis: str | None = None) -> ReportDocument:
+    return _comparative(landlord, property_id, year, "month", allowed_property_ids, gross_basis)
 
 
-def build_yoy_report(landlord, property_id: int | None) -> ReportDocument:
-    return _comparative(landlord, property_id, None, "year")
+def build_yoy_report(landlord, property_id: int | None,
+                     allowed_property_ids: set[int] | None = None,
+                     gross_basis: str | None = None) -> ReportDocument:
+    return _comparative(landlord, property_id, None, "year", allowed_property_ids, gross_basis)
 
 
 # ===========================================================================

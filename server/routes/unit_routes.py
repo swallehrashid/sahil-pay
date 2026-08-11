@@ -14,6 +14,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
 from models import Unit, Property
 from decorators import (
+    accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
 )
@@ -303,8 +304,16 @@ def _get_or_404(landlord_id: int, unit_id: int) -> Unit:
             Property.landlord_id == landlord_id,
             Unit.is_deleted.is_(False),
         )
-        .first()
     )
+    # Property scope: a team member restricted to specific properties must not
+    # be able to open an object from another property by guessing its id — under
+    # a property manager that is one owner reading a rival owner's records. This
+    # resolves the caller's scope on demand, so it holds even on routes that
+    # never applied @scope_to_accessible_properties.
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        unit = unit.filter(Unit.property_id.in_(allowed))
+    unit = unit.first()
     if not unit:
         abort(404, description="Unit not found or access denied.")
     accessible = getattr(g, "accessible_property_ids", None)

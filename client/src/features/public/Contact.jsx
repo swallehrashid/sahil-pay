@@ -10,6 +10,7 @@ import { AUTH_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
 import { FeatureCard, CheckItem } from "./components/pieces";
+import { useSeo } from "./useSeo";
 
 const CONTACT_FAQS = [
   { q: "Is there a free trial and do I need a card?", a: "Yes — start free, no card required. You only pay once your trial ends and you choose a plan." },
@@ -19,6 +20,13 @@ const CONTACT_FAQS = [
 ];
 
 export default function Contact() {
+  useSeo({
+    title: "Contact Sahil Pay — Talk to Us About Your Properties",
+    description:
+      "Get in touch with the Sahil Pay team for a demo, a free setup of your properties and tenants, or help moving from spreadsheets to automated rent collection.",
+    path: "/contact",
+  });
+
   const [form, setForm] = useState({ name: "", email: "", message: "" });
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);

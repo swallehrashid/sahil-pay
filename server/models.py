@@ -38,12 +38,12 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
-    Boolean, CheckConstraint, Column, Date, DateTime,
+    Boolean, CheckConstraint, Column, Date, DateTime, event,
     ForeignKey, Index, Integer, JSON, Numeric, String, Text,
-    UniqueConstraint,
+    UniqueConstraint, text as sa_text,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Query, relationship
+from sqlalchemy.orm import Query, declared_attr, relationship
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +170,11 @@ class PermissionModule(str, enum.Enum):
     maintenance    = "maintenance"
     reports        = "reports"
     groups         = "groups"
+    # KRA/eTIMS compliance work (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §1.4).
+    # Unlike every other module this one is ALSO scoped per property, through
+    # team_member_property_permissions — holding the module row alone grants
+    # nothing until at least one property is granted.
+    tax_compliance = "tax_compliance"
 
 
 class ManagerScopeType(str, enum.Enum):
@@ -206,6 +211,66 @@ class PaymentStatus(str, enum.Enum):
     confirmed = "confirmed"
     pending   = "pending"
     declined  = "declined"
+    # sahilpay_payment_allocation_spec.md §4.7 — money that arrived but cannot be
+    # attributed with certainty. A suspense payment is REAL cash sitting in the
+    # paybill; it is deliberately NOT confirmed, so it never reaches a
+    # statement, a commission base or a payout until a human resolves it.
+    # Nothing ever leaves suspense without an explicit allocation.
+    suspense  = "suspense"
+    # An allocation was reversed (an M-Pesa reversal SMS, or a manual undo).
+    reversed  = "reversed"
+
+
+class AllocationMethod(str, enum.Enum):
+    """
+    How an account's inbound payments are routed (spec §4.4).
+
+      unit_code  deterministic — tenants pay quoting their unit's pay-code, so a
+                 payment names exactly one lease.
+      phone      matches the habit most Kenyan tenants already have. A phone
+                 number identifies a TENANT but never says WHICH of their units,
+                 so a multi-unit tenant's lump sum goes to suspense for the
+                 manager to split rather than being guessed at.
+
+    Existing accounts default to `phone` (their current behaviour); new accounts
+    default to `unit_code`.
+    """
+    unit_code = "unit_code"
+    phone     = "phone"
+
+
+class SuspenseReason(str, enum.Enum):
+    """Why a payment could not be attributed. Drives the review queue copy."""
+    unknown_reference             = "unknown_reference"
+    code_no_active_lease          = "code_no_active_lease"
+    multi_lease                   = "multi_lease"
+    ambiguous_phone               = "ambiguous_phone"
+    no_source_match               = "no_source_match"
+    reversal_pending              = "reversal_pending"
+
+
+class CommissionScopeType(str, enum.Enum):
+    """Commission rules attach at one of three levels; most specific wins."""
+    landlord = "landlord"
+    property = "property"
+    unit     = "unit"
+
+
+class CommissionRateType(str, enum.Enum):
+    percentage = "percentage"
+    fixed      = "fixed"
+
+
+class PayoutStatus(str, enum.Enum):
+    pending = "pending"
+    paid    = "paid"
+
+
+class AllocationAuditAction(str, enum.Enum):
+    allocate   = "allocate"
+    reallocate = "reallocate"
+    reverse    = "reverse"
+    suspense   = "suspense"
 
 
 class PaymentSource(str, enum.Enum):
@@ -334,6 +399,7 @@ class MessageChannel(str, enum.Enum):
 class MessageTemplateType(str, enum.Enum):
     balance_reminder = "balance_reminder"
     invoice_reminder = "invoice_reminder"
+    welcome          = "welcome"      # sent when a tenant is first added
     custom           = "custom"
 
 
@@ -475,6 +541,9 @@ class AuditEntityType(str, enum.Enum):
     affiliate_commission = "affiliate_commission"
     affiliate_withdrawal = "affiliate_withdrawal"
     copilot              = "copilot"
+    etims                = "etims"
+    tutorial             = "tutorial"
+    property_owner       = "property_owner"
 
 
 class NotificationCategory(str, enum.Enum):
@@ -496,6 +565,10 @@ class NotificationCategory(str, enum.Enum):
     copilot_payment_pending         = "copilot_payment_pending"
     copilot_payment_unmatched       = "copilot_payment_unmatched"
     copilot_device_paired           = "copilot_device_paired"
+    # KRA/eTIMS reminders (spec §4.5). Both individually mutable, and only ever
+    # sent to accounts with at least one eTIMS-enabled property.
+    etims_record_invoices           = "etims_record_invoices"
+    mri_filing_due                  = "mri_filing_due"
 
 
 class NotificationAudience(str, enum.Enum):
@@ -542,6 +615,39 @@ class SoftDeleteMixin:
     deleted_at = Column(DateTime, nullable=True)
 
 
+class EtimsMixin:
+    """
+    The eTIMS invoice-number group, applied to every table that records money
+    someone must issue a KRA invoice for — payments (landlord→tenant),
+    owner_payouts (PM→landlord commission) and billing_transactions
+    (SahilPay→client). See SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §1.3.
+
+    Every column is NULLABLE and nothing reads them unless the property has
+    opted in: a row with no number renders exactly as it does today, with no
+    placeholder, badge or "pending" state anywhere. There is deliberately no
+    "missing invoice" concept in this schema.
+
+    The number itself comes from KRA's own channels (eCitizen / *222# / the
+    eTIMS Non-VAT app) and is typed in by hand — SahilPay never generates or
+    verifies one, so validation is format-only (see services/etims_service.py).
+    """
+    etims_invoice_number = Column(String(64),  nullable=True)
+    etims_issued_at      = Column(DateTime,    nullable=True)
+    etims_qr_url         = Column(String(512), nullable=True)
+
+    @declared_attr
+    def etims_entered_by_user_id(cls):
+        return Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    def etims_dict(self) -> dict:
+        return {
+            "etims_invoice_number":     self.etims_invoice_number,
+            "etims_issued_at":          _serialise(self.etims_issued_at),
+            "etims_qr_url":             self.etims_qr_url,
+            "etims_entered_by_user_id": self.etims_entered_by_user_id,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Helper for Decimal serialisation
 # ---------------------------------------------------------------------------
@@ -583,6 +689,24 @@ class User(TimestampMixin, Base):
     # next login; cleared the moment they set their own password.
     must_change_password = Column(Boolean, default=False, nullable=False)
 
+    # Two-factor authentication (services/twofa_service.py).
+    #   totp_secret       — ENCRYPTED at rest with Fernet. Whoever holds the
+    #                       plaintext can mint valid codes forever, so it never
+    #                       touches the database in clear.
+    #   totp_backup_codes — JSON list of salted HASHES; the plaintext codes are
+    #                       shown once at enrolment and are not recoverable.
+    # Mandatory for system_admin, optional for everyone else.
+    totp_secret          = Column(String(255), nullable=True)
+    totp_enabled         = Column(Boolean, default=False, nullable=False)
+    totp_backup_codes    = Column(Text, nullable=True)
+    totp_confirmed_at    = Column(DateTime, nullable=True)
+
+    # The account holder's own KRA PIN — a landlord's or PM's for the invoices
+    # they issue, a team member's for their own records. Optional forever:
+    # blank never blocks a save and never surfaces anywhere in the UI.
+    # Format A012345678B / P051234567X, stored uppercase.
+    kra_pin              = Column(String(11), nullable=True)
+
     __table_args__ = (
         # Tenants are OTP-only, and team members are created with no password
         # by team_routes.py::create_team_member — they set one during account
@@ -601,8 +725,13 @@ class User(TimestampMixin, Base):
                                        uselist=False, cascade="all, delete-orphan")
     team_member_profile = relationship("TeamMember",   back_populates="user",
                                        uselist=False, cascade="all, delete-orphan")
-    tenant_profile      = relationship("Tenant",       back_populates="user",
-                                       uselist=False, cascade="all, delete-orphan")
+    # 1:N — ONE person can be a tenant several times over: two units in the same
+    # block, or units under three different landlords who have no idea the other
+    # two exist. Each occupancy stays its own Tenant row with its own account
+    # number, which is what keeps their payments from ever mixing up; this
+    # relationship is only the identity link that lets one login see them all.
+    tenant_profiles     = relationship("Tenant",       back_populates="user",
+                                       cascade="all, delete-orphan")
     affiliate_profile   = relationship("Affiliate",    back_populates="user",
                                        uselist=False, cascade="all, delete-orphan",
                                        foreign_keys="Affiliate.user_id")
@@ -623,6 +752,10 @@ class User(TimestampMixin, Base):
             "is_verified":        self.is_verified,
             "is_active":          self.is_active,
             "must_change_password": self.must_change_password,
+            "kra_pin":            self.kra_pin,
+            # Never expose the secret or the backup-code hashes — only whether
+            # the second factor is on.
+            "totp_enabled":         self.totp_enabled,
             "verification_token": self.verification_token,
             "created_at":         _serialise(self.created_at),
             "updated_at":         _serialise(self.updated_at),
@@ -680,10 +813,29 @@ class Landlord(TimestampMixin, Base):
     payment_instructions   = Column(Text, nullable=True)           # free-text directives shown to tenants on the pay page
     allocation_priority    = Column(String(255), nullable=True)    # DEPRECATED old CSV buckets — superseded by allocation_priority_json
     allocation_priority_json = Column(Text, nullable=True)         # JSON array of "<category_id>:<subcategory>" keys, highest priority first
+    # How inbound payments are routed to a lease (spec §4.4). Existing accounts
+    # are migrated to 'phone' so their behaviour is unchanged; new accounts get
+    # 'unit_code', which is deterministic. In phone mode the unit pay-code still
+    # works as a fallback reference, so a precise tenant can always self-route.
+    allocation_method      = Column(String(12), nullable=False,
+                                    default=AllocationMethod.unit_code.value,
+                                    server_default=AllocationMethod.unit_code.value)
+    # MRI is DISPLAY-ONLY unless this is on (spec §4.9). Off means the payout
+    # shows the landlord their 7.5% figure without deducting a shilling of it.
+    tax_withholding_enabled = Column(Boolean, default=False, nullable=False,
+                                     server_default="false")
     default_tax_rate       = Column(Numeric(5, 2),  default=Decimal("7.50"), nullable=False)
     agent_code             = Column(String(50),  unique=True, nullable=True)
     sms_balance            = Column(Integer, default=0, nullable=False)
     per_unit_price         = Column(Numeric(10, 2), nullable=True)
+    # A negotiated FLAT monthly fee. When set it overrides unit-band pricing and
+    # per_unit_price entirely: the landlord pays this amount every month no
+    # matter how their unit count moves. Cycle discounts (quarterly/annual) do
+    # NOT apply on top — the figure was agreed verbally and is already the
+    # discount. See services/billing_service.py.
+    fixed_monthly_price    = Column(Numeric(12, 2), nullable=True)
+    # Per-landlord price per SMS, winning over the global SmsPricingConfig.
+    sms_price_override     = Column(Numeric(8, 4), nullable=True)
     package_id             = Column(Integer, ForeignKey("packages.id"), nullable=True, index=True)
     trial_ends_at          = Column(DateTime, nullable=True)
     is_on_trial            = Column(Boolean, default=True, nullable=False)
@@ -723,7 +875,11 @@ class Landlord(TimestampMixin, Base):
 
     # Relationships — 1:N
     property_groups      = relationship("PropertyGroup",      back_populates="landlord")
-    properties           = relationship("Property",           back_populates="landlord")
+    properties           = relationship("Property",           back_populates="landlord",
+                                        foreign_keys="Property.landlord_id")
+    property_owners      = relationship("PropertyOwner",      back_populates="landlord")
+    payment_sources      = relationship("InboundPaymentSource", back_populates="landlord")
+    commission_rules     = relationship("CommissionRule",      back_populates="landlord")
     team_members         = relationship("TeamMember",         back_populates="landlord")
     tenants              = relationship("Tenant",             back_populates="landlord")
     invoices             = relationship("Invoice",            back_populates="landlord")
@@ -774,6 +930,8 @@ class Landlord(TimestampMixin, Base):
             "agent_code":             self.agent_code,
             "sms_balance":            self.sms_balance,
             "per_unit_price":         _serialise(self.per_unit_price),
+            "fixed_monthly_price":    _serialise(self.fixed_monthly_price),
+            "sms_price_override":     _serialise(self.sms_price_override),
             "package_id":             self.package_id,
             "trial_ends_at":          _serialise(self.trial_ends_at),
             "is_on_trial":            self.is_on_trial,
@@ -805,6 +963,12 @@ class TeamMember(TimestampMixin, Base):
     last_name           = Column(String(100), nullable=True)
     phone               = Column(String(20),  nullable=True)
     role                = Column(String(20),  nullable=True)    # enum TeamMemberRole
+    # Role preset the member was created from (owner | caretaker | accountant |
+    # secretary | custom; null = pre-dates presets). Labelling + bootstrap only —
+    # the team_member_permissions rows remain the sole authority on access, and
+    # every permission stays individually editable after a preset is applied.
+    # See services/team_preset_service.py.
+    preset              = Column(String(20),  nullable=True)
     property_access_all = Column(Boolean, default=False, nullable=False)
     activation_token    = Column(String(255), nullable=True)
     is_active           = Column(Boolean, default=False, nullable=False)
@@ -816,6 +980,8 @@ class TeamMember(TimestampMixin, Base):
                                        cascade="all, delete-orphan")
     property_accesses   = relationship("TeamMemberPropertyAccess", back_populates="team_member",
                                        cascade="all, delete-orphan")
+    property_permissions = relationship("TeamMemberPropertyPermission", back_populates="team_member",
+                                        cascade="all, delete-orphan")
     manager_assignments = relationship("ManagerAssignment",        back_populates="team_member")
     communication_logs  = relationship("CommunicationLog",         back_populates="team_member")
 
@@ -829,6 +995,7 @@ class TeamMember(TimestampMixin, Base):
             "last_name":           self.last_name,
             "phone":               self.phone,
             "role":                self.role,
+            "preset":              self.preset,
             "property_access_all": self.property_access_all,
             "is_active":           self.is_active,
             "created_at":          _serialise(self.created_at),
@@ -894,6 +1061,54 @@ class TeamMemberPropertyAccess(TimestampMixin, Base):
         }
 
 
+class TeamMemberPropertyPermission(TimestampMixin, Base):
+    """
+    A named capability granted to a team member on ONE property
+    (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §1.4).
+
+    Distinct from TeamMemberPropertyAccess, which answers "which properties may
+    this person see at all", and from TeamMemberPermission, which answers "which
+    modules may they touch". This answers the third question the tax layer
+    needs: *of the properties they can see, which ones may they do compliance
+    work on* — an accountant may hold `manage_tax_compliance` on two blocks
+    while merely viewing the other ninety-eight.
+
+    Kept generic (a `permission` string rather than a boolean column) so later
+    per-property capabilities reuse the table instead of adding another join.
+    Currently the only value is "manage_tax_compliance".
+    """
+    __tablename__ = "team_member_property_permissions"
+
+    PERM_MANAGE_TAX_COMPLIANCE = "manage_tax_compliance"
+
+    id              = Column(Integer, primary_key=True, autoincrement=True)
+    team_member_id  = Column(Integer, ForeignKey("team_members.id"), nullable=False, index=True)
+    property_id     = Column(Integer, ForeignKey("properties.id"),   nullable=False, index=True)
+    permission      = Column(String(40), nullable=False, index=True)
+    granted_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    granted_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("team_member_id", "property_id", "permission",
+                         name="uq_tmpp_member_property_permission"),
+    )
+
+    team_member = relationship("TeamMember", back_populates="property_permissions")
+    property    = relationship("Property")
+    granted_by  = relationship("User", foreign_keys=[granted_by_user_id])
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "team_member_id":     self.team_member_id,
+            "property_id":        self.property_id,
+            "property_name":      self.property.name if self.property else None,
+            "permission":         self.permission,
+            "granted_by_user_id": self.granted_by_user_id,
+            "granted_at":         _serialise(self.granted_at),
+        }
+
+
 class OtpToken(CreatedAtMixin, Base):
     """
     §3.7  Short-lived OTP for passwordless tenant login.
@@ -956,6 +1171,67 @@ class PropertyGroup(TimestampMixin, Base):
         }
 
 
+class PropertyOwner(TimestampMixin, Base):
+    """
+    The human (or company) who actually OWNS one or more properties under an
+    account — as distinct from the `Landlord` row, which is the SahilPay
+    *account holder*.
+
+    For a landlord managing their own block these are the same person and this
+    table stays empty. For a property manager they are not: the PM is the
+    account, but each block belongs to a different owner, and it is the OWNER
+    who is the seller on every rent invoice and the taxpayer who files the 7.5%
+    MRI return. Before this table an owner existed only as
+    `Property.owner_phone` plus, optionally, a `preset="owner"` TeamMember —
+    neither of which can carry a KRA PIN or group two blocks belonging to the
+    same person.
+
+    Nothing requires an owner row: `Property.owner_id` is nullable, and a
+    property without one behaves exactly as it always has.
+    """
+    __tablename__ = "property_owners"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    full_name   = Column(String(200), nullable=False)
+    phone       = Column(String(20),  nullable=True, index=True)
+    email       = Column(String(255), nullable=True)
+    # The owner's KRA PIN — the seller PIN on rent invoices for their
+    # properties, and the identity the consolidated MRI report files under.
+    kra_pin     = Column(String(11),  nullable=True)
+    notes       = Column(Text, nullable=True)
+    is_active   = Column(Boolean, default=True, nullable=False)
+
+    __table_args__ = (
+        # Two owners of the same account may share a name (father and son), but
+        # never a phone number — that is what the backfill matches on.
+        UniqueConstraint("landlord_id", "phone", name="uq_property_owners_landlord_phone"),
+    )
+
+    landlord   = relationship("Landlord", back_populates="property_owners")
+    properties = relationship("Property", back_populates="owner")
+
+    def to_dict(self, include_properties: bool = False):
+        data = {
+            "id":          self.id,
+            "landlord_id": self.landlord_id,
+            "full_name":   self.full_name,
+            "phone":       self.phone,
+            "email":       self.email,
+            "kra_pin":     self.kra_pin,
+            "notes":       self.notes,
+            "is_active":   self.is_active,
+            "created_at":  _serialise(self.created_at),
+            "updated_at":  _serialise(self.updated_at),
+        }
+        if include_properties:
+            data["properties"] = [
+                {"id": p.id, "name": p.name}
+                for p in self.properties if not p.is_deleted
+            ]
+        return data
+
+
 class Property(SoftDeleteMixin, TimestampMixin, Base):
     """
     §4.2  A physical property.
@@ -977,11 +1253,33 @@ class Property(SoftDeleteMixin, TimestampMixin, Base):
     rent_payment_penalty = Column(Numeric(10, 2), nullable=True)
     tax_rate            = Column(Numeric(5, 2),  default=Decimal("7.50"), nullable=False)
     management_fee      = Column(Numeric(10, 2), nullable=True)
+    # A property manager's commission, as a percentage. ALWAYS computed on rent
+    # collected only (current month + arrears) — never on deposits, which are
+    # the tenant's refundable money, and never on utilities. See
+    # services/commission_service.py.
+    commission_rate     = Column(Numeric(5, 2),  nullable=True)
     owner_phone         = Column(String(20),  nullable=True)
     notes               = Column(Text,        nullable=True)
 
+    # --- KRA / eTIMS (spec §1.1, §1.2) -------------------------------------
+    # The property OWNER's PIN. On a rent invoice the seller is always the
+    # landlord who owns the block, even when a property manager collects the
+    # money — so under a PM account each property carries its own owner's PIN
+    # rather than the account holder's. Denormalised from PropertyOwner.kra_pin
+    # so a property with no owner row can still carry a PIN.
+    owner_id            = Column(Integer, ForeignKey("property_owners.id"), nullable=True, index=True)
+    kra_pin             = Column(String(11), nullable=True)
+    # The opt-in switch for this whole feature. FALSE means the property renders
+    # exactly as it did before any of this existed — no columns, no badges, no
+    # empty states. Turning it back off hides the UI but never deletes data.
+    etims_enabled       = Column(Boolean, nullable=False, server_default="false", default=False)
+    # {"show_on_receipts": bool, "show_on_statements": bool, "show_on_reports": bool}
+    # An absent key means that surface's default (True once enabled).
+    etims_display_settings = Column(JSON, nullable=False, server_default="{}", default=dict)
+
     landlord       = relationship("Landlord",       back_populates="properties")
     property_group = relationship("PropertyGroup",  back_populates="properties")
+    owner          = relationship("PropertyOwner",  back_populates="properties")
 
     units            = relationship("Unit",                    back_populates="property")
     recurring_bills  = relationship("RecurringBill",           back_populates="property",
@@ -1011,13 +1309,44 @@ class Property(SoftDeleteMixin, TimestampMixin, Base):
             "rent_payment_penalty": _serialise(self.rent_payment_penalty),
             "tax_rate":             _serialise(self.tax_rate),
             "management_fee":       _serialise(self.management_fee),
+            "commission_rate":      _serialise(self.commission_rate),
             "owner_phone":          self.owner_phone,
+            "owner_id":             self.owner_id,
+            "owner_name":           self.owner.full_name if self.owner else None,
+            "kra_pin":              self.effective_kra_pin,
+            "etims_enabled":        self.etims_enabled,
+            "etims_display_settings": {
+                surface: self.etims_shows(surface)
+                for surface in ("receipts", "statements", "reports")
+            },
             "notes":                self.notes,
             "is_deleted":           self.is_deleted,
             "deleted_at":           _serialise(self.deleted_at),
             "created_at":           _serialise(self.created_at),
             "updated_at":           _serialise(self.updated_at),
         }
+
+    # --- eTIMS helpers -----------------------------------------------------
+
+    @property
+    def effective_kra_pin(self) -> str | None:
+        """The seller PIN for this property: its own, else its owner's."""
+        return self.kra_pin or (self.owner.kra_pin if self.owner else None)
+
+    def etims_shows(self, surface: str) -> bool:
+        """
+        Whether eTIMS data may render on *surface* ("receipts" | "statements" |
+        "reports") for this property.
+
+        Always False while etims_enabled is off, so a single check here is
+        enough to keep every document byte-identical to its pre-feature layout.
+        An unset key defaults to True, because a landlord who deliberately
+        turned the feature on wants to see the numbers they typed in.
+        """
+        if not self.etims_enabled:
+            return False
+        settings = self.etims_display_settings or {}
+        return bool(settings.get(f"show_on_{surface}", True))
 
 
 class Unit(SoftDeleteMixin, TimestampMixin, Base):
@@ -1035,9 +1364,24 @@ class Unit(SoftDeleteMixin, TimestampMixin, Base):
     tax_rate    = Column(Numeric(5, 2),  nullable=True)    # null → inherit property.tax_rate
     is_occupied = Column(Boolean, default=False, nullable=False)
     notes       = Column(Text, nullable=True)
+    # The reference a tenant quotes when paying (spec §4.3). Auto-proposed as
+    # {owner prefix}-{collision-free suffix}, editable by the owner, and unique
+    # per ACCOUNT rather than per property — a PM's single paybill receives for
+    # every block at once, so two blocks sharing "A1" would be ambiguous.
+    pay_code    = Column(String(30), nullable=True, index=True)
+    # Denormalised from properties.landlord_id, purely so pay-code uniqueness
+    # can be enforced ACCOUNT-WIDE by a real database constraint — Postgres
+    # cannot put a subquery in an index expression, and per-property uniqueness
+    # would let a PM's single paybill receive an ambiguous "A1". Kept in sync by
+    # the _unit_sync_landlord_id listener below, never set by callers. Mirrors
+    # how invoices and payments already carry landlord_id alongside property_id.
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint("property_id", "name", name="uq_units_property_name"),
+        # Partial: units predating pay-codes, and soft-deleted ones, never collide.
+        Index("uq_units_account_pay_code", "landlord_id", "pay_code", unique=True,
+              postgresql_where=sa_text("pay_code IS NOT NULL AND is_deleted = false")),
     )
 
     property = relationship("Property", back_populates="units")
@@ -1050,6 +1394,8 @@ class Unit(SoftDeleteMixin, TimestampMixin, Base):
     maintenance_requests = relationship("MaintenanceRequest",  back_populates="unit")
     recurring_bills      = relationship("RecurringBill",       back_populates="unit",
                                         foreign_keys="RecurringBill.unit_id")
+    pay_code_aliases     = relationship("UnitPayCodeAlias",    back_populates="unit",
+                                        cascade="all, delete-orphan")
     manager_assignments  = relationship("ManagerAssignment",   back_populates="unit",
                                         foreign_keys="ManagerAssignment.unit_id")
 
@@ -1061,11 +1407,220 @@ class Unit(SoftDeleteMixin, TimestampMixin, Base):
             "rent_amount": _serialise(self.rent_amount),
             "tax_rate":    _serialise(self.tax_rate),
             "is_occupied": self.is_occupied,
+            "pay_code":    self.pay_code,
             "notes":       self.notes,
             "is_deleted":  self.is_deleted,
             "deleted_at":  _serialise(self.deleted_at),
             "created_at":  _serialise(self.created_at),
             "updated_at":  _serialise(self.updated_at),
+        }
+
+
+@event.listens_for(Unit, "before_insert")
+@event.listens_for(Unit, "before_update")
+def _unit_sync_landlord_id(mapper, connection, target):
+    """
+    Keep Unit.landlord_id equal to its property's owner account.
+
+    A listener rather than a caller responsibility because units are created in
+    six different places (routes, imports, demo data, three seed scripts) and a
+    single missed assignment would silently disable the account-wide pay-code
+    uniqueness constraint — the exact failure the column exists to prevent.
+    """
+    if target.property_id is None:
+        return
+    prop = getattr(target, "property", None)
+    if prop is not None and prop.landlord_id is not None:
+        target.landlord_id = prop.landlord_id
+        return
+    if target.landlord_id is None:
+        row = connection.execute(
+            sa_text("SELECT landlord_id FROM properties WHERE id = :pid"),
+            {"pid": target.property_id},
+        ).first()
+        if row is not None:
+            target.landlord_id = row[0]
+
+
+class UnitPayCodeAlias(TimestampMixin, Base):
+    """
+    A pay-code a unit USED to have (sahilpay_payment_allocation_spec.md §4.3).
+
+    Pay-codes stay editable forever, including after tenants have paid with
+    them — locking a code the moment money touches it would trap an owner with
+    a typo. The cost of that freedom is that an old code keeps arriving for
+    months: tenants have it saved in M-Pesa, written on a lease, memorised. So
+    the resolver matches the current code OR any retired alias, while reminders
+    and statements only ever quote the current one.
+    """
+    __tablename__ = "unit_pay_code_aliases"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    unit_id    = Column(Integer, ForeignKey("units.id"), nullable=False, index=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    old_code   = Column(String(30), nullable=False, index=True)
+    retired_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        # The same account must not have two units claiming one retired code,
+        # or a payment quoting it becomes ambiguous all over again.
+        UniqueConstraint("landlord_id", "old_code", name="uq_unit_pay_code_aliases_landlord_code"),
+    )
+
+    unit     = relationship("Unit", back_populates="pay_code_aliases")
+    landlord = relationship("Landlord")
+
+    def to_dict(self):
+        return {
+            "id":         self.id,
+            "unit_id":    self.unit_id,
+            "old_code":   self.old_code,
+            "retired_at": _serialise(self.retired_at),
+        }
+
+
+class InboundPaymentSource(TimestampMixin, Base):
+    """
+    One paybill / till / bank account money arrives through (spec §4.2).
+
+    Named `Inbound…` because `PaymentSource` is already taken by the enum that
+    says HOW a payment reached us (mpesa / co_pilot / manual). This is WHERE it
+    landed — the shortcode itself — which is a different question.
+
+    Layer 0 of the resolver. A property manager with a single paybill has one
+    row and it is a no-op passthrough. A landlord whose three blocks each
+    collect to a different till has three, each mapped to its property — which
+    is what lets the resolver narrow to the right block BEFORE it even looks at
+    the reference.
+
+    Deliberately NOT named after M-Pesa: a bank-to-M-Pesa or Pochi feed is the
+    same concept.
+    """
+    __tablename__ = "payment_sources"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id        = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    label              = Column(String(120), nullable=False)
+    shortcode          = Column(String(30), nullable=True, index=True)
+    # Free-text fragment matched against the parsed business name, for feeds
+    # whose SMS carries a name rather than a numeric shortcode.
+    match_pattern      = Column(String(120), nullable=True)
+    mapped_property_id = Column(Integer, ForeignKey("properties.id"), nullable=True, index=True)
+    mapped_owner_id    = Column(Integer, ForeignKey("property_owners.id"), nullable=True, index=True)
+    forwarding_phone   = Column(String(20), nullable=True)
+    is_active          = Column(Boolean, default=True, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("landlord_id", "shortcode", name="uq_payment_sources_landlord_shortcode"),
+    )
+
+    landlord        = relationship("Landlord", back_populates="payment_sources")
+    mapped_property = relationship("Property")
+    mapped_owner    = relationship("PropertyOwner")
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "landlord_id":        self.landlord_id,
+            "label":              self.label,
+            "shortcode":          self.shortcode,
+            "match_pattern":      self.match_pattern,
+            "mapped_property_id": self.mapped_property_id,
+            "mapped_property_name": self.mapped_property.name if self.mapped_property else None,
+            "mapped_owner_id":    self.mapped_owner_id,
+            "forwarding_phone":   self.forwarding_phone,
+            "is_active":          self.is_active,
+            "created_at":         _serialise(self.created_at),
+            "updated_at":         _serialise(self.updated_at),
+        }
+
+
+class CommissionRule(TimestampMixin, Base):
+    """
+    A property manager's commission, configurable at three levels (spec §4.8).
+
+    MOST SPECIFIC WINS: a unit rule beats a property rule beats a landlord
+    (account-wide) rule. That ordering exists because real agreements are
+    exactly this shape — "10% across the board, except the Westlands block at
+    8%, except penthouse A1 at a flat 15,000".
+
+    The BASE is always RENT COLLECTED ONLY — current rent plus rent arrears,
+    never deposits (the tenant's refundable money) and never utilities
+    (collected on the owner's behalf). That is a legal constraint in Kenya, not
+    a preference, so no field here can widen it.
+    """
+    __tablename__ = "commission_rules"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    scope_type  = Column(String(10), nullable=False)     # enum CommissionScopeType
+    # NULL scope_id with scope_type='landlord' means the whole account.
+    scope_id    = Column(Integer, nullable=True)
+    rate_type   = Column(String(12), nullable=False, default=CommissionRateType.percentage.value)
+    rate_value  = Column(Numeric(12, 2), nullable=False)
+    is_active   = Column(Boolean, default=True, nullable=False)
+    notes       = Column(String(255), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("landlord_id", "scope_type", "scope_id",
+                         name="uq_commission_rules_scope"),
+        CheckConstraint("rate_value >= 0", name="ck_commission_rules_non_negative"),
+        Index("ix_commission_rules_lookup", "landlord_id", "scope_type", "scope_id"),
+    )
+
+    landlord = relationship("Landlord", back_populates="commission_rules")
+
+    def to_dict(self):
+        return {
+            "id":          self.id,
+            "landlord_id": self.landlord_id,
+            "scope_type":  self.scope_type,
+            "scope_id":    self.scope_id,
+            "rate_type":   self.rate_type,
+            "rate_value":  _serialise(self.rate_value),
+            "is_active":   self.is_active,
+            "notes":       self.notes,
+            "created_at":  _serialise(self.created_at),
+            "updated_at":  _serialise(self.updated_at),
+        }
+
+
+class AllocationAudit(CreatedAtMixin, Base):
+    """
+    Append-only record of every allocate / reallocate / reverse (spec §4.11).
+
+    The spec's hard rule is "nothing is ever silently split". This table is how
+    that is provable after the fact: who or what moved the money, what the
+    allocation looked like before and after, and why. `actor_user_id` is NULL
+    when the resolver acted on its own — that is the system, not an unknown
+    person.
+    """
+    __tablename__ = "allocation_audit"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id   = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    payment_id    = Column(Integer, ForeignKey("payments.id"), nullable=False, index=True)
+    action        = Column(String(12), nullable=False)   # enum AllocationAuditAction
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    before_json   = Column(JSON, nullable=True)
+    after_json    = Column(JSON, nullable=True)
+    reason        = Column(String(255), nullable=True)
+
+    landlord = relationship("Landlord")
+    payment  = relationship("Payment")
+    actor    = relationship("User", foreign_keys=[actor_user_id])
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "landlord_id":   self.landlord_id,
+            "payment_id":    self.payment_id,
+            "action":        self.action,
+            "actor_user_id": self.actor_user_id,
+            "before":        self.before_json,
+            "after":         self.after_json,
+            "reason":        self.reason,
+            "created_at":    _serialise(self.created_at),
         }
 
 
@@ -1199,12 +1754,18 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
     move_in_date         = Column(Date, nullable=True)
     move_out_date        = Column(Date, nullable=True)
     notes                = Column(Text, nullable=True)
+    # Payment score out of 100 — how reliably this tenant has paid RENT since
+    # move-in (see services/tenant_score_service.py). NULL means "not enough
+    # history to judge", which the UI shows as "New" rather than a flattering
+    # 100. Recomputed when a payment is confirmed and nightly by Celery.
+    tenant_score            = Column(Integer, nullable=True)
+    tenant_score_updated_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("landlord_id", "account_number", name="uq_tenants_landlord_account"),
     )
 
-    user     = relationship("User",     back_populates="tenant_profile", uselist=False)
+    user     = relationship("User",     back_populates="tenant_profiles")
     landlord = relationship("Landlord", back_populates="tenants")
     unit     = relationship("Unit",     back_populates="tenants")
 
@@ -1248,11 +1809,30 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
             "move_in_date":         _serialise(self.move_in_date),
             "move_out_date":        _serialise(self.move_out_date),
             "notes":                self.notes,
+            "tenant_score":         self.tenant_score,
+            "tenant_score_label":   self._score_label(),
+            "tenant_score_updated_at": _serialise(self.tenant_score_updated_at),
             "is_deleted":           self.is_deleted,
             "deleted_at":           _serialise(self.deleted_at),
             "created_at":           _serialise(self.created_at),
             "updated_at":           _serialise(self.updated_at),
         }
+
+
+    def _score_label(self) -> str:
+        """Human reading of tenant_score — 'New' when there's no history yet."""
+        score = self.tenant_score
+        if score is None:
+            return "New"
+        if score >= 90:
+            return "Excellent"
+        if score >= 75:
+            return "Good"
+        if score >= 60:
+            return "Fair"
+        if score >= 40:
+            return "Poor"
+        return "High risk"
 
 
 class TenantUnitHistory(TimestampMixin, Base):
@@ -1451,7 +2031,7 @@ class BankStatementUpload(TimestampMixin, Base):
         }
 
 
-class Payment(SoftDeleteMixin, TimestampMixin, Base):
+class Payment(EtimsMixin, SoftDeleteMixin, TimestampMixin, Base):
     """
     §7.1  Payment received (manual / M-Pesa / Co-pilot / bank-statement).
     Soft-delete.
@@ -1479,12 +2059,33 @@ class Payment(SoftDeleteMixin, TimestampMixin, Base):
     receipt_url       = Column(String(255), nullable=True)
     proof_url         = Column(String(255), nullable=True)   # tenant-uploaded proof of payment (pending submissions)
     notes             = Column(Text, nullable=True)
+    # --- Resolver fields (sahilpay_payment_allocation_spec.md §4.1, §4.5) ----
+    # The account reference the payer actually typed, kept verbatim. This is the
+    # ONE field that reliably survives a forwarded M-Pesa SMS — payer phone is
+    # frequently masked — so it is what the resolver matches on.
+    reference_text    = Column(String(120), nullable=True, index=True)
+    source_id         = Column(Integer, ForeignKey("payment_sources.id"), nullable=True, index=True)
+    payer_phone       = Column(String(30), nullable=True)
+    # Why this payment is sitting in suspense, when it is. NULL otherwise.
+    suspense_reason   = Column(String(30), nullable=True)
+    # An arrears-first split the manager can accept in one tap or adjust. Only
+    # ever a SUGGESTION — never committed without an explicit confirmation.
+    suggested_split_json = Column(JSON, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("landlord_id", "payment_ref", name="uq_payments_landlord_ref"),
+        # An eTIMS number identifies one invoice at KRA, so it can only ever sit
+        # on one payment. Partial, because the overwhelming majority of rows
+        # have no number and must not collide with each other.
+        Index("uq_payments_etims_invoice_number", "etims_invoice_number",
+              unique=True, postgresql_where=Column("etims_invoice_number").isnot(None)),
+        # The suspense/review queue is "everything unsettled for this account",
+        # so it filters on landlord and status together.
+        Index("ix_payments_landlord_status", "landlord_id", "status"),
     )
 
     landlord       = relationship("Landlord",            back_populates="payments")
+    etims_entered_by = relationship("User", foreign_keys="Payment.etims_entered_by_user_id")
     tenant         = relationship("Tenant",              back_populates="payments")
     unit           = relationship("Unit",                back_populates="payments")
     property       = relationship("Property",            back_populates="payments")
@@ -1516,6 +2117,12 @@ class Payment(SoftDeleteMixin, TimestampMixin, Base):
             "receipt_url":       self.receipt_url,
             "proof_url":         self.proof_url,
             "notes":             self.notes,
+            "reference_text":    self.reference_text,
+            "source_id":         self.source_id,
+            "payer_phone":       self.payer_phone,
+            "suspense_reason":   self.suspense_reason,
+            "suggested_split":   self.suggested_split_json,
+            **self.etims_dict(),
             "is_deleted":        self.is_deleted,
             "deleted_at":        _serialise(self.deleted_at),
             "created_at":        _serialise(self.created_at),
@@ -1538,6 +2145,11 @@ class PaymentAllocation(TimestampMixin, Base):
     # swapped for (payment_id, line_item_id) in the phase that rewrites create_payment.
     line_item_id     = Column(Integer, ForeignKey("invoice_line_items.id"), nullable=True, index=True)
     amount_allocated = Column(Numeric(12, 2), nullable=False)
+    # Who split this shilling and how (spec §5). 'auto' is the resolver's own
+    # waterfall; 'manual' is a human in the review queue. allocated_by is NULL
+    # for auto, which is the system rather than an unknown person.
+    allocated_by     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    method           = Column(String(10), nullable=True, default="auto")
 
     __table_args__ = (
         UniqueConstraint("payment_id", "line_item_id", name="uq_payment_allocations_payment_line_item"),
@@ -1555,6 +2167,8 @@ class PaymentAllocation(TimestampMixin, Base):
             "invoice_id":       self.invoice_id,
             "line_item_id":     self.line_item_id,
             "amount_allocated": _serialise(self.amount_allocated),
+            "allocated_by":     self.allocated_by,
+            "method":           self.method,
             "created_at":       _serialise(self.created_at),
             "updated_at":       _serialise(self.updated_at),
         }
@@ -2005,6 +2619,145 @@ class Expense(SoftDeleteMixin, TimestampMixin, Base):
             "deleted_at":             _serialise(self.deleted_at),
             "created_at":             _serialise(self.created_at),
             "updated_at":             _serialise(self.updated_at),
+        }
+
+
+class OwnerPayout(EtimsMixin, TimestampMixin, Base):
+    """
+    Money a property manager has remitted to a property's owner.
+
+    A property management company collects every tenant's rent into its own
+    paybill, then pays each landlord their share. This is the record of those
+    remittances, so the property statement can close the loop:
+    net income − remitted = retained.
+
+    It is NOT an expense: a payout is the owner's own money being handed over,
+    so it must never enter expense totals, taxable income, or the commission
+    base. The property statement shows it as an informational line only.
+    """
+    __tablename__ = "owner_payouts"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id        = Column(Integer, ForeignKey("landlords.id"),  nullable=False, index=True)
+    property_id        = Column(Integer, ForeignKey("properties.id"), nullable=False, index=True)
+    amount             = Column(Numeric(12, 2), nullable=False)
+    payout_date        = Column(Date, nullable=False)
+    period             = Column(String(7),   nullable=True, index=True)   # "YYYY-MM"
+    method             = Column(String(30),  nullable=True)   # mpesa | bank | cash | other
+    reference          = Column(String(100), nullable=True)
+    notes              = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # --- Settlement ledger (sahilpay_payment_allocation_spec.md §4.10) -------
+    # Extended in place rather than replaced: the property statement's
+    # "Remitted to owner" line already reads this table, and a parallel
+    # `payouts` table would mean two competing answers to "what did we pay
+    # this owner". All columns are nullable — a payout recorded before this
+    # existed simply has `amount` and no breakdown, and still renders.
+    #
+    # Math (§4.10):
+    #   rent_collected_base = Σ rent allocations (current + arrears) in period
+    #   commission_amount   = per the most-specific commission rule
+    #   tax_amount          = 7.5% × rent_collected_base — DISPLAY unless the
+    #                         account has withholding switched on
+    #   total_collected     = every shilling for that owner; a deposit passes
+    #                         through in full and is in neither base
+    #   net_payable = total_collected − commission − other_deductions
+    #                 [− tax if withholding]
+    period_start        = Column(Date, nullable=True)
+    period_end          = Column(Date, nullable=True)
+    total_collected     = Column(Numeric(12, 2), nullable=True)
+    rent_collected_base = Column(Numeric(12, 2), nullable=True)
+    commission_amount   = Column(Numeric(12, 2), nullable=True)
+    tax_amount          = Column(Numeric(12, 2), nullable=True)
+    tax_withheld        = Column(Boolean, default=False, nullable=False, server_default="false")
+    other_deductions    = Column(Numeric(12, 2), nullable=True)
+    net_payable         = Column(Numeric(12, 2), nullable=True)
+    status              = Column(String(10), nullable=True)   # enum PayoutStatus
+    paid_at             = Column(DateTime, nullable=True)
+    owner_id            = Column(Integer, ForeignKey("property_owners.id"), nullable=True, index=True)
+
+    lines = relationship("PayoutLine", back_populates="payout",
+                         cascade="all, delete-orphan")
+    owner = relationship("PropertyOwner")
+
+    __table_args__ = (
+        Index("ix_owner_payouts_property_date", "property_id", "payout_date"),
+        # The PM's own eTIMS invoice to the owner, for the commission deducted
+        # from this payout. Same partial-unique reasoning as on payments.
+        Index("uq_owner_payouts_etims_invoice_number", "etims_invoice_number",
+              unique=True, postgresql_where=Column("etims_invoice_number").isnot(None)),
+    )
+
+    landlord = relationship("Landlord")
+    property = relationship("Property")
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "landlord_id":        self.landlord_id,
+            "property_id":        self.property_id,
+            "property_name":      self.property.name if self.property else None,
+            "amount":             _serialise(self.amount),
+            "payout_date":        _serialise(self.payout_date),
+            "period":             self.period,
+            "method":             self.method,
+            "reference":          self.reference,
+            "notes":              self.notes,
+            "created_by_user_id": self.created_by_user_id,
+            "period_start":       _serialise(self.period_start),
+            "period_end":         _serialise(self.period_end),
+            "total_collected":    _serialise(self.total_collected),
+            "rent_collected_base": _serialise(self.rent_collected_base),
+            "commission_amount":  _serialise(self.commission_amount),
+            "tax_amount":         _serialise(self.tax_amount),
+            "tax_withheld":       self.tax_withheld,
+            "other_deductions":   _serialise(self.other_deductions),
+            "net_payable":        _serialise(self.net_payable),
+            "status":             self.status,
+            "paid_at":            _serialise(self.paid_at),
+            "owner_id":           self.owner_id,
+            "owner_name":         self.owner.full_name if self.owner else None,
+            **self.etims_dict(),
+            "created_at":         _serialise(self.created_at),
+            "updated_at":         _serialise(self.updated_at),
+        }
+
+
+class PayoutLine(TimestampMixin, Base):
+    """
+    One unit's contribution to a payout (spec §4.10) — the per-unit breakdown
+    behind the totals, so a landlord's statement can answer "which unit did
+    this money come from" rather than just showing a lump sum.
+    """
+    __tablename__ = "payout_lines"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    payout_id           = Column(Integer, ForeignKey("owner_payouts.id"), nullable=False, index=True)
+    unit_id             = Column(Integer, ForeignKey("units.id"), nullable=True, index=True)
+    tenant_id           = Column(Integer, ForeignKey("tenants.id"), nullable=True, index=True)
+    rent_collected      = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    deposits_collected  = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    other_collected     = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+    commission_amount   = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
+
+    payout = relationship("OwnerPayout", back_populates="lines")
+    unit   = relationship("Unit")
+    tenant = relationship("Tenant")
+
+    def to_dict(self):
+        return {
+            "id":                 self.id,
+            "payout_id":          self.payout_id,
+            "unit_id":            self.unit_id,
+            "unit_name":          self.unit.name if self.unit else None,
+            "tenant_id":          self.tenant_id,
+            "tenant_name":        (f"{self.tenant.first_name} {self.tenant.last_name}".strip()
+                                   if self.tenant else None),
+            "rent_collected":     _serialise(self.rent_collected),
+            "deposits_collected": _serialise(self.deposits_collected),
+            "other_collected":    _serialise(self.other_collected),
+            "commission_amount":  _serialise(self.commission_amount),
         }
 
 
@@ -2553,7 +3306,7 @@ class Subscription(TimestampMixin, Base):
         }
 
 
-class BillingTransaction(TimestampMixin, Base):
+class BillingTransaction(EtimsMixin, TimestampMixin, Base):
     """
     §10.2  Ledger of payments landlord makes to the platform.
     Schema-level: sms_count >= 100 when type == 'sms_purchase'.
@@ -2589,6 +3342,13 @@ class BillingTransaction(TimestampMixin, Base):
     reversed_by_admin_id     = Column(Integer, ForeignKey("users.id"), nullable=True)
     reversal_reason          = Column(String(255), nullable=True)
 
+    __table_args__ = (
+        # SahilPay's own eTIMS invoice to the client for this subscription /
+        # SMS purchase, entered by a System Admin. Partial-unique as elsewhere.
+        Index("uq_billing_transactions_etims_invoice_number", "etims_invoice_number",
+              unique=True, postgresql_where=Column("etims_invoice_number").isnot(None)),
+    )
+
     landlord = relationship("Landlord", back_populates="billing_transactions")
 
     def to_dict(self):
@@ -2607,6 +3367,7 @@ class BillingTransaction(TimestampMixin, Base):
             "is_reversed":       self.is_reversed,
             "reversed_at":       _serialise(self.reversed_at),
             "reversal_reason":   self.reversal_reason,
+            **self.etims_dict(),
             "created_at":        _serialise(self.created_at),
             "updated_at":        _serialise(self.updated_at),
         }
@@ -2962,6 +3723,18 @@ class LandlordSettings(TimestampMixin, Base):
     sms_sender_id  = Column(String(20),  nullable=True)   # their registered alphanumeric sender ID
     sms_connected  = Column(Boolean, default=False, nullable=False)
 
+    # Which collections count as the GROSS on reports:
+    #   "all"       — every shilling collected (a landlord's own view)
+    #   "rent_only" — rent current + rent arrears, excluding deposits and
+    #                 utilities (a Kenyan property manager's commissionable base)
+    # Remembered per landlord so the choice sticks between sessions.
+    report_gross_basis = Column(String(10), default="all", nullable=False)
+
+    # Receipt layout (services/receipt_layout.py): paper size, which header
+    # component sits in which slot, density. NULL means the built-in default, so
+    # every landlord who never touches it keeps exactly the receipt they have.
+    receipt_layout_json = Column(Text, nullable=True)
+
     # Co-Pilot SMS forwarder (COPILOT_PLATFORM_SPEC.md §2.6). Enabling is the
     # landlord's consent step; auto_allocate picks confirmed+allocated vs
     # pending-review for every payment the pipeline creates; admin_locked is a
@@ -2974,6 +3747,18 @@ class LandlordSettings(TimestampMixin, Base):
     # the §2 unmatched-message body redaction. Lets support see real unrecognised
     # SMS text to author new bank/format templates, at the landlord's consent.
     copilot_retain_unmatched = Column(Boolean, default=False, nullable=False)
+
+    # --- KRA / eTIMS (spec §2.1, §4.5) --------------------------------------
+    # Account-level master switch. OFF (the default, and the state of every
+    # existing account) hides every eTIMS surface account-wide regardless of
+    # per-property flags — turning it off is a display decision, never a delete.
+    etims_enabled = Column(Boolean, default=False, nullable=False, server_default="false")
+    # The two monthly nudges, each individually mutable. They only ever fire for
+    # accounts that opted in, so defaulting them ON costs a silent account nothing.
+    etims_reminder_record_enabled = Column(Boolean, default=True, nullable=False,
+                                           server_default="true")   # ~5th: record invoices
+    etims_reminder_filing_enabled = Column(Boolean, default=True, nullable=False,
+                                           server_default="true")   # 15th: MRI due by the 20th
 
     landlord = relationship("Landlord", back_populates="landlord_settings")
 
@@ -2994,11 +3779,15 @@ class LandlordSettings(TimestampMixin, Base):
             "sms_connected":             self.sms_connected,
             "sms_api_key_set":           bool(self.sms_api_key),
             "sms_api_key_masked":        api_key_display,
+            "report_gross_basis":        self.report_gross_basis or "all",
             "copilot_enabled":           self.copilot_enabled,
             "copilot_auto_allocate":     self.copilot_auto_allocate,
             "copilot_consented_at":      _serialise(self.copilot_consented_at),
             "copilot_admin_locked":      self.copilot_admin_locked,
             "copilot_retain_unmatched":  self.copilot_retain_unmatched,
+            "etims_enabled":             self.etims_enabled,
+            "etims_reminder_record_enabled": self.etims_reminder_record_enabled,
+            "etims_reminder_filing_enabled": self.etims_reminder_filing_enabled,
             "created_at":                _serialise(self.created_at),
             "updated_at":                _serialise(self.updated_at),
         }
@@ -3018,6 +3807,10 @@ class AutomationSettings(TimestampMixin, Base):
     monthly_reminder_day             = Column(Integer, nullable=True)
     lease_expiry_notifications       = Column(Boolean, default=False, nullable=False)
     lease_expiry_range_days          = Column(Integer, default=30,    nullable=False)
+    # Property-manager automation: email every 'owner'-preset team member last
+    # month's statement for each property they can access, on owner_reports_day.
+    owner_reports_enabled            = Column(Boolean, default=False, nullable=False)
+    owner_reports_day                = Column(Integer, nullable=True)   # 1–28
 
     landlord = relationship("Landlord", back_populates="automation_settings")
 
@@ -3033,6 +3826,8 @@ class AutomationSettings(TimestampMixin, Base):
             "monthly_reminder_day":              self.monthly_reminder_day,
             "lease_expiry_notifications":        self.lease_expiry_notifications,
             "lease_expiry_range_days":           self.lease_expiry_range_days,
+            "owner_reports_enabled":             self.owner_reports_enabled,
+            "owner_reports_day":                 self.owner_reports_day,
             "created_at":                        _serialise(self.created_at),
             "updated_at":                        _serialise(self.updated_at),
         }
@@ -3347,6 +4142,198 @@ class SmsLandlordCredit(CreatedAtMixin, Base):
             "balance_after": self.balance_after,
             "reason":        self.reason,
             "created_at":    _serialise(self.created_at),
+        }
+
+
+# ===========================================================================
+# DOMAIN J — Help Content CMS, preferences & platform config
+#            (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §1.5, §2.3, §9.4)
+# ===========================================================================
+#
+# Not to be confused with client/src/features/landlord/tutorials/, which is the
+# hardcoded first-run product TOUR. These tables back the admin-authored help
+# LIBRARY: markdown articles Swalleh writes and publishes from the admin portal,
+# filtered by role, rendered read-only in every other portal.
+# ===========================================================================
+
+class TutorialCategory(TimestampMixin, Base):
+    """One shelf in the help library, e.g. "Tax Compliance (KRA & eTIMS)"."""
+    __tablename__ = "tutorial_categories"
+
+    id               = Column(Integer, primary_key=True, autoincrement=True)
+    name             = Column(String(150), nullable=False)
+    slug             = Column(String(160), nullable=False, unique=True, index=True)
+    icon             = Column(String(60), nullable=True)      # a lucide icon name
+    description      = Column(Text, nullable=True)
+    sort_order       = Column(Integer, default=0, nullable=False)
+    # JSON array of UserRole values. Empty list / null = visible to every role.
+    visible_to_roles = Column(JSON, nullable=True)
+    is_published     = Column(Boolean, default=False, nullable=False)
+
+    articles = relationship("TutorialArticle", back_populates="category",
+                            order_by="TutorialArticle.sort_order",
+                            cascade="all, delete-orphan")
+
+    def to_dict(self, article_count: int | None = None):
+        data = {
+            "id":               self.id,
+            "name":             self.name,
+            "slug":             self.slug,
+            "icon":             self.icon,
+            "description":      self.description,
+            "sort_order":       self.sort_order,
+            "visible_to_roles": self.visible_to_roles or [],
+            "is_published":     self.is_published,
+            "created_at":       _serialise(self.created_at),
+            "updated_at":       _serialise(self.updated_at),
+        }
+        if article_count is not None:
+            data["article_count"] = article_count
+        return data
+
+
+class TutorialArticle(TimestampMixin, Base):
+    """
+    One markdown help article. Bodies are authored in the admin CMS and
+    rendered through a sanitising markdown pipeline on the way out — raw HTML
+    and scripts are stripped, so an article can never inject into a portal.
+    """
+    __tablename__ = "tutorial_articles"
+
+    id                 = Column(Integer, primary_key=True, autoincrement=True)
+    category_id        = Column(Integer, ForeignKey("tutorial_categories.id"),
+                                nullable=False, index=True)
+    title              = Column(String(200), nullable=False)
+    slug               = Column(String(220), nullable=False, unique=True, index=True)
+    summary            = Column(String(400), nullable=True)
+    body_markdown      = Column(Text, nullable=True)
+    sort_order         = Column(Integer, default=0, nullable=False)
+    # null = inherit the category's audience; a list narrows it further.
+    visible_to_roles   = Column(JSON, nullable=True)
+    is_published       = Column(Boolean, default=False, nullable=False)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    category   = relationship("TutorialCategory", back_populates="articles")
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+    images     = relationship("TutorialImage", back_populates="article",
+                              order_by="TutorialImage.sort_order",
+                              cascade="all, delete-orphan")
+
+    def to_dict(self, include_body: bool = True):
+        data = {
+            "id":                 self.id,
+            "category_id":        self.category_id,
+            "category_slug":      self.category.slug if self.category else None,
+            "category_name":      self.category.name if self.category else None,
+            "title":              self.title,
+            "slug":               self.slug,
+            "summary":            self.summary,
+            "sort_order":         self.sort_order,
+            "visible_to_roles":   self.visible_to_roles,
+            "is_published":       self.is_published,
+            "updated_by_user_id": self.updated_by_user_id,
+            "created_at":         _serialise(self.created_at),
+            "updated_at":         _serialise(self.updated_at),
+        }
+        if include_body:
+            data["body_markdown"] = self.body_markdown or ""
+        return data
+
+
+class TutorialImage(TimestampMixin, Base):
+    """
+    A screenshot in the help library. `article_id` is nullable so shared images
+    can live in a general library and be reused across articles.
+
+    Uploads are downscaled and recompressed on the way in (max 1200px wide,
+    ~250KB) because these pages are read on Kenyan mobile data. Replacing an
+    image writes to the SAME file_path, so every article already referencing it
+    updates without being edited.
+    """
+    __tablename__ = "tutorial_images"
+
+    id                  = Column(Integer, primary_key=True, autoincrement=True)
+    article_id          = Column(Integer, ForeignKey("tutorial_articles.id"),
+                                 nullable=True, index=True)
+    file_path           = Column(String(500), nullable=False)
+    caption             = Column(String(300), nullable=True)
+    alt_text            = Column(String(300), nullable=True)
+    sort_order          = Column(Integer, default=0, nullable=False)
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    article     = relationship("TutorialArticle", back_populates="images")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+
+    def to_dict(self):
+        return {
+            "id":                  self.id,
+            "article_id":          self.article_id,
+            "file_path":           self.file_path,
+            "url":                 self.file_path,
+            "caption":             self.caption,
+            "alt_text":            self.alt_text,
+            "sort_order":          self.sort_order,
+            "uploaded_by_user_id": self.uploaded_by_user_id,
+            "markdown":            f"![{self.alt_text or self.caption or ''}]({self.file_path})",
+            "created_at":          _serialise(self.created_at),
+            "updated_at":          _serialise(self.updated_at),
+        }
+
+
+class UserPreference(TimestampMixin, Base):
+    """
+    A small per-user JSON scratchpad for UI stickiness that has no business
+    meaning — which report checkboxes were last ticked, which one-time nudge
+    cards have been dismissed. One row per user; the shape is owned by whoever
+    writes the key, and an unknown key simply reads back as its default.
+
+    Deliberately NOT a settings table: nothing here may change what a document
+    contains or who can see what, only what the UI remembers.
+    """
+    __tablename__ = "user_preferences"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False,
+                          unique=True, index=True)
+    preferences  = Column(JSON, nullable=False, server_default="{}", default=dict)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+    def to_dict(self):
+        return {
+            "id":          self.id,
+            "user_id":     self.user_id,
+            "preferences": self.preferences or {},
+            "updated_at":  _serialise(self.updated_at),
+        }
+
+
+class PlatformSettings(TimestampMixin, Base):
+    """
+    Single global row for platform-owner values that don't belong to any
+    landlord — following the AffiliateProgramConfig / TrialConfig pattern.
+
+    Today that is SahilPay's own KRA PIN (printed on subscription receipts when
+    set) and the eTIMS kill switch. The switch also exists as the
+    ETIMS_FEATURES_ENABLED env var; the env var wins, so a bad deploy can be
+    shut off without database access.
+    """
+    __tablename__ = "platform_settings"
+
+    id                    = Column(Integer, primary_key=True, autoincrement=True)
+    kra_pin               = Column(String(11), nullable=True)
+    legal_entity_name     = Column(String(200), nullable=True)   # e.g. "Raswal Ltd"
+    etims_features_enabled = Column(Boolean, default=True, nullable=False,
+                                    server_default="true")
+
+    def to_dict(self):
+        return {
+            "id":                     self.id,
+            "kra_pin":                self.kra_pin,
+            "legal_entity_name":      self.legal_entity_name,
+            "etims_features_enabled": self.etims_features_enabled,
+            "created_at":             _serialise(self.created_at),
+            "updated_at":             _serialise(self.updated_at),
         }
 
 

@@ -9,15 +9,22 @@ Four read-only endpoints that power §4.1 of the spec:
   /quick-actions    — data lookups for the quick-actions panel
 
 All queries are scoped to the authenticated landlord's ID (pulled
-from the JWT).  Team members reach these same endpoints; their
-property access scoping is enforced via the @scope_to_landlord
-helper that reads team_member_property_access rows.
+from the JWT).  Team members reach these same endpoints; when a member is
+restricted to specific properties, @scope_to_accessible_properties puts their
+allowed property ids on g and EVERY aggregate below filters by them — a
+caretaker who can only see one block must not read the whole portfolio's
+arrears, occupancy or tenant phone numbers off the landing page.
+
+Deliberately NOT permission-gated: the dashboard is the landing page every team
+member lands on after login, so gating it on a module would leave e.g. a
+caretaker staring at a 403. It is scoped instead, and each figure is derived
+only from properties the caller may legitimately see.
 """
 
 from datetime import datetime, date, timedelta
 from calendar import monthrange
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from flask_jwt_extended import jwt_required, get_jwt
 
 from extensions import db
@@ -25,9 +32,28 @@ from models import (
     Tenant, Invoice, InvoiceLineItem, Payment, Expense, Unit, Property,
     InvoiceStatus, PaymentStatus,
 )
-from decorators import require_landlord_or_team, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, get_current_landlord_id, scope_to_accessible_properties,
+)
 
 dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api/dashboard")
+
+
+def _accessible_property_ids():
+    """
+    The property ids the caller may see, or None for no restriction.
+    Set by @scope_to_accessible_properties; None for landlords, admins and
+    team members with property_access_all.
+    """
+    return g.get("accessible_property_ids")
+
+
+def _scope_tenants(query):
+    """Restrict a Tenant query to the caller's accessible properties."""
+    ids = _accessible_property_ids()
+    if ids is None:
+        return query
+    return query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id.in_(ids))
 
 # Charge-category ledger rules (spec §4.5): exclude synthetic credit re-applications
 # from "collected", and carried-forward b/f lines from "invoiced" (both re-present
@@ -42,6 +68,7 @@ _NOT_BF = db.func.coalesce(InvoiceLineItem.subcategory, "") != "balance"
 @dashboard_bp.route("/summary", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@scope_to_accessible_properties
 def get_summary():
     """
     Returns the four KPI cards shown at the top of the landlord dashboard:
@@ -57,19 +84,21 @@ def get_summary():
       200:
         description: Dashboard KPI summary.
     """
-    landlord_id = get_current_landlord_id()
+    landlord_id  = get_current_landlord_id()
+    property_ids = _accessible_property_ids()
 
     # ── Active tenants grouped by balance sign ────────────────────────────────
-    tenants = (
-        Tenant.query
-        .filter_by(landlord_id=landlord_id, is_deleted=False)
-        .all()
-    )
+    tenants = _scope_tenants(
+        Tenant.query.filter(
+            Tenant.landlord_id == landlord_id,
+            Tenant.is_deleted.is_(False),
+        )
+    ).all()
     total_arrears  = sum(abs(float(t.balance)) for t in tenants if t.balance < 0)
     total_advances = sum(float(t.balance)       for t in tenants if t.balance > 0)
 
     # ── Occupancy ─────────────────────────────────────────────────────────────
-    unit_totals = (
+    unit_query = (
         db.session.query(
             db.func.count(Unit.id).label("total"),
             db.func.sum(db.cast(Unit.is_occupied, db.Integer)).label("occupied"),
@@ -80,8 +109,10 @@ def get_summary():
             Property.is_deleted.is_(False),
             Unit.is_deleted.is_(False),
         )
-        .first()
     )
+    if property_ids is not None:
+        unit_query = unit_query.filter(Property.id.in_(property_ids))
+    unit_totals = unit_query.first()
     total_units    = unit_totals.total    or 0
     occupied_units = unit_totals.occupied or 0
     occupancy_pct  = round((occupied_units / total_units * 100), 1) if total_units else 0.0
@@ -90,7 +121,7 @@ def get_summary():
     today        = date.today()
     month_start  = date(today.year, today.month, 1)
 
-    payments_this_month = (
+    payments_q = (
         db.session.query(db.func.coalesce(db.func.sum(Payment.amount), 0))
         .filter(
             Payment.landlord_id == landlord_id,
@@ -99,10 +130,8 @@ def get_summary():
             Payment.payment_date >= month_start,
             _NOT_CREDIT,
         )
-        .scalar()
     )
-
-    invoices_this_month = (
+    invoices_q = (
         db.session.query(db.func.coalesce(db.func.sum(InvoiceLineItem.amount), 0))
         .join(Invoice, InvoiceLineItem.invoice_id == Invoice.id)
         .filter(
@@ -111,8 +140,13 @@ def get_summary():
             Invoice.issue_date >= month_start,
             _NOT_BF,
         )
-        .scalar()
     )
+    if property_ids is not None:
+        payments_q = payments_q.filter(Payment.property_id.in_(property_ids))
+        invoices_q = invoices_q.filter(Invoice.property_id.in_(property_ids))
+
+    payments_this_month = payments_q.scalar()
+    invoices_this_month = invoices_q.scalar()
 
     return jsonify({
         "total_arrears":          round(float(total_arrears), 2),
@@ -132,6 +166,7 @@ def get_summary():
 @dashboard_bp.route("/unpaid-tenants", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@scope_to_accessible_properties
 def get_unpaid_tenants():
     """
     Returns a list of tenants with a negative balance (arrears).
@@ -156,15 +191,21 @@ def get_unpaid_tenants():
     page     = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
 
-    query = (
-        Tenant.query
-        .filter(
+    from sqlalchemy.orm import joinedload
+
+    per_page = min(per_page, 100)
+
+    query = _scope_tenants(
+        Tenant.query.filter(
             Tenant.landlord_id == landlord_id,
             Tenant.is_deleted.is_(False),
             Tenant.balance < 0,
         )
-        .order_by(Tenant.balance.asc())
-    )
+    ).options(
+        # unit + property are read for every row below — without this the list
+        # costs 2 extra queries per tenant.
+        joinedload(Tenant.unit).joinedload(Unit.property)
+    ).order_by(Tenant.balance.asc())
 
     paginated = query.paginate(page=page, per_page=per_page, error_out=False)
 
@@ -191,6 +232,7 @@ def get_unpaid_tenants():
 @dashboard_bp.route("/performance-graph", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@scope_to_accessible_properties
 def get_performance_graph():
     """
     Returns three daily-bucketed data series for the last calendar month:
@@ -213,8 +255,9 @@ def get_performance_graph():
       200:
         description: Three data series bucketed by day.
     """
-    landlord_id = get_current_landlord_id()
-    months      = min(request.args.get("months", 1, type=int), 12)
+    landlord_id  = get_current_landlord_id()
+    property_ids = _accessible_property_ids()
+    months       = min(request.args.get("months", 1, type=int), 12)
 
     today     = date.today()
     # Start = first day of (months) months ago
@@ -226,7 +269,7 @@ def get_performance_graph():
     start_date = date(year, month, 1)
 
     # Daily sums — Payments (exclude synthetic credit re-applications)
-    payments_rows = (
+    payments_q = (
         db.session.query(
             Payment.payment_date.label("day"),
             db.func.coalesce(db.func.sum(Payment.amount), 0).label("total"),
@@ -238,12 +281,10 @@ def get_performance_graph():
             Payment.payment_date >= start_date,
             _NOT_CREDIT,
         )
-        .group_by(Payment.payment_date)
-        .all()
     )
 
     # Daily sums — Invoices (exclude carried-forward b/f lines)
-    invoice_rows = (
+    invoices_q = (
         db.session.query(
             Invoice.issue_date.label("day"),
             db.func.coalesce(db.func.sum(InvoiceLineItem.amount), 0).label("total"),
@@ -255,12 +296,10 @@ def get_performance_graph():
             Invoice.issue_date >= start_date,
             _NOT_BF,
         )
-        .group_by(Invoice.issue_date)
-        .all()
     )
 
     # Daily sums — Expenses
-    expense_rows = (
+    expenses_q = (
         db.session.query(
             Expense.expense_date.label("day"),
             db.func.coalesce(db.func.sum(Expense.amount), 0).label("total"),
@@ -270,9 +309,16 @@ def get_performance_graph():
             Expense.is_deleted.is_(False),
             Expense.expense_date >= start_date,
         )
-        .group_by(Expense.expense_date)
-        .all()
     )
+
+    if property_ids is not None:
+        payments_q = payments_q.filter(Payment.property_id.in_(property_ids))
+        invoices_q = invoices_q.filter(Invoice.property_id.in_(property_ids))
+        expenses_q = expenses_q.filter(Expense.property_id.in_(property_ids))
+
+    payments_rows = payments_q.group_by(Payment.payment_date).all()
+    invoice_rows  = invoices_q.group_by(Invoice.issue_date).all()
+    expense_rows  = expenses_q.group_by(Expense.expense_date).all()
 
     def rows_to_dict(rows):
         return {str(r.day): float(r.total) for r in rows}
@@ -292,6 +338,7 @@ def get_performance_graph():
 @dashboard_bp.route("/quick-actions", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@scope_to_accessible_properties
 def get_quick_actions():
     """
     Lightweight data lookups that power the 'Quick Actions' tab.
@@ -305,18 +352,17 @@ def get_quick_actions():
       200:
         description: Selectors and counts for quick-action forms.
     """
-    landlord_id = get_current_landlord_id()
+    landlord_id  = get_current_landlord_id()
+    property_ids = _accessible_property_ids()
 
-    properties = (
-        Property.query
-        .filter_by(landlord_id=landlord_id, is_deleted=False)
-        .order_by(Property.name)
-        .all()
-    )
+    props_q = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+    if property_ids is not None:
+        props_q = props_q.filter(Property.id.in_(property_ids))
+    properties = props_q.order_by(Property.name).all()
     property_list = [{"id": p.id, "name": p.name} for p in properties]
 
     # Vacant units — for "add tenant" shortcut
-    vacancies = (
+    vacancy_q = (
         db.session.query(db.func.count(Unit.id))
         .join(Property, Property.id == Unit.property_id)
         .filter(
@@ -325,8 +371,10 @@ def get_quick_actions():
             Unit.is_deleted.is_(False),
             Unit.is_occupied.is_(False),
         )
-        .scalar()
     )
+    if property_ids is not None:
+        vacancy_q = vacancy_q.filter(Property.id.in_(property_ids))
+    vacancies = vacancy_q.scalar()
 
     return jsonify({
         "properties":     property_list,

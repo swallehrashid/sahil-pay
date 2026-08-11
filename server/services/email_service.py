@@ -258,6 +258,45 @@ def send_statement_email(email: str, first_name: str, pdf_bytes: bytes) -> None:
     _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename="statement.pdf")
 
 
+@celery.task(name="services.email_service.send_owner_statement_email")
+def send_owner_statement_email(
+    email: str,
+    first_name: str,
+    property_name: str,
+    period_label: str,
+    company_name: str,
+    pdf_bytes: bytes,
+) -> None:
+    """
+    Celery task — emails a property owner their monthly property statement.
+
+    Sent by a property manager to the landlord who actually owns the block, so
+    the copy speaks as the management company, not as the platform.
+    """
+    subject = f"{property_name} — statement for {period_label}"
+    manager = T.escape(company_name or "Your property manager")
+    html = T.render_email(
+        heading=f"{property_name} — {period_label}",
+        intro=(
+            f"Hi {T.escape(first_name or 'there')}, here is the statement for "
+            f"<strong>{T.escape(property_name)}</strong> covering {T.escape(period_label)}. "
+            "The full breakdown — collections, expenses and net income — is attached as a PDF."
+        ),
+        blocks=[
+            T.note(
+                "You can also sign in to Sahil Pay at any time to see live figures for your property."
+            ),
+        ],
+        preheader=f"{property_name} statement for {period_label} is attached.",
+        footer_note=f"Sent by {manager} via Sahil Pay.",
+    )
+    _send_email(
+        email, subject, html,
+        pdf_bytes=pdf_bytes,
+        pdf_filename=f"{property_name} — {period_label}.pdf".replace("/", "-"),
+    )
+
+
 @celery.task(name="services.email_service.send_document_email")
 def send_document_email(
     email: str,

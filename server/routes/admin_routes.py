@@ -35,11 +35,11 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
 
 def _require_admin():
-    """Abort 403 if the caller is not a system_admin."""
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _admin_actor_id() -> int:
     return int(get_jwt_identity())
@@ -527,6 +527,24 @@ def master_audit_log():
     per_page = request.args.get("per_page", 25, type=int)
 
     query = AuditLog.query
+
+    # Demo-mode rows are NOT platform activity. Demo data lives in the real
+    # database under a hidden shadow landlord (DEMO_MODE_SPEC.md §2), so every
+    # click a landlord makes while practising writes a real audit row — with
+    # "platform" as the performer for the engine-driven billing the demo seed
+    # runs. Left unfiltered, opening the master log after any demo session shows
+    # invoices nobody issued, which reads exactly like a breach. The rows stay
+    # written (they are useful for debugging) but never surface here.
+    #
+    # ?include_demo=true is the deliberate escape hatch for support.
+    if (request.args.get("include_demo") or "").lower() not in ("1", "true", "yes"):
+        demo_landlord_ids = db.session.query(Landlord.id).filter(Landlord.is_demo.is_(True))
+        query = query.filter(
+            db.or_(
+                AuditLog.landlord_id.is_(None),
+                AuditLog.landlord_id.notin_(demo_landlord_ids),
+            )
+        )
 
     if v := request.args.get("landlord_id", type=int):
         query = query.filter(AuditLog.landlord_id == v)

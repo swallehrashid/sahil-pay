@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Plus, Wallet, Upload, Pencil, Trash2, Send, Download, ArrowRightLeft, FileBarChart, CheckCircle2 } from "lucide-react";
+import { Plus, Wallet, Upload, Pencil, Trash2, Send, Download, ArrowRightLeft, FileBarChart, CheckCircle2, Landmark } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -19,6 +19,8 @@ import RecordPaymentForm from "./RecordPaymentForm";
 import BankStatementUpload from "./BankStatementUpload";
 import ReassignTenantModal from "./ReassignTenantModal";
 import ConfirmPaymentModal from "./ConfirmPaymentModal";
+import EtimsEntryModal from "@/features/landlord/etims/EtimsEntryModal";
+import { useGetEtimsScopeQuery } from "@/features/landlord/etims/etimsApiSlice";
 import CopilotInboxTab from "./CopilotInboxTab";
 import SendReminderModal from "../communications/SendReminderModal";
 import { useGetPaymentsQuery, useGetPaymentQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
@@ -67,6 +69,11 @@ export default function PaymentsPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [reviewPayment, setReviewPayment] = useState(null);
   const [reminderTenant, setReminderTenant] = useState(null); // #4
+  // The eTIMS row action exists only for payments on a property the caller may
+  // do tax work on — so an account that never opted in sees no extra menu item.
+  const [etimsPayment, setEtimsPayment] = useState(null);
+  const { data: etimsScope } = useGetEtimsScopeQuery();
+  const etimsPropertyIds = new Set((etimsScope?.properties ?? []).map((p) => p.id));
 
   // Deep-link: a Co-pilot "review & allocate" notification carries ?review=<id>.
   // Fetch that payment and open the review modal so the notification opens the
@@ -252,6 +259,13 @@ export default function PaymentsPage() {
                         onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
                       },
                       { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
+                      ...(etimsPropertyIds.has(row.property_id)
+                        ? [{
+                            label: row.etims_invoice_number ? "Edit eTIMS invoice" : "Record eTIMS invoice",
+                            icon: <Landmark className="h-4 w-4" />,
+                            onClick: () => setEtimsPayment(row),
+                          }]
+                        : []),
                       ...(row.tenant_id
                         ? [{
                             label: "Remind tenant",
@@ -289,6 +303,7 @@ export default function PaymentsPage() {
       <ReassignTenantModal payment={reassignTarget} tenants={tenants} onClose={() => setReassignTarget(null)} />
       {reviewPayment && <ConfirmPaymentModal payment={reviewPayment} onClose={() => setReviewPayment(null)} />}
       <SendReminderModal tenant={reminderTenant} onClose={() => setReminderTenant(null)} />
+      <EtimsEntryModal record={etimsPayment} kind="payment" onClose={() => setEtimsPayment(null)} />
 
       <ConfirmDialog
         isOpen={Boolean(pendingDelete)}

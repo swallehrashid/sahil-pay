@@ -56,11 +56,77 @@ def _read_file_bytes(file_obj, filename: str | None, content_type: str | None):
     return data, _sanitize_filename(resolved_name), resolved_type
 
 
+# --- Upload policy -----------------------------------------------------------
+# An allowlist, not a blocklist: anything not named here is refused. The risk
+# being closed is a file that a browser will EXECUTE — an .html or .svg served
+# from our own origin runs script with our cookies, and a stored .php or .py is
+# a foothold if the storage directory is ever served by an interpreter.
+#
+# Sizes are in bytes and are enforced after reading, because a client-supplied
+# Content-Length cannot be trusted.
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024        # hard ceiling for any upload
+
+UPLOAD_PROFILES: dict[str, dict] = {
+    # profile      allowed extensions                     max bytes
+    "image":     {"ext": {"png", "jpg", "jpeg", "webp"},   "max": 5 * 1024 * 1024},
+    "document":  {"ext": {"pdf", "png", "jpg", "jpeg", "webp"}, "max": 10 * 1024 * 1024},
+    "statement": {"ext": {"pdf", "csv", "xls", "xlsx"},    "max": 20 * 1024 * 1024},
+    "any":       {"ext": None,                             "max": MAX_UPLOAD_BYTES},
+}
+
+# Never stored, whatever the profile: these are executable in some context.
+FORBIDDEN_EXTENSIONS = {
+    "html", "htm", "xhtml", "svg", "js", "mjs", "php", "phtml", "py", "rb",
+    "sh", "bash", "exe", "dll", "bat", "cmd", "com", "jar", "war", "cgi",
+    "pl", "asp", "aspx", "jsp", "htaccess",
+}
+
+
+def _extension_of(name: str) -> str:
+    return name.rsplit(".", 1)[-1].lower() if "." in name else ""
+
+
+def validate_upload(data: bytes, safe_name: str, profile: str = "any") -> None:
+    """
+    Enforce the size and extension policy for *profile*. Raises ApiError(400).
+
+    Called by upload_to_s3 for every upload, so no caller can skip it by
+    forgetting — the check lives at the chokepoint, not at the call sites.
+    """
+    spec = UPLOAD_PROFILES.get(profile, UPLOAD_PROFILES["any"])
+    extension = _extension_of(safe_name)
+
+    if extension in FORBIDDEN_EXTENSIONS:
+        raise ApiError(
+            f"'.{extension}' files cannot be uploaded.",
+            status=400, code="forbidden_file_type",
+        )
+
+    allowed = spec["ext"]
+    if allowed is not None and extension not in allowed:
+        raise ApiError(
+            f"Unsupported file type '.{extension or 'unknown'}'. "
+            f"Allowed: {', '.join(sorted(allowed))}.",
+            status=400, code="invalid_file_type",
+        )
+
+    limit = min(spec["max"], MAX_UPLOAD_BYTES)
+    if len(data) > limit:
+        raise ApiError(
+            f"File is too large ({len(data) / 1024 / 1024:.1f} MB). "
+            f"The limit is {limit // 1024 // 1024} MB.",
+            status=400, code="file_too_large",
+        )
+    if not data:
+        raise ApiError("The uploaded file is empty.", status=400, code="empty_file")
+
+
 def upload_to_s3(
     file,
     folder: str,
     filename: str | None = None,
     content_type: str | None = None,
+    profile: str = "any",
 ) -> str:
     """
     Upload *file* under *folder* and return a public URL.
@@ -71,8 +137,11 @@ def upload_to_s3(
     folder       : S3 "directory" prefix, e.g. "documents/12".
     filename     : optional override; defaults to the upload's own filename.
     content_type : optional MIME type override.
+    profile      : upload policy to enforce — see UPLOAD_PROFILES
+                   ("image", "document", "statement", or "any").
     """
     data, safe_name, resolved_type = _read_file_bytes(file, filename, content_type)
+    validate_upload(data, safe_name, profile)
     key = f"{folder.strip('/')}/{secrets.token_hex(4)}_{safe_name}"
 
     bucket = current_app.config.get("S3_BUCKET")

@@ -29,10 +29,11 @@ admin_affiliate_bp = Blueprint("admin_affiliate", __name__, url_prefix="/api/adm
 
 
 def _require_admin():
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _admin_actor_id() -> int:
     return int(get_jwt_identity())

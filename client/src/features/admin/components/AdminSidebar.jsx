@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, Building2, Home, Layers, Users, UserCog, Tags, MessageSquare, Clock, ShieldCheck, FileSearch, Bell, LogOut, Handshake, Smartphone, Receipt } from "lucide-react";
+import { LayoutDashboard, Building2, Home, Layers, Users, UserCog, Tags, MessageSquare, Clock, ShieldCheck, FileSearch, Bell, LogOut, Handshake, Smartphone, Receipt, BookOpen } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import SahilPayLogo from "@/components/branding/SahilPayLogo";
 import { ADMIN_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: ADMIN_ROUTES.sms, label: "SMS", icon: <MessageSquare className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.billing, label: "Billing", icon: <Receipt className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.copilot, label: "Co-pilot", icon: <Smartphone className="h-4 w-4" /> },
+  { to: ADMIN_ROUTES.helpContent, label: "Help Content", icon: <BookOpen className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.trials, label: "Trials", icon: <Clock className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.impersonation, label: "Client Support", icon: <ShieldCheck className="h-4 w-4" /> },
   { to: ADMIN_ROUTES.audit, label: "Master Audit", icon: <FileSearch className="h-4 w-4" /> },
