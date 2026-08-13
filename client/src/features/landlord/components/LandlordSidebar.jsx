@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Receipt,
   Wallet,
+  Send,
   ReceiptText,
   Users,
   Building2,
@@ -19,11 +20,15 @@ import {
   Settings as SettingsIcon,
   LogOut,
   FlaskConical,
+  Landmark,
+  FileSpreadsheet,
+  AlertCircle,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { LANDLORD_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
 import { useAuth } from "@/hooks/useAuth";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { useGetEtimsScopeQuery } from "@/features/landlord/etims/etimsApiSlice";
 import { useDemoMode } from "@/features/landlord/useDemoMode";
 import DemoModeEnterDialog from "@/features/landlord/components/DemoModeEnterDialog";
 
@@ -31,6 +36,12 @@ const NAV_ITEMS = [
   { to: LANDLORD_ROUTES.dashboard, label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, end: true, dataTour: ANCHORS.sidebar.dashboard },
   { to: LANDLORD_ROUTES.invoices, label: "Invoices", icon: <Receipt className="h-4 w-4" />, dataTour: ANCHORS.sidebar.invoices },
   { to: LANDLORD_ROUTES.payments, label: "Payments", icon: <Wallet className="h-4 w-4" />, dataTour: ANCHORS.sidebar.payments },
+  // Money that arrived but couldn't be attributed with certainty. Sits next to
+  // Payments because that is where someone looks when a tenant says they paid.
+  { to: LANDLORD_ROUTES.reviewQueue, label: "Review queue", icon: <AlertCircle className="h-4 w-4" /> },
+  // Property managers remit collections to each owner; landlords running
+  // their own blocks simply never use it.
+  { to: LANDLORD_ROUTES.ownerPayouts, label: "Owner payouts", icon: <Send className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.expenses, label: "Expenses", icon: <ReceiptText className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.tenants, label: "Tenants", icon: <Users className="h-4 w-4" />, dataTour: ANCHORS.sidebar.tenants },
   { to: LANDLORD_ROUTES.properties, label: "Properties", icon: <Building2 className="h-4 w-4" />, dataTour: ANCHORS.sidebar.properties },
@@ -46,11 +57,27 @@ const NAV_ITEMS = [
   { to: LANDLORD_ROUTES.settings.root, label: "Settings", icon: <SettingsIcon className="h-4 w-4" />, dataTour: ANCHORS.sidebar.settings },
 ];
 
+// Shown ONLY when at least one in-scope property has eTIMS switched on
+// (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §4.2). Not greyed out, not shown with
+// a "set this up" hint — an account that hasn't opted in simply doesn't have
+// these links.
+const ETIMS_NAV_ITEMS = [
+  { to: LANDLORD_ROUTES.etimsRegister, label: "eTIMS Register", icon: <Landmark className="h-4 w-4" /> },
+  { to: LANDLORD_ROUTES.kraMonthly, label: "KRA Monthly Report", icon: <FileSpreadsheet className="h-4 w-4" /> },
+];
+
 export default function LandlordSidebar({ isMobileOpen, onCloseMobile }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { isActive: isDemoActive, enter, exit, isEntering, isExiting } = useDemoMode();
   const [showEnterConfirm, setShowEnterConfirm] = useState(false);
+  const { data: etimsScope } = useGetEtimsScopeQuery();
+
+  // Insert the two eTIMS links just above Settings, so they sit with the other
+  // reporting tools rather than at the bottom of the list.
+  const items = etimsScope?.enabled
+    ? [...NAV_ITEMS.slice(0, -1), ...ETIMS_NAV_ITEMS, NAV_ITEMS[NAV_ITEMS.length - 1]]
+    : NAV_ITEMS;
 
   const handleLogout = () => {
     logout();
@@ -60,7 +87,7 @@ export default function LandlordSidebar({ isMobileOpen, onCloseMobile }) {
   return (
     <>
       <Sidebar
-        items={NAV_ITEMS}
+        items={items}
         isMobileOpen={isMobileOpen}
         onCloseMobile={onCloseMobile}
         footer={

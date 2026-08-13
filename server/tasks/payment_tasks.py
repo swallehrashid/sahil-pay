@@ -122,3 +122,30 @@ def _looks_like_csv(data: bytes) -> bool:
     except Exception:
         return False
     return "," in sample and "\n" in sample
+
+
+@celery.task(name="tasks.payment_tasks.refresh_all_tenant_scores")
+def refresh_all_tenant_scores() -> dict:
+    """
+    Celery Beat (nightly): recompute every active tenant's payment score.
+
+    Payment-time refreshes (services/allocation_service.apply_allocations) keep
+    scores live during the day, but a month rolling over changes a score with no
+    payment involved — a tenant who simply never paid last month must start
+    counting as unpaid. This is that backstop.
+
+    Demo shadow landlords are skipped (DEMO_MODE_SPEC.md §3.4).
+    """
+    from models import Landlord
+    from services.tenant_score_service import refresh_scores_for_landlord
+
+    totals = {"landlords": 0, "tenants": 0, "errors": 0}
+    for landlord in Landlord.query.filter(Landlord.is_demo.is_(False)).all():
+        totals["landlords"] += 1
+        try:
+            totals["tenants"] += refresh_scores_for_landlord(landlord.id)
+        except Exception:
+            totals["errors"] += 1
+            logger.exception("refresh_all_tenant_scores failed for landlord %s", landlord.id)
+    logger.info("refresh_all_tenant_scores: %s", totals)
+    return totals

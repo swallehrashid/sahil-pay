@@ -102,6 +102,18 @@ TEMPLATES = {
         "title": "New Co-pilot device paired",
         "body": "\"{device_name}\" was just paired to your Co-pilot agent code. If this wasn't you, revoke it in Settings → Co-pilot.",
     },
+    # ---- KRA / eTIMS monthly nudges (ETIMS spec §4.5) --------------------
+    # Informational tone only. These fire ONLY for accounts that opted in, and
+    # each is individually mutable in Tax Compliance settings. Neither may
+    # imply the landlord is late, missing something, or non-compliant.
+    "etims_record_invoices": {
+        "title": "Record this month's eTIMS invoices",
+        "body": "Rent has started coming in — you can record this month's eTIMS invoices in your eTIMS Register.",
+    },
+    "mri_filing_due": {
+        "title": "Monthly Rental Income due by the 20th",
+        "body": "Monthly Rental Income (7.5%) for {period} is due at KRA by the 20th. Your KRA Monthly Report is ready in Reports.",
+    },
 }
 
 # #11 — the subset of TEMPLATES a landlord/team member may send, split by audience.

@@ -17,6 +17,7 @@ const EMPTY_FORM = {
   rent_payment_penalty: "",
   tax_rate: String(DEFAULT_TAX_RATE),
   management_fee: "",
+  commission_rate: "",
   owner_phone: "",
   notes: "",
 };
@@ -70,6 +71,14 @@ export default function PropertyForm({ initialValues, onSubmit, onCancel, isSubm
       <div className="grid grid-cols-2 gap-4">
         <Input label="Tax rate (%)" type="number" step="0.01" value={form.tax_rate} onChange={update("tax_rate")} />
         <Input label="Management fee" type="number" step="0.01" value={form.management_fee} onChange={update("management_fee")} hint="Mainly PM accounts" />
+        <Input
+          label="Commission rate (%)"
+          type="number"
+          step="0.01"
+          value={form.commission_rate}
+          onChange={update("commission_rate")}
+          hint="Charged on rent collected only — never on deposits"
+        />
       </div>
       <Input label="Owner phone" value={form.owner_phone} onChange={update("owner_phone")} />
       <Textarea label="Notes" value={form.notes} onChange={update("notes")} hint="Instructions" />

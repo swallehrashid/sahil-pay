@@ -196,9 +196,25 @@ def build_receipt(payment) -> dict:
                     deposit_paid_total += _f(li.amount_paid)
         deposit_paid_total -= _f(getattr(tenant, "deposit_returned", 0))
 
+    # eTIMS details for the on-screen receipt (§3.1). The key is present ONLY
+    # when the property opted in, kept receipts on, and a number was recorded —
+    # so the UI has nothing to render an empty state from, which is the point.
+    etims = None
+    if (property is not None and property.etims_shows("receipts")
+            and payment.etims_invoice_number):
+        etims = {
+            "invoice_number": payment.etims_invoice_number,
+            "issued_at":      (payment.etims_issued_at.isoformat()
+                               if payment.etims_issued_at else None),
+            "qr_url":         payment.etims_qr_url,
+            "seller_kra_pin": property.effective_kra_pin,
+            "buyer_kra_pin":  getattr(tenant, "kra_pin", None) if tenant else None,
+        }
+
     return {
         "payment_ref":    payment.payment_ref,
         "payment_date":   str(payment.payment_date) if payment.payment_date else None,
+        "etims":          etims,
         "status":         payment.status,
         "method":         payment.payment_method or payment.source,
         "reference":      payment.mpesa_reference or payment.till_number or payment.payment_ref,
@@ -250,11 +266,21 @@ def _section_html(title: str, rows: list, currency: str) -> str:
     )
 
 
-def render_receipt_pdf(payment) -> bytes:
-    """Branded receipt PDF — same letterhead/signature as landlord reports."""
+def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
+    """
+    Branded receipt PDF.
+
+    `layout` is the landlord's chosen receipt layout (paper size, header slot
+    arrangement, density) — see services/receipt_layout.py. Omitted, it is read
+    from their settings; a landlord who has never touched the screen gets the
+    original A4 receipt unchanged.
+    """
+    from services import receipt_layout as rl
+
     data     = build_receipt(payment)
     landlord = payment.landlord
     currency = data["currency"]
+    layout   = rl.normalise(layout) if layout is not None else rl.for_landlord(landlord)
 
     subject_bits = [b for b in [data.get("tenant_name"), data.get("unit_name"), data.get("property_name")] if b]
     meta = build_meta(
@@ -300,10 +326,123 @@ def render_receipt_pdf(payment) -> bytes:
         "</tbody></table>"
     )
 
-    body = (
-        f"{_letterhead_html(meta)}{info}{sections_html}{totals}"
+    # The landlord's own header arrangement replaces the shared report
+    # letterhead; sections they've switched off are simply not drawn.
+    sections_on = layout.get("sections", {})
+    # These rows are already inside `totals`, so hiding one means removing it
+    # from the built string rather than blanking the variable it came from.
+    if not sections_on.get("deposits", True) and deposit_held_row:
+        totals = totals.replace(deposit_held_row, "", 1)
+    if not sections_on.get("balance", True):
+        balance_row = (
+            f"<tr class='total-row'><td>Balance remaining</td>"
+            f"<td class='right'>{_money(data['balance_remaining'], currency)}</td></tr>"
+        )
+        totals = totals.replace(balance_row, "", 1)
+
+    signature = _signature_html(meta) if sections_on.get("signature", True) else ""
+    thanks = (
         "<p class='muted'>Thank you for your payment.</p>"
-        f"{_signature_html(meta)}{_platform_credit_html()}"
+        if sections_on.get("notes", True) else ""
     )
-    html = f"<!doctype html><html><head><meta charset='utf-8'>{_REPORT_STYLE}</head><body>{body}</body></html>"
+
+    # eTIMS block (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §3.1). Returns "" —
+    # and so changes this receipt not at all — unless the property opted in,
+    # kept receipts switched on, AND this payment carries a recorded number.
+    # A payment without one produces no block, no placeholder and no "pending"
+    # marker, even on an eTIMS-enabled property.
+    from services.etims_pdf import receipt_block_html
+    etims_block = receipt_block_html(payment, payment.property, payment.tenant)
+
+    body = (
+        f"{rl.header_html(layout, meta)}{info}{sections_html}{totals}"
+        f"{thanks}{etims_block}{signature}{_platform_credit_html()}"
+    )
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"{_REPORT_STYLE}<style>{rl.page_css(layout)}</style>"
+        f"</head><body>{body}</body></html>"
+    )
+    return render_pdf(html)
+
+
+# ---------------------------------------------------------------------------
+# Layout preview
+# ---------------------------------------------------------------------------
+
+def render_sample_receipt_pdf(landlord, layout: dict) -> bytes:
+    """
+    A receipt built from FAKE data, so the layout editor can show the real paper
+    size and header arrangement without needing a real payment to point at — a
+    landlord setting this up on day one has no payments yet.
+
+    Deliberately obvious sample values: nobody should mistake a preview for a
+    document they can hand to a tenant.
+    """
+    from services import receipt_layout as rl
+    from services.report_builder import build_meta
+
+    layout = rl.normalise(layout)
+    currency = getattr(landlord, "currency", "KES") or "KES"
+
+    meta = build_meta(
+        landlord,
+        report_title="Payment Receipt",
+        subject="SAMPLE — Jane Wanjiku · Unit A1",
+        property_name="Sunrise Apartments",
+    )
+    meta["phone"] = getattr(landlord, "mpesa_number", None)
+
+    info = (
+        "<table class='kv'><tbody>"
+        "<tr><td>Receipt no.</td><td class='right'>SAMPLE-0001</td></tr>"
+        "<tr><td>Date</td><td class='right'>"
+        f"{date.today().isoformat()}</td></tr>"
+        "<tr><td>Received from</td><td class='right'>Jane Wanjiku</td></tr>"
+        "<tr><td>Method</td><td class='right'>M-Pesa</td></tr>"
+        "<tr><td>Reference</td><td class='right'>SGH7X2K9QP</td></tr>"
+        "</tbody></table>"
+    )
+
+    def rows(title, items):
+        body = "".join(
+            f"<tr><td>{escape(label)}</td><td class='right'>{_money(amount, currency)}</td></tr>"
+            for label, amount in items
+        )
+        return f"<h2>{escape(title)}</h2><table class='kv'><tbody>{body}</tbody></table>"
+
+    sections = rows("Rent", [("Rent — this month", 25000)])
+    sections += rows("Utilities", [("Water", 1200), ("Garbage", 300)])
+    if layout["sections"].get("deposits", True):
+        sections += rows("Deposits", [("Security deposit (held)", 25000)])
+
+    totals_rows = (
+        "<tr><td>Total amount due</td><td class='right'>"
+        f"{_money(26500, currency)}</td></tr>"
+        "<tr class='total-row'><td>Amount paid (this receipt)</td>"
+        f"<td class='right'>{_money(26500, currency)}</td></tr>"
+    )
+    if layout["sections"].get("balance", True):
+        totals_rows += (
+            "<tr class='total-row'><td>Balance remaining</td>"
+            f"<td class='right'>{_money(0, currency)}</td></tr>"
+        )
+    totals = f"<h2>Summary</h2><table class='kv'><tbody>{totals_rows}</tbody></table>"
+
+    thanks = (
+        "<p class='muted'>Thank you for your payment.</p>"
+        if layout["sections"].get("notes", True) else ""
+    )
+    signature = _signature_html(meta) if layout["sections"].get("signature", True) else ""
+
+    body = (
+        f"{rl.header_html(layout, meta)}"
+        "<p class='muted'><strong>SAMPLE RECEIPT — not a real payment.</strong></p>"
+        f"{info}{sections}{totals}{thanks}{signature}{_platform_credit_html()}"
+    )
+    html = (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"{_REPORT_STYLE}<style>{rl.page_css(layout)}</style>"
+        f"</head><body>{body}</body></html>"
+    )
     return render_pdf(html)

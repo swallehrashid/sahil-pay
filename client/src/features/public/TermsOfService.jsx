@@ -1,4 +1,13 @@
+import { useSeo } from "./useSeo";
+
 export default function TermsOfService() {
+  useSeo({
+    title: "Terms of Service — Sahil Pay",
+    description:
+      "The terms governing use of the Sahil Pay rental and property management platform.",
+    path: "/terms",
+  });
+
   return (
     <section className="mx-auto max-w-3xl px-6 py-24">
       <h1 className="animate-fade-in-up text-3xl font-light text-white">Terms of Service</h1>

@@ -5,7 +5,9 @@ import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
-import { useGetPortalDashboardQuery } from "./tenantPortalApiSlice";
+import { useGetPortalDashboardQuery, useGetPortalScoreQuery } from "./tenantPortalApiSlice";
+import UnitSwitcher from "./components/UnitSwitcher";
+import { TenantScoreDial } from "@/components/ui/TenantScoreBadge";
 import { formatCurrency, formatBalance } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { TENANT_ROUTES } from "@/config/routePaths";
@@ -15,6 +17,7 @@ import { TENANT_ROUTES } from "@/config/routePaths";
 // each charge came from. Numbers are the same source used by reminder comms.
 export default function TenantDashboard() {
   const { data, isLoading } = useGetPortalDashboardQuery();
+  const { data: score } = useGetPortalScoreQuery();
   const openInvoices = data?.open_invoices ?? [];
   const items = data?.breakdown_items ?? [];
   const totalDue = data?.total_due ?? 0;
@@ -50,6 +53,9 @@ export default function TenantDashboard() {
 
   return (
     <div className="animate-fade-in-up space-y-6">
+      {/* Only renders for someone renting more than one unit. */}
+      <UnitSwitcher className="sm:max-w-md" />
+
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-light tracking-wide text-white">
@@ -74,6 +80,45 @@ export default function TenantDashboard() {
           <SummaryCard label="Rent due" value={formatCurrency(data?.rent_due)} icon={<Receipt className="h-5 w-5" />} accent="third" />
           <SummaryCard label="Utilities due" value={formatCurrency(data?.utility_due)} icon={<Droplets className="h-5 w-5" />} accent="third" />
           <SummaryCard label="Deposits held" value={formatCurrency(depositsHeld)} icon={<ShieldCheck className="h-5 w-5" />} accent="third" />
+        </div>
+      )}
+
+      {/* Payment score — shown to the tenant deliberately: it is their record,
+          and the clearest possible reason to pay in the first five days. */}
+      {score && (
+        <div className="glass flex flex-col items-center gap-6 p-6 sm:flex-row sm:items-center">
+          <TenantScoreDial score={score.score} />
+          <div className="min-w-0 flex-1 text-center sm:text-left">
+            <h2 className="text-lg font-light tracking-wide text-white">
+              Your payment score
+            </h2>
+            {score.score === null ? (
+              <p className="mt-1.5 text-sm leading-relaxed text-white/55">
+                You'll get a score once you've been with us a couple of months.
+                Paying within the first 5 days of each month starts it at 100.
+              </p>
+            ) : (
+              <>
+                <p className="mt-1.5 text-sm leading-relaxed text-white/55">
+                  Based on {score.months_counted} month
+                  {score.months_counted === 1 ? "" : "s"} of rent payments.
+                </p>
+                <div className="mt-3 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm sm:justify-start">
+                  <span className="text-white/50">
+                    Paid on time:{" "}
+                    <strong className="text-white/85">{score.on_time_rate}%</strong>
+                  </span>
+                  {score.avg_pay_day != null && (
+                    <span className="text-white/50">
+                      Usually pays on day{" "}
+                      <strong className="text-white/85">{score.avg_pay_day}</strong>
+                    </span>
+                  )}
+                </div>
+                <p className="mt-3 text-xs text-white/40">{score.guidance}</p>
+              </>
+            )}
+          </div>
         </div>
       )}
 

@@ -11,8 +11,16 @@ import Reveal from "./components/Reveal";
 import { FeatureCard } from "./components/pieces";
 import { useGetPublicAffiliateProgramQuery } from "./publicApiSlice";
 import { useRegisterAffiliateMutation } from "@/features/affiliate/affiliateApiSlice";
+import { useSeo } from "./useSeo";
 
 export default function AffiliateSignup() {
+  useSeo({
+    title: "Become an Affiliate — Earn Recurring Commission | Sahil Pay",
+    description:
+      "Refer landlords and property managers to Sahil Pay and earn recurring commission on every subscription they pay. Free to join.",
+    path: "/become-affiliate",
+  });
+
   const { data: program, isLoading: isLoadingProgram } = useGetPublicAffiliateProgramQuery();
   const [registerAffiliate, { isLoading }] = useRegisterAffiliateMutation();
   const [form, setForm] = useState({ full_name: "", email: "", phone: "", password: "" });

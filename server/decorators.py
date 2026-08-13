@@ -18,16 +18,49 @@ Every route applies these AFTER @jwt_required():
 from __future__ import annotations
 
 from utils import (
-    ApiError, current_landlord_id, get_jwt_user, require_permission, require_role,
-    scope_to_accessible_properties,
+    ApiError, accessible_property_ids, current_landlord_id, get_jwt_user,
+    require_permission, require_role, scope_to_accessible_properties,
 )
+
+def require_system_admin():
+    """
+    The single admin gate: system_admin role AND an active second factor.
+
+    An admin can reach every landlord's money and every tenant's personal data,
+    so a password alone is not an acceptable guard on that account. Enforced
+    here rather than in each admin blueprint's own copy, so there is exactly one
+    place the rule can be relaxed by accident.
+
+    An admin who has not enrolled yet is refused with `2fa_required`, which the
+    frontend turns into the enrolment screen — they can still reach
+    /api/auth/2fa/* to set it up, and nothing else.
+    """
+    from flask import abort
+    from flask_jwt_extended import get_jwt
+
+    from models import UserRole
+
+    claims = get_jwt()
+    if claims.get("role") != UserRole.system_admin.value:
+        abort(403, description="System Admin access required.")
+
+    user = get_jwt_user()
+    if not user.totp_enabled:
+        raise ApiError(
+            "Set up two-factor authentication to use the admin portal.",
+            status=403,
+            code="2fa_required",
+        )
+
 
 __all__ = [
     "require_landlord_or_team",
+    "require_system_admin",
     "require_permission",
     "get_current_landlord_id",
     "_check_permission",
     "scope_to_accessible_properties",
+    "accessible_property_ids",
     "require_affiliate",
     "get_current_affiliate_id",
 ]

@@ -4,6 +4,8 @@ import Select from "@/components/ui/Select";
 import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
 import PermissionMatrix from "./PermissionMatrix";
+import RolePresetPicker from "./RolePresetPicker";
+import TaxCompliancePermissions from "./TaxCompliancePermissions";
 import { TEAM_MEMBER_ROLES, PERMISSION_MODULES } from "@/utils/constants";
 import { isRequired, isValidEmail } from "@/utils/validators";
 
@@ -20,6 +22,7 @@ export default function TeamMemberForm({ initialValues, properties = [], onSubmi
     last_name: "",
     phone: "",
     role: "viewer",
+    preset: "",
     property_access_all: true,
     property_ids: [],
     ...initialValues,
@@ -28,6 +31,29 @@ export default function TeamMemberForm({ initialValues, properties = [], onSubmi
   const [errors, setErrors] = useState({});
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  /**
+   * Applying a preset FILLS IN the matrix below — it does not lock it. Every
+   * module and every property stays editable afterwards, which is the point:
+   * the preset saves the landlord ticking twelve boxes for the hundredth owner
+   * login, and then they tighten anything they want.
+   *
+   * An owner preset forces a specific-properties scope: an owner who could see
+   * every property would be reading the other landlords' books.
+   */
+  const applyPreset = (preset) => {
+    const next = defaultPermissions();
+    for (const row of preset.permissions) {
+      next[row.module] = { can_view: row.can_view, can_edit: row.can_edit };
+    }
+    setPermissions(next);
+    setForm((f) => ({
+      ...f,
+      preset: preset.key,
+      role: preset.role ?? f.role,
+      property_access_all: preset.scope === "specific" ? false : f.property_access_all,
+    }));
+  };
 
   const toggleProperty = (id) => {
     setForm((f) => ({
@@ -48,6 +74,16 @@ export default function TeamMemberForm({ initialValues, properties = [], onSubmi
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Presets only when creating — changing an existing member's role
+          shouldn't silently rewrite permissions somebody hand-tuned. */}
+      {!initialValues?.id && (
+        <RolePresetPicker
+          value={form.preset}
+          onChange={applyPreset}
+          className="border-b border-white/10 pb-5"
+        />
+      )}
+
       <div className="grid grid-cols-2 gap-4">
         <Input label="Username" value={form.username} onChange={update("username")} error={errors.username} required />
         <Input label="Email" type="email" value={form.email} onChange={update("email")} error={errors.email} required />
@@ -86,6 +122,14 @@ export default function TeamMemberForm({ initialValues, properties = [], onSubmi
         <p className="mb-3 text-xs font-medium uppercase tracking-wide text-white/40">Permissions</p>
         <PermissionMatrix permissions={permissions} onChange={setPermissions} />
       </div>
+
+      {/* Per-property tax-compliance grants. Saves on its own button rather
+          than with the form, because a grant needs a saved member id — and it
+          renders nothing at all unless the account has opted into eTIMS. */}
+      <TaxCompliancePermissions
+        memberId={initialValues?.id}
+        memberName={form.first_name || form.username}
+      />
 
       <div className="flex justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>

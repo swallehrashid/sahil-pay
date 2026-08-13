@@ -43,7 +43,7 @@ from models import (
     Landlord, BillingTransaction, SubscriptionPlan,
     BillingTransactionType, BillingTransactionStatus,
 )
-from decorators import require_landlord_or_team, get_current_landlord_id
+from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service import record_audit
 from services import billing_service, daraja_service
 from services.daraja_service import DarajaError, normalize_msisdn
@@ -87,6 +87,7 @@ def _sms_unit_price(landlord: Landlord) -> Decimal:
 @billing_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "view")
 def get_billing_summary():
     """
     Return the landlord's current billing plan details:
@@ -141,6 +142,7 @@ def get_billing_summary():
 @billing_bp.route("/pay-subscription", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def pay_subscription():
     """
     LEGACY self-reported subscription payment — the Daraja-outage escape
@@ -231,6 +233,7 @@ def pay_subscription():
 @billing_bp.route("/pay-subscription/stk", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def pay_subscription_stk():
     """
     Verified subscription payment — Daraja STK Push to Sahil's OWN paybill
@@ -378,6 +381,7 @@ def pay_subscription_stk():
 @billing_bp.route("/transactions/<int:txn_id>/status", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "view")
 def transaction_status(txn_id):
     """
     Poll a pending transaction's verification status — used by the client
@@ -404,6 +408,7 @@ def transaction_status(txn_id):
 @billing_bp.route("/buy-sms", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def buy_sms():
     """
     LEGACY self-reported SMS credit purchase — the Daraja-outage escape
@@ -472,6 +477,7 @@ def buy_sms():
 @billing_bp.route("/buy-sms/stk", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def buy_sms_stk():
     """
     Verified SMS credit purchase — Daraja STK Push to Sahil's OWN paybill.
@@ -597,6 +603,7 @@ def buy_sms_stk():
 @billing_bp.route("/transactions", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "view")
 def list_transactions():
     """
     Return all billing transactions (subscription payments + SMS purchases).
@@ -634,6 +641,7 @@ def list_transactions():
 @billing_bp.route("/tax-invoice", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def generate_tax_invoice():
     """
     Generate a platform-fee tax invoice (PDF) for a specific BillingTransaction.

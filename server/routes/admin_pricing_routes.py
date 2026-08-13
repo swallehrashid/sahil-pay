@@ -35,10 +35,11 @@ admin_pricing_bp = Blueprint("admin_pricing", __name__, url_prefix="/api/admin/p
 
 
 def _require_admin():
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _admin_id() -> int:
     return int(get_jwt_identity())
@@ -267,6 +268,100 @@ def deactivate_package(package_id):
     db.session.commit()
 
     return jsonify({"message": f"Package '{package.name}' deactivated."}), 200
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/admin/pricing/landlords/<id>/fixed-price
+# ---------------------------------------------------------------------------
+@admin_pricing_bp.route("/landlords/<int:landlord_id>/fixed-price", methods=["PUT"])
+@jwt_required()
+def set_fixed_monthly_price(landlord_id):
+    """
+    Set a negotiated FLAT monthly fee for one landlord.
+
+    Body:
+      { fixed_monthly_price: number | null,   -- null clears it
+        reason: str }                         -- mandatory
+
+    This overrides per-unit pricing entirely: the landlord pays this amount
+    every month regardless of how many units they add or remove. Because the
+    figure is agreed verbally and is already a discount, billing-cycle
+    discounts (quarterly 10%, annual 15%) do NOT stack on top of it.
+
+    Setting it moves the landlord into the Custom package. It takes effect on
+    the NEXT billing cycle — an already-issued amount_due is left alone.
+    ---
+    tags: [Admin — Pricing]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Fixed price updated.}
+      400: {description: Validation error.}
+      404: {description: Landlord not found.}
+    """
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    data   = request.get_json(silent=True) or {}
+    raw    = data.get("fixed_monthly_price")
+    reason = (data.get("reason") or "").strip()
+
+    if not reason:
+        return jsonify({"error": "A reason is required for a fixed-price override."}), 400
+
+    if raw is not None:
+        try:
+            value = Decimal(str(raw))
+        except (TypeError, ValueError, ArithmeticError):
+            return jsonify({"error": "fixed_monthly_price must be a number."}), 400
+        if value < 0:
+            return jsonify({"error": "fixed_monthly_price cannot be negative."}), 400
+    else:
+        value = None
+
+    before = {
+        "fixed_monthly_price": str(landlord.fixed_monthly_price) if landlord.fixed_monthly_price else None,
+        "package_id": landlord.package_id,
+    }
+
+    landlord.fixed_monthly_price = value
+    db.session.flush()
+
+    # Refresh the derived figures. next_billing_date and any in-flight
+    # amount_due are deliberately left untouched, so the change lands on the
+    # next cycle rather than re-pricing a period the landlord already paid for.
+    from services.billing_service import recompute_subscription
+    subscription = recompute_subscription(landlord)
+    db.session.commit()
+
+    after = {
+        "fixed_monthly_price": str(landlord.fixed_monthly_price) if landlord.fixed_monthly_price else None,
+        "package_id": landlord.package_id,
+    }
+
+    record_audit(
+        actor_user_id=_admin_id(),
+        landlord_id=landlord.id,
+        action="admin_set_fixed_monthly_price",
+        entity_type="landlord",
+        entity_id=landlord.id,
+        description=(
+            f"ADMIN: Fixed monthly price for '{landlord.company_name}' set to "
+            f"{value if value is not None else 'None (cleared)'}. "
+            f"Effective next billing cycle. Reason: {reason}"
+        ),
+        before_data=before,
+        after_data=after,
+    )
+    db.session.commit()
+
+    return jsonify({
+        "message": "Fixed monthly price updated. It takes effect on the next billing cycle.",
+        "landlord": landlord.to_dict(),
+        "subscription": subscription.to_dict() if subscription else None,
+    }), 200
 
 
 # ---------------------------------------------------------------------------

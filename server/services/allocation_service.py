@@ -383,6 +383,20 @@ def apply_allocations(payment, tenant, allocations: list[dict], landlord_id: int
                         memo=f"Advance from payment {payment.payment_ref}")
 
     db.session.flush()
+
+    # The tenant's payment score just changed — this is the ONE chokepoint every
+    # payment path (manual, M-Pesa, Co-pilot, bank statement, credit) funnels
+    # through, so refreshing here keeps the score live without every caller
+    # having to remember. A scoring failure must never fail a payment.
+    try:
+        from services.tenant_score_service import refresh_tenant_score
+        refresh_tenant_score(tenant)
+    except Exception:  # pragma: no cover - defensive
+        import logging
+        logging.getLogger(__name__).warning(
+            "tenant score refresh failed for tenant %s", tenant.id, exc_info=True
+        )
+
     return total_allocated
 
 

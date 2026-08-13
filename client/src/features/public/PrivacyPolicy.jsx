@@ -1,4 +1,13 @@
+import { useSeo } from "./useSeo";
+
 export default function PrivacyPolicy() {
+  useSeo({
+    title: "Privacy Policy — Sahil Pay",
+    description:
+      "How Sahil Pay collects, stores and protects landlord and tenant data, including payment records and personal information.",
+    path: "/privacy",
+  });
+
   return (
     <section className="mx-auto max-w-3xl px-6 py-24">
       <h1 className="animate-fade-in-up text-3xl font-light text-white">Privacy Policy</h1>

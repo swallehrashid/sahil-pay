@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, ArrowRight } from "lucide-react";
 import clsx from "clsx";
@@ -7,6 +7,7 @@ import { AUTH_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
 import { SEO_FAQ_CATEGORIES, SEO_QUESTIONS } from "./content/seoContent";
+import { useSeo, faqJsonLd } from "./useSeo";
 
 function FaqItem({ item, isOpen, onToggle, delay }) {
   return (
@@ -28,6 +29,19 @@ function FaqItem({ item, isOpen, onToggle, delay }) {
 export default function FAQ() {
   // Track the single open question by its stable id (first one open by default).
   const [openId, setOpenId] = useState(SEO_QUESTIONS[0]?.id);
+
+  // FAQPage schema over the whole question bank — the block most likely to win
+  // an expanded, multi-line search result rather than a plain blue link.
+  const jsonLd = useMemo(() => faqJsonLd(SEO_QUESTIONS), []);
+
+  useSeo({
+    title: "Rental Management FAQs for Kenyan Landlords | Sahil Pay",
+    description:
+      "Answers to the questions Kenyan landlords and property managers ask about M-Pesa rent collection, automated invoicing, utility billing, tenant portals, arrears and reporting.",
+    path: "/faq",
+    jsonLd,
+    jsonLdId: "faq",
+  });
 
   return (
     <div>

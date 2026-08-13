@@ -36,6 +36,19 @@ export const adminPricingApiSlice = apiSlice.injectEndpoints({
       query: ({ id, ...body }) => ({ url: `/admin/pricing/landlords/${id}/billing`, method: "PUT", body }),
       invalidatesTags: (r, e, arg) => [{ type: "AdminLandlord", id: arg?.id }, "AdminLandlord", "Package"],
     }),
+    // A negotiated FLAT monthly fee. Overrides per-unit pricing entirely and
+    // carries no cycle discount — the figure was agreed verbally and is already
+    // the discount. Takes effect on the next billing cycle.
+    setLandlordFixedPrice: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/admin/pricing/landlords/${id}/fixed-price`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: (r, e, arg) => [
+        { type: "AdminLandlord", id: arg?.id }, "AdminLandlord", "Package",
+      ],
+    }),
     // #17 — add a landlord to the Custom package at a negotiated per-unit price
     addLandlordToCustom: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/admin/pricing/landlords/${id}/custom`, method: "POST", body }),
@@ -54,4 +67,5 @@ export const {
   useGetLandlordBillingQuery,
   useUpdateLandlordBillingMutation,
   useAddLandlordToCustomMutation,
+  useSetLandlordFixedPriceMutation,
 } = adminPricingApiSlice;

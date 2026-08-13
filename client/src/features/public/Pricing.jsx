@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import { Check, Star, Sparkles, MessageSquare, ShieldCheck, ArrowRight, Calendar } from "lucide-react";
@@ -9,6 +10,7 @@ import { useGetPublicPackagesQuery } from "./publicApiSlice";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
 import { CheckItem } from "./components/pieces";
+import { useSeo, softwareApplicationJsonLd } from "./useSeo";
 
 const INCLUDED = [
   "M-Pesa Paybill & Till collection",
@@ -50,6 +52,20 @@ function bandLabel(pkg) {
 
 export default function Pricing() {
   const { data: packages = [], isLoading } = useGetPublicPackagesQuery();
+
+  // Product schema with the live tiers as Offers — this is what lets a search
+  // result show the price directly, which is the whole reason someone searching
+  // "rental management software Kenya price" clicks one listing over another.
+  const jsonLd = useMemo(() => softwareApplicationJsonLd(packages), [packages]);
+
+  useSeo({
+    title: "Pricing — Per Unit, Per Month | Sahil Pay",
+    description:
+      "Simple per-unit pricing for Kenyan landlords and property managers. No setup fees, no contracts, unlimited team members — pay only for the units you manage.",
+    path: "/pricing",
+    jsonLd,
+    jsonLdId: "pricing",
+  });
 
   return (
     <div>

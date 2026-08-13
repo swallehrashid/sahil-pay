@@ -15,3 +15,6 @@ client/dist/
 # QA / scratch artifacts
 .qa/
 .playwright-mcp/
+
+# Playwright walkthrough output (screenshots + results.json)
+walkthrough/

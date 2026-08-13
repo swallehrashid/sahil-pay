@@ -3,6 +3,7 @@ import { env } from "@/config/env";
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "@/utils/tokenStorage";
 import { getImpersonationTarget } from "@/utils/impersonationStorage";
 import { getDemoMode } from "@/utils/demoStorage";
+import { getSelectedTenantId } from "@/utils/tenantUnitStorage";
 
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: env.apiBaseUrl,
@@ -22,6 +23,13 @@ const rawBaseQuery = fetchBaseQuery({
     // account. Harmless to send unconditionally: the server only honors it
     // for a landlord/PM caller with an existing shadow.
     if (getDemoMode()?.active) headers.set("X-Demo-Mode", "1");
+    // Multi-unit tenants (one person, several tenancies) pick which unit they
+    // are looking at; every portal request carries it. Harmless to send
+    // unconditionally — the server honours it ONLY when the requested tenancy
+    // belongs to the same person as the signed-in one, and 403s otherwise, so
+    // this header can never reach somebody else's account.
+    const unitId = getSelectedTenantId();
+    if (unitId) headers.set("X-Tenant-Id", String(unitId));
     return headers;
   },
 });
@@ -138,9 +146,28 @@ export const apiSlice = createApi({
     "CopilotSettings",
     "AdminCopilot",
     "CopilotInbox",
+    "OwnerPayout",
+    "TeamPreset",
+    "TenantScore",
     "Demo",
     "AdminBillingTransaction",
     "AdminC2bPayment",
+    // KRA / eTIMS compliance layer + Help Content CMS
+    "EtimsSettings",
+    "EtimsScope",
+    "EtimsRegister",
+    "PropertyOwner",
+    "KraReport",
+    "TaxPermission",
+    "Tutorial",
+    "AdminTutorial",
+    "UserPreference",
+    // Payment allocation engine
+    "AllocationSettings",
+    "PaymentSource",
+    "ReviewQueue",
+    "CommissionRule",
+    "Payout",
   ],
   endpoints: () => ({}),
 });
