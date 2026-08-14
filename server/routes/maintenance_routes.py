@@ -22,6 +22,7 @@ from models import (
     ExpenseStatus, ExpenseCategory,
 )
 from decorators import (
+    accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
 )
@@ -129,7 +130,7 @@ def create_request():
     else:
         data      = request.form.to_dict()
         image     = request.files.get("image")
-        image_url = upload_to_s3(image, folder=f"maintenance/{landlord_id}") if image else None
+        image_url = upload_to_s3(image, folder=f"maintenance/{landlord_id}", profile="image") if image else None
 
     property_id = data.get("property_id")
     unit_id     = data.get("unit_id")
@@ -309,7 +310,16 @@ def create_expense_from_request(request_id):
 # Helper
 # ---------------------------------------------------------------------------
 def _get_or_404(landlord_id: int, request_id: int) -> MaintenanceRequest:
-    r = MaintenanceRequest.query.filter_by(id=request_id, landlord_id=landlord_id).first()
+    query = MaintenanceRequest.query.filter_by(id=request_id, landlord_id=landlord_id)
+    # Property scope: a team member restricted to specific properties must not
+    # be able to open an object from another property by guessing its id — under
+    # a property manager that is one owner reading a rival owner's records. This
+    # resolves the caller's scope on demand, so it holds even on routes that
+    # never applied @scope_to_accessible_properties.
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        query = query.filter(MaintenanceRequest.property_id.in_(allowed))
+    r = query.first()
     if not r:
         abort(404, description="Maintenance request not found.")
     return r

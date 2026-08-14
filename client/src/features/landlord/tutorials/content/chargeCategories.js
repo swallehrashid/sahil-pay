@@ -8,6 +8,8 @@ export default {
   icon: FolderTree,
   duration: "~3 min",
   section: "billing",
+  // Permission module that gates this tutorial. Charge categories are what invoice lines are built from.
+  module: "invoices",
   mode: "mixed",
   slides: [
     {

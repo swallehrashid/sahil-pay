@@ -25,6 +25,7 @@ from models import (
     BankStatementStatus,
 )
 from decorators import (
+    accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
 )
@@ -102,8 +103,19 @@ def list_payments():
         Payment.status == PaymentStatus.confirmed.value,
     ).scalar()
 
-    paginated = query.order_by(Payment.payment_date.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
+    from sqlalchemy.orm import joinedload
+
+    paginated = (
+        query
+        # tenant / unit / property are read for every row below; without this
+        # each row costs 3 extra queries.
+        .options(
+            joinedload(Payment.tenant),
+            joinedload(Payment.unit),
+            joinedload(Payment.property),
+        )
+        .order_by(Payment.payment_date.desc())
+        .paginate(page=page, per_page=per_page, error_out=False)
     )
 
     items = []
@@ -706,59 +718,14 @@ def send_receipt(payment_id):
 
     data     = request.get_json(silent=True) or {}
     channels = data.get("channels") or ["email"]
-    summary  = (
-        f"Receipt {pay.payment_ref}: payment of KES {pay.amount} received "
-        f"on {pay.payment_date}. Thank you."
-    )
-    # SMS carries a tappable link: opening it downloads the receipt and emails a
-    # copy to the tenant (no login needed).
-    from services.receipt_service import receipt_link_for
-    sms_summary = (
-        f"Payment received: KES {pay.amount} ({pay.payment_ref}). "
-        f"Get your receipt: {receipt_link_for(pay)}"
-    )
 
-    sent, skipped = [], []
-    for ch in channels:
-        if ch == "email":
-            if tenant.email:
-                # Same detailed, branded, line-item-itemised receipt the tenant
-                # portal download uses — NOT the plain pdf_service one — so the
-                # emailed receipt is identical to the downloaded one.
-                from services.receipt_service import render_receipt_pdf
-                pdf_bytes = render_receipt_pdf(pay)
-                send_receipt_email.delay(tenant.email, tenant.first_name, pdf_bytes, pay.payment_ref)
-                sent.append("email")
-            else:
-                skipped.append("email (no email on file)")
-        elif ch == "sms":
-            if tenant.phone:
-                log = dispatch_message(landlord_id=landlord_id, tenant=tenant, channel="sms", content=sms_summary)
-                if log and log.status == "delivered":
-                    sent.append("sms")
-                else:
-                    skipped.append("sms (send failed or insufficient balance)")
-            else:
-                skipped.append("sms (no phone on file)")
-        elif ch == "in_app":
-            if tenant.user_id:
-                notify(
-                    recipient_user_id=tenant.user_id,
-                    category="payment_receipt",
-                    title="Payment received",
-                    body=summary,
-                    landlord_id=landlord_id,
-                    link="/portal/statement",
-                    entity_type="payment",
-                    entity_id=pay.id,
-                )
-                sent.append("in_app")
-            else:
-                skipped.append("in_app (tenant has no app account yet)")
-        elif ch == "whatsapp":
-            skipped.append("whatsapp (not yet integrated)")
-        else:
-            skipped.append(f"{ch} (unknown channel)")
+    # ONE implementation, shared with the automation that fires when Co-pilot
+    # allocates a payment on its own (services/automation_service.py). These
+    # used to be separate code paths, and the automatic one sent a bare
+    # acknowledgement with no breakdown, no PDF and no link — a worse receipt
+    # for no reason other than which route the money took.
+    from services.receipt_service import send_receipt as deliver_receipt
+    sent, skipped = deliver_receipt(pay, channels, landlord_id=landlord_id)
 
     db.session.commit()   # persist any in-app notification rows
 
@@ -976,7 +943,7 @@ def upload_bank_statement():
     if not file:
         return jsonify({"error": "A statement file is required."}), 400
 
-    file_url = upload_to_s3(file, folder=f"bank-statements/{landlord_id}")
+    file_url = upload_to_s3(file, folder=f"bank-statements/{landlord_id}", profile="statement")
 
     upload = BankStatementUpload(
         landlord_id = landlord_id,
@@ -1145,9 +1112,18 @@ def import_statement_transactions(upload_id):
 # Helper
 # ---------------------------------------------------------------------------
 def _get_or_404(landlord_id: int, payment_id: int) -> Payment:
-    pay = Payment.query.filter_by(
+    query = Payment.query.filter_by(
         id=payment_id, landlord_id=landlord_id, is_deleted=False
-    ).first()
+    )
+    # Property scope: a team member restricted to specific properties must not
+    # be able to open an object from another property by guessing its id — under
+    # a property manager that is one owner reading a rival owner's records. This
+    # resolves the caller's scope on demand, so it holds even on routes that
+    # never applied @scope_to_accessible_properties.
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        query = query.filter(Payment.property_id.in_(allowed))
+    pay = query.first()
     if not pay:
         abort(404, description="Payment not found or access denied.")
     return pay

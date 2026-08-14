@@ -8,8 +8,16 @@ import { AUTH_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
 import { FeatureCard, CheckItem } from "./components/pieces";
+import { useSeo } from "./useSeo";
 
 export default function Features() {
+  useSeo({
+    title: "Features — M-Pesa Rent Collection, Invoicing & Reports | Sahil Pay",
+    description:
+      "Every feature Kenyan landlords need: M-Pesa Paybill and Till reconciliation, automated rent and utility invoicing, a tenant portal, maintenance tracking, team permissions and full financial reports.",
+    path: "/features",
+  });
+
   return (
     <div>
       {/* 1 — Hero */}

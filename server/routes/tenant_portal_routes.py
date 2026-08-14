@@ -16,7 +16,7 @@ Maintenance requests created here become visible in maintenance_routes.py
 from datetime import datetime, date
 from decimal import Decimal
 
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, abort
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 
 from extensions import db
@@ -33,15 +33,50 @@ tenant_portal_bp = Blueprint("tenant_portal", __name__, url_prefix="/api/portal"
 
 def _get_portal_tenant() -> tuple[Tenant | None, int | None]:
     """
-    Extract tenant_id from JWT claims and load the Tenant row.
-    Returns (tenant, landlord_id) or (None, None) on failure.
+    Resolve the tenancy this request is about.
+
+    The JWT names the tenancy the person signed in as. One person can hold
+    several — two units in a block, or units under different landlords — so the
+    client may ask for a different one with ?tenant_id= or the X-Tenant-Id
+    header (the portal's unit switcher).
+
+    SECURITY: a requested tenant_id is honoured ONLY when it belongs to the same
+    person as the token's tenancy, i.e. it shares their phone or email — the
+    very thing the OTP proved they control. Without that check the switcher
+    would be a way to read any tenant row in the database by guessing an id.
+    An id outside the set is refused, not silently ignored.
+
+    Returns (tenant, landlord_id); (None, None) when the token names no tenancy.
     """
-    claims     = get_jwt()
-    tenant_id  = claims.get("tenant_id")
+    from flask import request as _request
+
+    claims      = get_jwt()
+    tenant_id   = claims.get("tenant_id")
     landlord_id = claims.get("landlord_id")
     if not tenant_id:
         return None, None
+
     tenant = Tenant.query.filter_by(id=tenant_id, is_deleted=False).first()
+    if tenant is None:
+        return None, None
+
+    requested = _request.args.get("tenant_id", type=int) or _request.headers.get("X-Tenant-Id")
+    if requested:
+        try:
+            requested = int(requested)
+        except (TypeError, ValueError):
+            abort(400, description="tenant_id must be a number.")
+
+        if requested != tenant.id:
+            from services.tenant_identity_service import sibling_tenant_ids
+
+            if requested not in sibling_tenant_ids(tenant):
+                abort(403, description="That unit does not belong to this account.")
+            switched = Tenant.query.filter_by(id=requested, is_deleted=False).first()
+            if switched is None:
+                abort(404, description="Unit not found.")
+            return switched, switched.landlord_id
+
     return tenant, landlord_id
 
 
@@ -59,6 +94,96 @@ def _require_tenant():
 def _payment_ref(landlord_id: int) -> str:
     count = Payment.query.filter_by(landlord_id=landlord_id).count()
     return f"PAY-{landlord_id}-{count + 1:06d}"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portal/context
+# ---------------------------------------------------------------------------
+@tenant_portal_bp.route("/context", methods=["GET"])
+@jwt_required()
+def portal_context():
+    """
+    Every unit this person rents, grouped so the portal can offer a switcher.
+
+    One tenant can hold units in several properties and under several landlords
+    who don't know about each other. Each is listed separately with its OWN
+    account number and balance, because each is paid for separately — there is
+    no combined bill, and there must not appear to be one.
+    ---
+    tags: [Tenant Portal]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: The units this person rents.}
+    """
+    from services.tenant_identity_service import sibling_tenants
+
+    tenant, _ = _require_tenant()
+    rows = sibling_tenants(tenant)
+
+    units = []
+    for row in rows:
+        unit = row.unit
+        prop = unit.property if unit else None
+        landlord = row.landlord
+        units.append({
+            "tenant_id":       row.id,
+            "is_current":      row.id == tenant.id,
+            "unit_name":       unit.name if unit else None,
+            "property_id":     prop.id if prop else None,
+            "property_name":   prop.name if prop else None,
+            "landlord_id":     row.landlord_id,
+            "landlord_name":   landlord.company_name if landlord else None,
+            "account_number":  row.account_number,
+            "balance":         float(row.balance or 0),
+            "credit_balance":  float(row.credit_balance or 0),
+            "tenant_score":    row.tenant_score,
+        })
+
+    return jsonify({
+        "current_tenant_id": tenant.id,
+        "unit_count":        len(units),
+        "units":             units,
+        # Each unit is billed and paid separately — the UI says so plainly so a
+        # tenant with three units never assumes one payment covers them all.
+        "note": (
+            "Each unit is billed separately. Pay each one using its own account "
+            "number."
+        ) if len(units) > 1 else None,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/portal/score
+# ---------------------------------------------------------------------------
+@tenant_portal_bp.route("/score", methods=["GET"])
+@jwt_required()
+def portal_score():
+    """
+    The tenant's own payment score and its month-by-month working.
+
+    Tenants see their own score deliberately: it is the clearest possible
+    incentive to pay early, and it is their record — the same figure a landlord
+    would judge them on.
+    ---
+    tags: [Tenant Portal]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: The tenant's score breakdown.}
+    """
+    from services.tenant_score_service import compute_tenant_score
+
+    tenant, _ = _require_tenant()
+    result = compute_tenant_score(tenant)
+    return jsonify({
+        "tenant_id": tenant.id,
+        **result,
+        "guidance": (
+            "Pay your rent within the first 5 days of the month to keep your "
+            "score at 100."
+        ),
+    }), 200
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +438,7 @@ def submit_payment():
         proof = request.files.get("proof")
         if proof:
             from services.storage_service import upload_to_s3
-            proof_url = upload_to_s3(proof, folder=f"payment-proofs/{landlord_id}")
+            proof_url = upload_to_s3(proof, folder=f"payment-proofs/{landlord_id}", profile="document")
         else:
             proof_url = None
 
@@ -625,12 +750,19 @@ def get_profile():
 def update_profile():
     """
     Tenant updates their own profile.
-    Allowed fields: first_name, last_name, phone, secondary_phone, email.
+    Allowed fields: first_name, last_name, phone, secondary_phone, email,
+    kra_pin.
+
+    kra_pin is self-service by design (ETIMS spec §5.4): it is the tenant's own
+    tax identity, it only ever appears as the BUYER PIN on their own receipts,
+    and a business tenant claiming rent as an expense needs to be able to add
+    it without asking their landlord. It is optional forever — blank clears it.
+
     All changes are written to the shared `tenants` row — the landlord
     sees the updates immediately without any sync step.
 
     Restricted fields (silently ignored): landlord_id, unit_id, balance,
-    national_id, kra_pin, deposit amounts, lease dates.
+    national_id, deposit amounts, lease dates.
     ---
     tags: [Tenant Portal]
     security:
@@ -650,6 +782,10 @@ def update_profile():
             if field == "email" and val:
                 val = val.strip().lower()
             setattr(tenant, field, val)
+
+    if "kra_pin" in data:
+        from services.etims_service import normalise_kra_pin
+        tenant.kra_pin = normalise_kra_pin(data["kra_pin"])
 
     db.session.commit()
 
@@ -738,7 +874,7 @@ def create_maintenance():
         image     = request.files.get("image")
         if image:
             from services.storage_service import upload_to_s3
-            image_url = upload_to_s3(image, folder=f"maintenance/{landlord_id}")
+            image_url = upload_to_s3(image, folder=f"maintenance/{landlord_id}", profile="image")
         else:
             image_url = None
 

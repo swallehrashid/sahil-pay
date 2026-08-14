@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { ShieldCheck } from "lucide-react";
+import { AUTH_ROUTES } from "@/config/routePaths";
+import { env } from "@/config/env";
+import { getAccessToken } from "@/utils/tokenStorage";
 import Input from "@/components/ui/Input";
 import FileUpload from "@/components/ui/FileUpload";
 import Button from "@/components/ui/Button";
@@ -66,6 +70,62 @@ export default function AccountSettings() {
       </form>
 
       <ChangePasswordCard />
+      <TwoFactorCard />
+    </div>
+  );
+}
+
+// Two-factor is optional for landlords (mandatory for admins, who are routed
+// to enrolment at login instead). Without an entry point here a landlord has
+// no way to opt in at all, so this card is the only door to the feature for
+// them. Status is read from the server rather than assumed, so a landlord who
+// enrolled on another device sees the truth.
+function TwoFactorCard() {
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${env.apiBaseUrl}/auth/2fa/status`, {
+          headers: { Authorization: `Bearer ${getAccessToken()}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled && res.ok) setStatus(data);
+      } catch {
+        // Leave the card in its loading state rather than claiming 2FA is off
+        // when we simply could not ask.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <div className="glass space-y-4 p-6">
+      <div className="flex items-center gap-2">
+        <ShieldCheck className="h-5 w-5 text-secondary-200" />
+        <h3 className="text-base font-medium text-white">Two-factor authentication</h3>
+      </div>
+      <p className="text-sm text-white/50">
+        Ask for a 6-digit code from your phone at sign-in, so a stolen password
+        on its own isn't enough to get into your account.
+      </p>
+
+      {status?.enabled ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-300">
+            On
+          </span>
+          <span className="text-sm text-white/45">
+            {status.backup_codes_remaining} backup code
+            {status.backup_codes_remaining === 1 ? "" : "s"} left
+          </span>
+        </div>
+      ) : (
+        <Link to={AUTH_ROUTES.twoFactorSetup}>
+          <Button type="button" variant="secondary">Turn on two-factor</Button>
+        </Link>
+      )}
     </div>
   );
 }

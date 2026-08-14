@@ -99,7 +99,18 @@ export const MAINTENANCE_CATEGORIES = [
   "other",
 ];
 
-export const MESSAGE_CHANNELS = ["sms", "whatsapp", "email"];
+// Delivery channels a landlord may choose. `in_app` lands in the recipient's
+// portal — free, instant, and it survives a lost handset, which matters when
+// SMS is billed per segment.
+export const MESSAGE_CHANNELS = ["sms", "whatsapp", "email", "in_app"];
+
+// Human labels — "in_app" is not something to show a landlord.
+export const MESSAGE_CHANNEL_LABELS = {
+  sms: "SMS",
+  whatsapp: "WhatsApp",
+  email: "Email",
+  in_app: "In the app",
+};
 export const MESSAGE_TEMPLATE_TYPES = ["balance_reminder", "invoice_reminder", "custom"];
 export const RECIPIENT_TYPES = ["tenant", "team_member"];
 export const COMMUNICATION_STATUSES = ["pending", "delivered", "failed"];

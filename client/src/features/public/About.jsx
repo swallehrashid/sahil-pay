@@ -7,6 +7,7 @@ import { AUTH_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
 import { FeatureCard, CheckItem, StatTile } from "./components/pieces";
+import { useSeo } from "./useSeo";
 
 const VALUES = [
   { icon: ShieldCheck, title: "Built on trust", text: "Every action is audit-logged — nothing happens silently, and support only ever acts with your consent." },
@@ -16,6 +17,13 @@ const VALUES = [
 ];
 
 export default function About() {
+  useSeo({
+    title: "About Sahil Pay — Built in Kenya for Kenyan Landlords",
+    description:
+      "Why Sahil Pay exists: rent collection in Kenya runs on M-Pesa, WhatsApp and spreadsheets. We built one system that fits how landlords and property managers here actually work.",
+    path: "/about",
+  });
+
   return (
     <div>
       {/* 1 — Hero */}

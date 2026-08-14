@@ -15,8 +15,10 @@ import {
   FileDown,
   ArrowRightLeft,
   Download,
+  Upload,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import TenantImportWizard from "./TenantImportWizard";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -46,11 +48,12 @@ import { usePagination } from "@/hooks/usePagination";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 import SendReminderModal from "../communications/SendReminderModal";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import TenantScoreBadge from "@/components/ui/TenantScoreBadge";
 
 export default function TenantsPage() {
   const navigate = useNavigate();
   const pg = usePagination();
-  const { data, isLoading } = useGetTenantsQuery(pg.params);
+  const { data, isLoading, refetch } = useGetTenantsQuery(pg.params);
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: unitsData } = useGetUnitsQuery();
   const [createTenant, { isLoading: isCreating }] = useCreateTenantMutation();
@@ -61,6 +64,7 @@ export default function TenantsPage() {
 
   const [activeTenant, setActiveTenant] = useState(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [shiftTenant, setShiftTenant] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [reminderTenant, setReminderTenant] = useState(null); // #4 — channel-picker modal
@@ -136,6 +140,13 @@ export default function TenantsPage() {
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
     { key: "phone", header: "Phone" },
     { key: "balance", header: "Balance", render: (row) => formatBalance(row.balance) },
+    {
+      key: "tenant_score",
+      header: "Score",
+      // How reliably they've paid RENT since moving in. "New" (—) means under
+      // two completed months, not a perfect record.
+      render: (row) => <TenantScoreBadge score={row.tenant_score} showLabel={false} />,
+    },
     { key: "account_number", header: "Account #", render: (row) => row.account_number ?? "—" },
   ];
 
@@ -152,6 +163,13 @@ export default function TenantsPage() {
               onClick={() => downloadFile("/tenants/export.pdf", { filename: "tenants.pdf" })}
             >
               Download PDF
+            </Button>
+            <Button
+              variant="ghost"
+              leftIcon={<Upload className="h-4 w-4" />}
+              onClick={() => setIsImportOpen(true)}
+            >
+              Import
             </Button>
             <Button data-tour={ANCHORS.tenants.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
               Add tenant
@@ -234,6 +252,12 @@ export default function TenantsPage() {
           </Button>
         </div>
       )}
+
+      <TenantImportWizard
+        isOpen={isImportOpen}
+        onClose={() => setIsImportOpen(false)}
+        onImported={refetch}
+      />
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={activeTenant ? "Edit tenant" : "Add tenant"} size="lg">
         <TenantForm

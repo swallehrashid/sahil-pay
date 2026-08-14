@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Mail, Lock } from "lucide-react";
+import { Mail, Lock, ShieldCheck } from "lucide-react";
 import AuthLayout from "@/components/layout/AuthLayout";
 import Input from "@/components/ui/Input";
 import Checkbox from "@/components/ui/Checkbox";
@@ -11,6 +11,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { AUTH_ROUTES } from "@/config/routePaths";
 import { roleHomePath } from "@/routes/roleRedirect";
 import { isRequired, isValidEmail } from "@/utils/validators";
+import { env } from "@/config/env";
 
 // Email + password login for admin, landlord/PM and team member roles.
 export default function Login() {
@@ -20,6 +21,47 @@ export default function Login() {
   const [loginMutation, { isLoading }] = useLoginMutation();
   const [form, setForm] = useState({ email: "", password: "", remember_me: false });
   const [errors, setErrors] = useState({});
+  // Set when the password was right but a second factor is still owed.
+  // The pre-auth token it holds opens nothing except /auth/2fa/verify.
+  const [pending2fa, setPending2fa] = useState(null);
+  const [code, setCode] = useState("");
+  const [verifying, setVerifying] = useState(false);
+
+  /** Finish a 2FA sign-in: swap the pre-auth token + code for real tokens. */
+  const completeTwoFactor = async (e) => {
+    e.preventDefault();
+    setVerifying(true);
+    try {
+      const res = await fetch(`${env.apiBaseUrl}/auth/2fa/verify`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pending2fa}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || "That code isn't right.");
+
+      login({
+        accessToken: result.access_token,
+        refreshToken: result.refresh_token,
+        role: result.role,
+      });
+      if (result.used_backup_code) {
+        toast(
+          `Signed in with a backup code — ${result.backup_codes_remaining} left.`,
+          { type: "info" }
+        );
+      }
+      navigate(roleHomePath(result.role), { replace: true });
+    } catch (err) {
+      toast(err.message, { type: "error" });
+      setCode("");
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -31,6 +73,13 @@ export default function Login() {
 
     try {
       const result = await loginMutation(form).unwrap();
+
+      // Password correct, second factor still owed.
+      if (result.requires_2fa) {
+        setPending2fa(result.pre_auth_token);
+        return;
+      }
+
       login({
         accessToken: result.access_token,
         refreshToken: result.refresh_token,
@@ -40,6 +89,14 @@ export default function Login() {
       // real password before they can use the app.
       if (result.must_change_password) {
         navigate(AUTH_ROUTES.changePassword, { replace: true });
+        return;
+      }
+      // Enrolled users are challenged above (requires_2fa). This is the other
+      // half: an admin who has never enrolled signs in normally but every
+      // /api/admin/* route refuses them with `2fa_required`, so send them
+      // straight to enrolment rather than to a portal that cannot load.
+      if (result.needs_2fa_setup) {
+        navigate(AUTH_ROUTES.twoFactorSetup, { replace: true });
         return;
       }
       const redirectTo = location.state?.from?.pathname || roleHomePath(result.role);
@@ -62,6 +119,47 @@ export default function Login() {
       toast(message, { type: "error" });
     }
   };
+
+  // The second-factor challenge replaces the password form entirely — showing
+  // both at once invites people to retype their password into the code box.
+  if (pending2fa) {
+    return (
+      <AuthLayout
+        title="One more step"
+        subtitle="Enter the code from your authenticator app"
+      >
+        <form onSubmit={completeTwoFactor} className="space-y-4">
+          <div className="flex justify-center py-2">
+            <ShieldCheck className="h-8 w-8 text-secondary" />
+          </div>
+          <Input
+            label="6-digit code"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\s/g, "").slice(0, 20))}
+            placeholder="123456"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            required
+          />
+          <Button type="submit" className="w-full" isLoading={verifying} disabled={!code}>
+            Verify and sign in
+          </Button>
+          <p className="text-center text-xs leading-relaxed text-white/45">
+            Lost your phone? Enter one of your backup codes instead — each works
+            once.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setPending2fa(null); setCode(""); }}
+            className="w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
+          >
+            Back to sign-in
+          </button>
+        </form>
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout title="Welcome back" subtitle="Log in to your Sahil Pay account">

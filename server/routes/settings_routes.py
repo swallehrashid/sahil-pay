@@ -89,11 +89,11 @@ def general_settings():
         # Handle logo and signature file uploads
         if "logo" in request.files:
             landlord.logo_url = upload_to_s3(
-                request.files["logo"], folder=f"logos/{landlord_id}"
+                request.files["logo"], folder=f"logos/{landlord_id}", profile="brand"
             )
         if "signature" in request.files:
             landlord.signature_url = upload_to_s3(
-                request.files["signature"], folder=f"signatures/{landlord_id}"
+                request.files["signature"], folder=f"signatures/{landlord_id}", profile="brand"
             )
 
     landlord_fields = [
@@ -113,6 +113,12 @@ def general_settings():
                       "low_sms_balance_threshold"]:
             if field in data:
                 setattr(ls, field, data[field])
+
+        # Which collections count as gross on reports — validated against the
+        # allowed set so a typo can't silently disable rent-only accounting.
+        if "report_gross_basis" in data:
+            from services.commission_service import normalise_basis
+            ls.report_gross_basis = normalise_basis(data["report_gross_basis"])
 
     db.session.commit()
 
@@ -292,13 +298,13 @@ def connect_sms_provider():
     landlord_id = get_current_landlord_id()
     ls = _get_or_create_settings(landlord_id)
 
-    missing = [f for f in ("sms_api_key", "sms_sender_id") if not getattr(ls, f)]
-    if missing:
-        return jsonify({"error": f"Save these first: {', '.join(missing)}."}), 400
-
-    from services.sms_service import check_sms_balance
-    if check_sms_balance(api_key=ls.sms_api_key) is None:
-        return jsonify({"error": "The API key was rejected by the SMS provider."}), 400
+    # Only the sender name is needed. It is registered with the provider on
+    # Sahil Pay's account, so there is no per-landlord API key to validate —
+    # messages go out under this name but still draw Sahil Pay's credit pool.
+    if not ls.sms_sender_id:
+        return jsonify({
+            "error": "Enter the sender name you had approved, then connect."
+        }), 400
 
     ls.sms_connected = True
     db.session.commit()
@@ -385,9 +391,24 @@ def automation_settings():
             "alert_on_new_tenant", "auto_send_payment_acknowledgments",
             "monthly_reminders_enabled", "monthly_reminder_day",
             "lease_expiry_notifications", "lease_expiry_range_days",
+            "owner_reports_enabled", "owner_reports_day",
+            # Receipts for payments allocated without a human in the loop.
+            "auto_receipt_enabled", "auto_receipt_email",
+            "auto_receipt_sms", "auto_receipt_in_app",
         ]:
             if field in data:
                 setattr(aut, field, data[field])
+
+        # Day-of-month fields are capped at 28 so the automation fires in every
+        # month, February included.
+        for day_field in ("monthly_reminder_day", "owner_reports_day"):
+            value = getattr(aut, day_field, None)
+            if value is not None:
+                try:
+                    setattr(aut, day_field, max(1, min(int(value), 28)))
+                except (TypeError, ValueError):
+                    setattr(aut, day_field, None)
+
         db.session.commit()
 
     record_audit(
@@ -526,8 +547,14 @@ def account_settings():
     else:
         data = request.form.to_dict()
         if "signature" in request.files and landlord:
+            # The signature is an ACCOUNT-level asset — it is stamped on every
+            # report and receipt the company issues. Editing your own profile
+            # here is self-service for everyone, but replacing the company
+            # signature is the account owner's call alone.
+            from decorators import _check_permission
+            _check_permission("settings", "edit")
             landlord.signature_url = upload_to_s3(
-                request.files["signature"], folder=f"signatures/{landlord_id}"
+                request.files["signature"], folder=f"signatures/{landlord_id}", profile="brand"
             )
 
     # Profile fields on User
@@ -619,11 +646,113 @@ def change_password():
 
 
 # ---------------------------------------------------------------------------
+# GET / PUT /api/settings/receipt-layout
+# ---------------------------------------------------------------------------
+@settings_bp.route("/receipt-layout", methods=["GET", "PUT"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "view")
+def receipt_layout_settings():
+    """
+    The landlord's receipt layout — paper size, which header component sits
+    where, density, and which sections print.
+
+    GET returns the saved layout plus the option catalogue the editor renders.
+    PUT saves a new one; every value is validated against the allowed set, so a
+    hand-edited payload can never produce a receipt that fails to render.
+    ---
+    tags: [Settings]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Layout + options.}
+    """
+    from services import receipt_layout as rl
+
+    landlord_id = get_current_landlord_id()
+    landlord    = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    settings = landlord.landlord_settings
+
+    if request.method == "GET":
+        return jsonify({
+            "layout":  rl.for_landlord(landlord),
+            "options": rl.to_public_dict(),
+        }), 200
+
+    from decorators import _check_permission
+    _check_permission("settings", "edit")
+
+    data   = request.get_json(silent=True) or {}
+    before = rl.for_landlord(landlord)
+    layout = rl.normalise(data.get("layout", data))
+
+    if settings:
+        import json as _json
+        settings.receipt_layout_json = _json.dumps(layout)
+        db.session.commit()
+
+    record_audit(
+        actor_user_id=int(get_jwt_identity()),
+        landlord_id=landlord_id,
+        action="update_receipt_layout",
+        entity_type="settings",
+        entity_id=landlord_id,
+        description=f"Receipt layout updated ({layout['paper']}, {layout['density']}).",
+        before_data=before,
+        after_data=layout,
+    )
+    db.session.commit()
+
+    return jsonify({"layout": layout, "message": "Receipt layout saved."}), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/settings/receipt-layout/preview
+# ---------------------------------------------------------------------------
+@settings_bp.route("/receipt-layout/preview", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "view")
+def receipt_layout_preview():
+    """
+    Render a sample receipt PDF in a candidate layout WITHOUT saving it, so the
+    landlord can see the paper size and header arrangement before committing.
+    ---
+    tags: [Settings]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Sample receipt PDF.}
+    """
+    from services import receipt_layout as rl
+    from services.receipt_service import render_sample_receipt_pdf
+
+    landlord_id = get_current_landlord_id()
+    landlord    = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    data   = request.get_json(silent=True) or {}
+    layout = rl.normalise(data.get("layout", data))
+
+    pdf = render_sample_receipt_pdf(landlord, layout)
+    return Response(
+        pdf,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "inline; filename=receipt-preview.pdf"},
+    )
+
+
+# ---------------------------------------------------------------------------
 # POST /api/settings/account/agent-code
 # ---------------------------------------------------------------------------
 @settings_bp.route("/account/agent-code", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def generate_agent_code():
     """
     Generate or regenerate the co-pilot agent code for this landlord.

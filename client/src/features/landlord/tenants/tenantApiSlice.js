@@ -19,6 +19,12 @@ export const tenantApiSlice = apiSlice.injectEndpoints({
       query: (id) => `/tenants/${id}/transactions`,
       providesTags: (result, error, id) => [{ type: "Tenant", id }],
     }),
+    // Payment score with the month-by-month working behind it — what was due,
+    // when it cleared, which band that earned, and any arrears penalty.
+    getTenantScore: builder.query({
+      query: (id) => `/tenants/${id}/score`,
+      providesTags: (result, error, id) => [{ type: "TenantScore", id }],
+    }),
     createTenant: builder.mutation({
       query: (body) => ({ url: "/tenants", method: "POST", body }),
       invalidatesTags: ["Tenant"],
@@ -57,6 +63,7 @@ export const {
   useGetDeletedTenantsQuery,
   useGetTenantQuery,
   useGetTenantTransactionsQuery,
+  useGetTenantScoreQuery,
   useCreateTenantMutation,
   useUpdateTenantMutation,
   useDeleteTenantMutation,

@@ -80,6 +80,9 @@ def expire_due_trials(now: datetime | None = None) -> dict:
     due = (
         db.session.query(Landlord)
         .filter(
+            # A demo shadow is scaffolding, not a customer — it is never billed
+            # and must never be "expired" or notified (DEMO_MODE_SPEC.md §3.4).
+            Landlord.is_demo.is_(False),
             Landlord.is_on_trial.is_(True),
             Landlord.trial_ends_at.isnot(None),
             Landlord.trial_ends_at <= now,

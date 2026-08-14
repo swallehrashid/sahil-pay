@@ -87,6 +87,21 @@ class BaseConfig:
     APP_ENV: str = _env("APP_ENV", "development")
     DEBUG: bool = False
     TESTING: bool = False
+    IS_PRODUCTION: bool = False
+
+    # The interactive OpenAPI explorer at /api/docs/. Off in production (it maps
+    # the whole attack surface for free); flip on per-environment when a staging
+    # box genuinely needs it.
+    ENABLE_API_DOCS: bool = _env("ENABLE_API_DOCS", "").lower() in ("1", "true", "yes")
+
+    # Encrypts sensitive columns at rest — currently the TOTP secrets that back
+    # two-factor auth. Must be a urlsafe-base64 32-byte Fernet key.
+    # Generate one with:
+    #     python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # NEVER rotate this casually: every stored secret becomes undecryptable and
+    # every 2FA user is locked out. In development a key is derived from
+    # SECRET_KEY so the feature works with no extra configuration.
+    FIELD_ENCRYPTION_KEY: str | None = _env("FIELD_ENCRYPTION_KEY")
 
     # Secret key: dev gets a fallback, prod MUST have a real value (enforced
     # in ProductionConfig).
@@ -150,6 +165,15 @@ class BaseConfig:
     RATELIMIT_DEFAULT: str = "200 per minute"
     RATELIMIT_HEADERS_ENABLED: bool = True      # expose X-RateLimit-* headers
     RATELIMIT_ENABLED: bool = True
+    # Fail OPEN when the rate-limiter's Redis is unreachable. Without this,
+    # Flask-Limiter raises on every request it cannot count and the whole API
+    # answers 500 — a Redis blip takes the entire product down, which is a far
+    # worse outcome than briefly not counting requests. Verified the hard way:
+    # a stopped Redis container 500'd every endpoint including the public
+    # pricing page. Brute-force protection also has a second, independent layer
+    # (services/login_guard.py account lockout), so this is not the only guard.
+    RATELIMIT_SWALLOW_ERRORS: bool = True
+    RATELIMIT_IN_MEMORY_FALLBACK_ENABLED: bool = True
 
     # ------------------------------------------------------------------
     # CORS — frontend origins allowed on /api/* endpoints
@@ -247,6 +271,20 @@ class BaseConfig:
     # without a live paybill. Set MPESA_SIMULATION_MODE=false to switch to real
     # calls; nothing else changes. Mirrors COMMS_SIMULATION_MODE's contract exactly.
     MPESA_SIMULATION_MODE: bool = _env("MPESA_SIMULATION_MODE", "true").lower() in ("1", "true", "yes", "on")
+
+    # ------------------------------------------------------------------
+    # eTIMS / KRA compliance layer
+    # ------------------------------------------------------------------
+    # Platform kill switch for the whole manual-first eTIMS layer
+    # (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §2.3). ON by default because the
+    # feature is already opt-in per property and invisible until a landlord
+    # enables it — this switch exists so a bad deploy can be shut off without
+    # database access. It WINS over platform_settings.etims_features_enabled.
+    #
+    # This layer never calls KRA. Landlords issue invoices through KRA's own
+    # free channels and type the resulting numbers back in; nothing here
+    # generates, validates against, or transmits to eTIMS.
+    ETIMS_FEATURES_ENABLED: bool = _env("ETIMS_FEATURES_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------
     # Swagger — flasgger UI  (§2 API Docs)
@@ -361,6 +399,18 @@ class TestingConfig(BaseConfig):
     # Disable rate limiting so tests are not throttled.
     RATELIMIT_ENABLED: bool = False
 
+    # NEVER let the test suite reach the real image CDN. The developer .env
+    # carries live Cloudinary credentials, and the account is on a metered free
+    # tier — a full test run uploading maintenance photos and logos would spend
+    # the month's credits silently, and leave orphaned assets behind. Blanked
+    # here rather than relied upon in each test, so a new test that uploads an
+    # image cannot reintroduce the leak. Uploads fall back to local disk, which
+    # is what the storage tests assert against anyway.
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_URL: str = ""
+
     # Short token windows to test expiry in a single test run.
     JWT_ACCESS_TOKEN_EXPIRES: timedelta = timedelta(seconds=10)
     JWT_REFRESH_TOKEN_EXPIRES: timedelta = timedelta(minutes=5)
@@ -385,6 +435,7 @@ class ProductionConfig(BaseConfig):
     """
     APP_ENV: str = "production"
     DEBUG: bool = False
+    IS_PRODUCTION: bool = True
     PROPAGATE_EXCEPTIONS: bool = False  # let error handlers render clean JSON
 
     def __init_subclass__(cls, **kwargs):  # pragma: no cover
@@ -398,6 +449,7 @@ class ProductionConfig(BaseConfig):
         _require("JWT_SECRET_KEY", "production JWT signing key")
         _require("REDIS_URL", "production Redis URL for Celery / rate-limiter")
         _require("SENDGRID_API_KEY", "transactional email")
+        _require("FIELD_ENCRYPTION_KEY", "encryption key for two-factor secrets at rest")
         # Cloud file/image storage is OPTIONAL for v1. When Cloudinary / AWS S3
         # credentials are absent, services/storage_service.py transparently falls
         # back to local-disk storage under server/uploads/ (served by app.py's

@@ -152,4 +152,45 @@ DEFAULT_TEMPLATES = [
             "{landlord_details}"
         ),
     },
+    {
+        "name": "Welcome message",
+        "template_type": "welcome",
+        "channel": "sms",
+        # The first message a tenant ever gets from their landlord, so it is
+        # written to sound like a person welcoming them home rather than a
+        # system notification — while still carrying the two things they
+        # actually need on day one: how to pay, and who to call.
+        "body": (
+            "Karibu {tenant_name}! Welcome home to {unit} at {property}. "
+            "We're glad to have you with us. "
+            "Rent is payable via: {payment_method}. "
+            "Anything at all, just reach us on {landlord_details} "
+            "Wishing you a wonderful stay. - {landlord}"
+        ),
+    },
 ]
+
+# The welcome message used when a landlord has not written their own.
+#
+# Deliberately emoji-free: a single emoji forces the whole SMS into UCS-2, which
+# cuts a segment from 160 characters to 70 and can triple what the landlord pays
+# to send it. Warmth here comes from the words, not from pictures.
+DEFAULT_WELCOME_BODY = next(
+    t["body"] for t in DEFAULT_TEMPLATES if t["template_type"] == "welcome"
+)
+
+
+def welcome_body_for(landlord_id: int) -> str:
+    """
+    The welcome text for a landlord — their own 'welcome' template when they
+    have written one, otherwise the warm default above.
+    """
+    from models import MessageTemplate
+
+    template = (
+        MessageTemplate.query
+        .filter_by(landlord_id=landlord_id, template_type="welcome")
+        .order_by(MessageTemplate.id.desc())
+        .first()
+    )
+    return (template.body if template and template.body else DEFAULT_WELCOME_BODY)

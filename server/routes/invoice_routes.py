@@ -23,6 +23,7 @@ from models import (
     InvoiceStatus, InvoiceType,
 )
 from decorators import (
+    accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
 )
@@ -90,8 +91,20 @@ def list_invoices():
     if tenant_id:
         query = query.filter(Invoice.tenant_id == tenant_id)
 
-    paginated = query.order_by(Invoice.issue_date.desc()).paginate(
-        page=page, per_page=per_page, error_out=False
+    from sqlalchemy.orm import joinedload, selectinload
+
+    paginated = (
+        query
+        # Every row below reads its line items plus tenant/unit/property names;
+        # loading them per row costs 4 extra queries each.
+        .options(
+            selectinload(Invoice.line_items),
+            joinedload(Invoice.tenant),
+            joinedload(Invoice.unit),
+            joinedload(Invoice.property),
+        )
+        .order_by(Invoice.issue_date.desc())
+        .paginate(page=page, per_page=per_page, error_out=False)
     )
 
     items = []
@@ -719,9 +732,18 @@ def generate_custom_invoices():
 # Helper
 # ---------------------------------------------------------------------------
 def _get_or_404(landlord_id: int, invoice_id: int) -> Invoice:
-    inv = Invoice.query.filter_by(
+    query = Invoice.query.filter_by(
         id=invoice_id, landlord_id=landlord_id, is_deleted=False
-    ).first()
+    )
+    # Property scope: a team member restricted to specific properties must not
+    # be able to open an object from another property by guessing its id — under
+    # a property manager that is one owner reading a rival owner's records. This
+    # resolves the caller's scope on demand, so it holds even on routes that
+    # never applied @scope_to_accessible_properties.
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        query = query.filter(Invoice.property_id.in_(allowed))
+    inv = query.first()
     if not inv:
         abort(404, description="Invoice not found or access denied.")
     return inv

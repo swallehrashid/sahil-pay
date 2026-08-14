@@ -117,6 +117,49 @@ def generate_receipt_pdf(payment) -> bytes:
     return render_pdf(_shell("Payment Receipt", body))
 
 
+def _subscription_etims_html(transaction, landlord) -> str:
+    """
+    The eTIMS block on a SahilPay subscription / SMS receipt (spec §3.4).
+
+    Returns "" unless a System Admin has recorded a number against this
+    transaction. Deliberately NOT gated on any landlord's per-property setting:
+    the seller on this document is SahilPay, so it is SahilPay's own compliance
+    posture — expressed through the platform kill switch and the platform PIN —
+    that decides, not the customer's.
+    """
+    from services import etims_service as etims
+    from services.etims_pdf import qr_data_uri
+
+    if not getattr(transaction, "etims_invoice_number", None):
+        return ""
+    try:
+        if not etims.features_enabled():
+            return ""
+        platform_pin = etims.platform_settings().kra_pin
+    except Exception:
+        return ""
+
+    lines = []
+    if platform_pin:
+        lines.append(f"<tr><td>SahilPay KRA PIN</td><td>{escape(platform_pin)}</td></tr>")
+    client_pin = getattr(landlord.user, "kra_pin", None) if landlord and landlord.user else None
+    if client_pin:
+        lines.append(f"<tr><td>Your KRA PIN</td><td>{escape(client_pin)}</td></tr>")
+    issued_at = ""
+    if transaction.etims_issued_at:
+        issued_at = f" &middot; issued {transaction.etims_issued_at.strftime('%d %b %Y')}"
+    lines.append(
+        f"<tr><td>eTIMS invoice no.</td><td>"
+        f"{escape(transaction.etims_invoice_number)}{issued_at}</td></tr>"
+    )
+
+    qr = qr_data_uri(transaction.etims_qr_url)
+    qr_html = (f"<div style='margin-top:8px;'><img src='{qr}' alt='KRA verification QR' "
+               f"style='width:22mm;height:22mm;'/></div>") if qr else ""
+
+    return (f"<table class='block'><tbody>{''.join(lines)}</tbody></table>{qr_html}")
+
+
 def generate_tax_invoice_pdf(transaction, landlord) -> bytes:
     """
     Render a branded Sahil Pay payment receipt / tax invoice for a platform
@@ -138,6 +181,12 @@ def generate_tax_invoice_pdf(transaction, landlord) -> bytes:
 
     issued = transaction.created_at.strftime("%d %b %Y") if transaction.created_at else "—"
     receipt_no = f"SP-RCPT-{transaction.id:06d}"
+
+    # eTIMS block for SahilPay's OWN invoice to the client (spec §3.4). SahilPay
+    # is the seller here, so the seller PIN is the platform's and the buyer PIN
+    # is the client's. Renders only once an admin has recorded a number AND the
+    # platform PIN is on file — otherwise this receipt is exactly as it was.
+    etims_html = _subscription_etims_html(transaction, landlord)
     is_paid = (transaction.status or "").lower() == "paid"
     status_pill = (
         f"<span style='display:inline-block;padding:4px 12px;border-radius:999px;"
@@ -187,6 +236,8 @@ def generate_tax_invoice_pdf(transaction, landlord) -> bytes:
         <tr><td>Transaction ID</td><td>#{transaction.id}</td></tr>
       </tbody>
     </table>
+
+    {etims_html}
 
     <div class="foot muted">
       Thank you for your business. This is a system-generated receipt and is valid

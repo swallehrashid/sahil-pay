@@ -36,9 +36,62 @@ def _automation(landlord):
 # ---------------------------------------------------------------------------
 
 
+def auto_receipt_channels(landlord) -> list[str]:
+    """
+    Which channels a receipt should go out on for a payment that was allocated
+    without anybody touching it. Empty list means "send nothing".
+    """
+    aut = _automation(landlord)
+    if not aut or not getattr(aut, "auto_receipt_enabled", False):
+        return []
+    channels = []
+    if aut.auto_receipt_email:  channels.append("email")
+    if aut.auto_receipt_sms:    channels.append("sms")
+    if aut.auto_receipt_in_app: channels.append("in_app")
+    return channels
+
+
+def on_payment_auto_allocated(landlord, payment, tenant) -> list[str]:
+    """
+    Send the tenant their receipt for a payment the system matched and
+    allocated on its own (Co-pilot, M-Pesa reconciliation).
+
+    This sends the REAL receipt — the same itemised PDF, the same public link,
+    the same breakdown — not a bare "we got your money". A tenant should not
+    get a worse answer because their payment happened to need no human.
+
+    Callers must only invoke this once a payment is genuinely ALLOCATED. A
+    payment sitting in suspense sends nothing: telling somebody "we have your
+    money but don't know what it is for" produces the exact phone call the
+    review queue exists to avoid.
+
+    Never raises: a delivery problem must not roll back a payment.
+    """
+    channels = auto_receipt_channels(landlord)
+    if not channels or tenant is None:
+        return []
+
+    try:
+        from services.receipt_service import send_receipt
+
+        sent, skipped = send_receipt(payment, channels, landlord_id=landlord.id)
+        if skipped:
+            logger.info("Auto-receipt for payment %s skipped: %s", payment.id, skipped)
+        if sent:
+            logger.info("Auto-receipt for payment %s sent via %s", payment.id, sent)
+        return sent
+    except Exception as exc:            # automation must never break the payment
+        logger.exception("Auto-receipt failed for payment %s: %s", payment.id, exc)
+        return []
+
+
 def on_payment_recorded(landlord, payment, tenant) -> bool:
     """If auto_send_payment_acknowledgments is on, acknowledge the payment to
-    the tenant (in-app + their preferred message channel). Returns True if sent."""
+    the tenant (in-app + their preferred message channel). Returns True if sent.
+
+    This is the older, lighter "thank you" note, kept separate from the receipt
+    above so an account can have one, both, or neither.
+    """
     aut = _automation(landlord)
     if not aut or not aut.auto_send_payment_acknowledgments:
         return False

@@ -8,6 +8,8 @@ export default {
   icon: Building2,
   duration: "~2 min",
   section: "setup",
+  // Permission module that gates this tutorial. Drives the Properties screens.
+  module: "properties",
   mode: "tour",
   steps: [
     {

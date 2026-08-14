@@ -23,6 +23,33 @@ DEFAULT_CATEGORIES: list[tuple[str, str, bool, bool]] = [
 ]
 
 
+RENT_CATEGORY_NAME = "Rent"
+
+# The subcategories that represent real rent income — this month's rent and rent
+# arrears carried forward. `deposit` is deliberately absent: a deposit is held,
+# refundable money, never income and never commissionable (Kenyan practice, and
+# the rule Phase 2's commission maths and Phase 4's tenant score both rely on).
+RENT_INCOME_SUBCATEGORIES: tuple[str, ...] = ("current", "balance")
+
+
+def rent_category_id(landlord_id: int) -> int | None:
+    """
+    The landlord's canonical Rent category id.
+
+    Prefers the protected default row (is_default=True, name 'Rent') and falls
+    back to any category named 'Rent' for landlords whose catalogue predates the
+    defaults seeding. Returns None when the landlord has no Rent category at all
+    — callers must treat that as "no rent charges exist" rather than an error.
+    """
+    row = (
+        ChargeCategory.query
+        .filter_by(landlord_id=landlord_id, name=RENT_CATEGORY_NAME)
+        .order_by(ChargeCategory.is_default.desc(), ChargeCategory.id.asc())
+        .first()
+    )
+    return row.id if row else None
+
+
 def seed_default_categories(landlord_id: int, *, commit: bool = False) -> list[ChargeCategory]:
     """
     Idempotently create the protected default categories for a landlord.

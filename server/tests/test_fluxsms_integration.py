@@ -286,11 +286,21 @@ class TestDispatchMessageBalanceGate:
         finally:
             _cleanup_landlord(db_session, landlord)
 
-    def test_custom_sender_uses_own_api_key(self, app, db_session):
+    def test_a_branded_sender_still_sends_on_the_platform_account(self, app, db_session):
+        """
+        A landlord's own sender ID is registered with FluxSMS on SAHIL PAY's
+        account, so the PLATFORM key delivers it — the sender ID changes the
+        name on the handset, not whose credits pay for it.
+
+        This previously passed the landlord's own key, which only made sense
+        when they had their own FluxSMS account. Any key stored against a
+        landlord is now ignored.
+        """
         from services.communication_service import dispatch_message
 
         landlord = make_landlord(db_session, sms_balance=10)
-        make_settings(db_session, landlord, sms_api_key="custom-key", sms_sender_id="BRANDX", sms_connected=True)
+        make_settings(db_session, landlord, sms_api_key="stale-key",
+                      sms_sender_id="BRANDX", sms_connected=True)
         tenant = make_tenant(db_session, landlord)
         _reset_sms_pricing(db_session)
         db_session.commit()
@@ -301,10 +311,69 @@ class TestDispatchMessageBalanceGate:
                 log = dispatch_message(landlord_id=landlord.id, tenant=tenant, channel="sms", content="Hi")
                 db_session.commit()
 
-            assert mock_send.call_args.kwargs["api_key"] == "custom-key"
+            # Their brand name, but never their key.
             assert mock_send.call_args.kwargs["sender_id"] == "BRANDX"
+            assert mock_send.call_args.kwargs["api_key"] is None
             assert log.uses_own_sender is True
-            assert log.sms_charge == Decimal("0.50")  # custom_price_per_sms
+            # One price for everybody: the branded sender gets no discount,
+            # because the credit cost Sahil Pay exactly the same to buy.
+            assert log.sms_charge == Decimal("1.00")
+        finally:
+            _cleanup_landlord(db_session, landlord)
+
+    def test_a_branded_sender_draws_the_shared_pool(self, app, db_session):
+        """
+        The heart of the reselling model: delivery is billed to Sahil Pay's
+        FluxSMS account whichever name is on the message, so the pool must fall
+        and the wholesale cost must be recorded. Recording zero here is what
+        used to lose money invisibly.
+        """
+        from models import SmsPricingConfig
+        from services.communication_service import dispatch_message
+
+        landlord = make_landlord(db_session, sms_balance=10)
+        make_settings(db_session, landlord, sms_api_key=None,
+                      sms_sender_id="BRANDX", sms_connected=True)
+        tenant = make_tenant(db_session, landlord)
+        _reset_sms_pricing(db_session)
+        db_session.commit()
+
+        pool_before = SmsPricingConfig.get_singleton().pool_balance
+        try:
+            app.config["COMMS_SIMULATION_MODE"] = True
+            log = dispatch_message(landlord_id=landlord.id, tenant=tenant,
+                                   channel="sms", content="Rent is due")
+            db_session.commit()
+
+            assert log.status == "delivered"
+            assert log.uses_own_sender is True
+            assert log.platform_cost > 0, "Sahil Pay pays for delivery either way"
+            assert SmsPricingConfig.get_singleton().pool_balance == pool_before - 1
+        finally:
+            _cleanup_landlord(db_session, landlord)
+
+    def test_a_branded_sender_is_blocked_when_the_pool_is_empty(self, app, db_session):
+        """They are spending Sahil Pay's credits, so an empty pool stops them too."""
+        from models import SmsPricingConfig
+        from services.communication_service import dispatch_message
+
+        landlord = make_landlord(db_session, sms_balance=50)
+        make_settings(db_session, landlord, sms_api_key=None,
+                      sms_sender_id="BRANDX", sms_connected=True)
+        tenant = make_tenant(db_session, landlord)
+        _reset_sms_pricing(db_session)
+        SmsPricingConfig.get_singleton().pool_balance = 0
+        db_session.commit()
+
+        try:
+            app.config["COMMS_SIMULATION_MODE"] = True
+            log = dispatch_message(landlord_id=landlord.id, tenant=tenant,
+                                   channel="sms", content="Rent is due")
+            db_session.commit()
+
+            assert log.status == "failed"
+            db_session.refresh(landlord)
+            assert landlord.sms_balance == 50, "a blocked send must not burn credit"
         finally:
             _cleanup_landlord(db_session, landlord)
 
@@ -339,36 +408,42 @@ class TestResolveSender:
 
 
 # ---------------------------------------------------------------------------
-# routes/settings_routes.py — sms-provider connect validates the key live
+# routes/settings_routes.py — connecting an own sender ID
 # ---------------------------------------------------------------------------
 
 class TestConnectSmsProviderValidation:
-    def test_connect_rejects_bad_key(self, app, db_session):
+    def test_connect_requires_a_sender_name(self, app, db_session):
+        """
+        A sender ID is registered with FluxSMS on SAHIL PAY's account, so
+        connecting needs only the approved name — there is no per-landlord API
+        key to validate any more. This test used to assert that a bad key was
+        rejected; under one pool there is no landlord key in the send path at
+        all, so the only thing left to require is the name itself.
+        """
         from flask_jwt_extended import create_access_token
 
         landlord = make_landlord(db_session)
-        make_settings(db_session, landlord, sms_api_key="bad-key", sms_sender_id="BRANDX")
+        make_settings(db_session, landlord, sms_api_key=None, sms_sender_id=None)
         db_session.commit()
 
         try:
             with app.app_context():
                 token = create_access_token(identity=str(landlord.user_id))
             client = app.test_client()
-            with patch("services.sms_service.check_sms_balance", return_value=None):
-                resp = client.post(
-                    "/api/settings/sms-provider/connect",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
+            resp = client.post(
+                "/api/settings/sms-provider/connect",
+                headers={"Authorization": f"Bearer {token}"},
+            )
             assert resp.status_code == 400
-            assert "rejected" in resp.get_json()["error"].lower()
+            assert "sender name" in resp.get_json()["error"].lower()
         finally:
             _cleanup_landlord(db_session, landlord)
 
-    def test_connect_accepts_valid_key(self, app, db_session):
+    def test_connect_accepts_a_sender_name_with_no_api_key(self, app, db_session):
         from flask_jwt_extended import create_access_token
 
         landlord = make_landlord(db_session)
-        make_settings(db_session, landlord, sms_api_key="good-key", sms_sender_id="BRANDX")
+        make_settings(db_session, landlord, sms_api_key=None, sms_sender_id="BRANDX")
         db_session.commit()
 
         try:

@@ -20,9 +20,18 @@ export function SahilPayMark({ className = "h-8", ...props }) {
   // The mark's viewBox is a perfect square — `aspect-square` derives width from
   // whatever height class the caller passes, so a bare `h-N` (no `w-N`) never
   // collapses to the SVG's unconstrained intrinsic size.
+  // width/height attributes are a SAFETY NET, not the sizing mechanism: CSS
+  // classes always win over presentation attributes, so `h-8` still drives the
+  // size normally. They matter when a caller places the logo somewhere the
+  // height class cannot resolve (an `inline` parent, where `h-full` is
+  // indeterminate) — without them an SVG with only a viewBox falls back to the
+  // spec's 300px default and blows the layout out sideways. That is exactly
+  // what happened in the public footer.
   return (
     <svg
       viewBox="0 0 120 120"
+      width="40"
+      height="40"
       fill="none"
       className={`aspect-square ${className}`}
       role="img"

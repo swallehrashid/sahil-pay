@@ -8,6 +8,8 @@ export default {
   icon: BarChart3,
   duration: "~2 min",
   section: "reports",
+  // Permission module that gates this tutorial. Drives the Reports screens.
+  module: "reports",
   mode: "tour",
   steps: [
     {

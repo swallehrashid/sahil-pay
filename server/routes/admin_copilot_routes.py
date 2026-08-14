@@ -31,10 +31,11 @@ admin_copilot_bp = Blueprint("admin_copilot", __name__, url_prefix="/api/admin/c
 
 
 def _require_admin():
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _admin_id() -> int:
     return int(get_jwt_identity())
@@ -602,7 +603,14 @@ def create_release():
     if CopilotAppRelease.query.filter_by(version_code=version_code).first():
         return jsonify({"error": f"version_code {version_code} already exists."}), 400
 
-    apk_path = upload_to_s3(file, folder="copilot/apks", content_type="application/vnd.android.package-archive")
+    # profile="apk" accepts only .apk and allows the 100MB a real release needs;
+    # force_local keeps it on this server, served from /uploads/ behind the CDN,
+    # because every device fetches this same file on every release.
+    apk_path = upload_to_s3(
+        file, folder="copilot/apks",
+        content_type="application/vnd.android.package-archive",
+        profile="apk", force_local=True,
+    )
 
     is_latest = str(data.get("is_latest", "")).lower() == "true"
     if is_latest:

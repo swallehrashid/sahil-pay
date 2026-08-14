@@ -3,9 +3,12 @@ import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
 import Badge from "@/components/ui/Badge";
 import SahilPayLogo from "@/components/branding/SahilPayLogo";
+import { useLocation } from "react-router-dom";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useOnboardingState } from "./useOnboardingState";
 import { useTour } from "./TourProvider";
 import { TUTORIALS, SECTIONS } from "./content";
+import { visibleTutorials } from "./portal";
 
 function TutorialCard({ tutorial, status, onStart }) {
   const Icon = tutorial.icon;
@@ -33,6 +36,14 @@ function TutorialCard({ tutorial, status, onStart }) {
 export default function TutorialsPage() {
   const { tutorialStatus } = useOnboardingState();
   const { startTutorial, startSequence } = useTour();
+  const { can } = usePermissions();
+  const { pathname } = useLocation();
+
+  // The same page serves both portals. A team member only sees tutorials for
+  // modules they actually hold, and each one has its landlord-only steps
+  // stripped — see ./portal.js.
+  const portal = pathname.startsWith("/team") ? "team" : "landlord";
+  const tutorials = visibleTutorials(TUTORIALS, portal, can);
 
   return (
     <div>
@@ -42,6 +53,7 @@ export default function TutorialsPage() {
         subtitle="Step-by-step guides to everything in Sahil Pay. Run any of them as many times as you like."
       />
 
+      {portal === "landlord" && (
       <div className="glass mb-8 flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary/20 text-secondary-100">
@@ -54,10 +66,18 @@ export default function TutorialsPage() {
         </div>
         <Button onClick={startSequence}>Run the full guided setup</Button>
       </div>
+      )}
+
+      {tutorials.length === 0 && (
+        <p className="text-sm text-white/50">
+          There are no guides for the areas you have access to yet. Ask the
+          account owner if you need access to more of the system.
+        </p>
+      )}
 
       <div className="space-y-8">
         {SECTIONS.map((section) => {
-          const items = TUTORIALS.filter((t) => t.section === section.key);
+          const items = tutorials.filter((t) => t.section === section.key);
           if (!items.length) return null;
           return (
             <div key={section.key}>

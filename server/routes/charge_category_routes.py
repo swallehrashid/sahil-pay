@@ -14,7 +14,9 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import ChargeCategory, ChargeCategoryKind, InvoiceLineItem
-from decorators import require_landlord_or_team, get_current_landlord_id, _check_permission
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id, _check_permission,
+)
 from services.audit_service import record_audit
 from services.category_service import seed_default_categories
 
@@ -37,6 +39,7 @@ def _validate_metered_autobill(is_metered: bool, auto_bill: bool):
 @charge_category_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("invoices", "view")
 def list_categories():
     """List the landlord's charge categories. ?kind=utility|invoice&include_inactive="""
     landlord_id = get_current_landlord_id()
@@ -67,6 +70,7 @@ def list_categories():
 @charge_category_bp.route("/", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("invoices", "edit")
 def create_category():
     """Create a category. Body: { name, kind, description?, is_metered?, default_rate?, auto_bill_monthly? }"""
     landlord_id = get_current_landlord_id()
@@ -109,6 +113,7 @@ def create_category():
 @charge_category_bp.route("/<int:category_id>", methods=["PATCH", "PUT"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("invoices", "edit")
 def update_category(category_id):
     """Update a category. Body: any of { name, description, is_metered, default_rate, auto_bill_monthly, is_active }"""
     landlord_id = get_current_landlord_id()
@@ -155,6 +160,7 @@ def update_category(category_id):
 @charge_category_bp.route("/<int:category_id>", methods=["DELETE"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("invoices", "edit")
 def delete_category(category_id):
     """
     Delete a category. Protected defaults and categories already used on invoices can't

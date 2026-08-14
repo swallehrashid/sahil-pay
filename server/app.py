@@ -123,7 +123,14 @@ def create_app(config_name: str | None = None) -> Flask:
     )
 
     # Swagger / flasgger — OpenAPI 3 UI at /api/docs/
-    swagger.init_app(app)
+    #
+    # NOT mounted in production: the spec enumerates every endpoint, its
+    # parameters and its auth requirements, which is a free reconnaissance map
+    # for anyone probing the API. Developers keep it locally; the public
+    # deployment doesn't publish its own attack surface. Set
+    # ENABLE_API_DOCS=true to override deliberately (e.g. a staging box).
+    if app.config.get("ENABLE_API_DOCS", not app.config.get("IS_PRODUCTION", False)):
+        swagger.init_app(app)
 
     # ------------------------------------------------------------------
     # Step 4 — Import models so all 39 tables register on Base.metadata

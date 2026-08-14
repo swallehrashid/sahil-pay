@@ -8,6 +8,8 @@ export default {
   icon: Receipt,
   duration: "~3 min",
   section: "billing",
+  // Permission module that gates this tutorial. Drives the Invoices screens.
+  module: "invoices",
   mode: "tour",
   prerequisite: { count: "tenants", tutorialId: "add-tenant" },
   steps: [

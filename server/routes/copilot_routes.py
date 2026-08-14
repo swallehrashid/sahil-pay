@@ -24,12 +24,15 @@ auth, mirroring settings_routes.py — NOT the device-token pattern above):
 from __future__ import annotations
 
 import json
+import os
+import re
 import time
 from datetime import datetime
 from functools import wraps
 
 from flask import Blueprint, request, jsonify, g, redirect
 from flask_jwt_extended import jwt_required
+from werkzeug.exceptions import NotFound
 
 from extensions import db
 from models import (
@@ -348,7 +351,52 @@ def app_download():
     release = _latest_release()
     if release is None:
         return jsonify({"error": "No Co-pilot release is available yet."}), 404
-    return redirect(release.apk_path)
+    return _serve_release(release)
+
+
+def _serve_release(release):
+    """
+    Stream a release's APK back as a download.
+
+    Serving it rather than redirecting to the stored path matters for three
+    reasons, all of which bit us before:
+
+      * the stored name is hex-prefixed to prevent collisions, so a redirect
+        hands the user `a1b2c3d4_app.apk`. Android installers and users both
+        want `sahilpay-copilot-1.4.0.apk`.
+      * the file must arrive as application/vnd.android.package-archive. Served
+        as text/html or octet-stream, some Android browsers refuse to hand it
+        to the package installer.
+      * a bare redirect to /uploads/... depends on the reverse proxy having a
+        matching location block. It did not, so the link returned the SPA's
+        index.html — a "download" that was silently an HTML page.
+
+    Legacy releases uploaded to object storage keep working via redirect.
+    """
+    path = release.apk_path or ""
+    if path.startswith("http://") or path.startswith("https://"):
+        return redirect(path)
+
+    from flask import current_app, send_from_directory
+
+    relative = path.split("/uploads/", 1)[-1].lstrip("/")
+    uploads_dir = os.path.join(current_app.root_path, "uploads")
+    safe_version = re.sub(r"[^A-Za-z0-9._-]", "-", release.version_name or "latest")
+    try:
+        return send_from_directory(
+            uploads_dir, relative,
+            as_attachment=True,
+            download_name=f"sahilpay-copilot-{safe_version}.apk",
+            mimetype="application/vnd.android.package-archive",
+            max_age=0,          # a new release must never be served from cache
+        )
+    except NotFound:
+        # The row exists but the file is gone (restored DB, wiped disk).
+        # Say so plainly instead of 500-ing on a public link.
+        return jsonify({
+            "error": "The release file is missing from storage. "
+                     "Re-upload this version from the admin portal."
+        }), 404
 
 
 # ===========================================================================

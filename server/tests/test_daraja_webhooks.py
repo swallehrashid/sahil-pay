@@ -79,6 +79,8 @@ def make_admin(session):
         phone=f"2547{next(_counter):08d}",
         password_hash=generate_password_hash("Testpass1"),
         role="system_admin",
+        # Admin routes require an active second factor (spec 3.4).
+        totp_enabled=True,
         is_verified=True,
     )
     session.add(user)

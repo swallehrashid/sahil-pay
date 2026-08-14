@@ -38,7 +38,14 @@ export default function Footer() {
         <div className="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)]">
           {/* Brand + contact */}
           <div>
-            <SahilPayLogo className="h-10 text-white/90" />
+            {/* The wrapper is load-bearing: a bare <span> here is `display:
+                inline`, so the logo's `h-10` never applies and its mark falls
+                back to the SVG default width — 53px of sideways scroll on a
+                360px phone, on every public page. Every other call site is
+                already inside a flex row, which is why only the footer broke. */}
+            <span className="flex">
+              <SahilPayLogo className="h-10 text-white/90" />
+            </span>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-white/45">
               The all-in-one rental management platform built for Kenya — M-Pesa rent collection, invoicing,
               a tenant portal and reporting in one place.

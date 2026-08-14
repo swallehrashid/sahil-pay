@@ -8,6 +8,8 @@ export default {
   icon: DoorOpen,
   duration: "~2 min",
   section: "setup",
+  // Permission module that gates this tutorial. Drives the Units screens.
+  module: "units",
   mode: "tour",
   prerequisite: { count: "properties", tutorialId: "create-property" },
   steps: [

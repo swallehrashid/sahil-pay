@@ -4,8 +4,15 @@ import { apiSlice } from "@/store/apiSlice";
 export const teamApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getTeamMembers: builder.query({
-      query: () => "/team",
+      query: (params) => ({ url: "/team", params }),
       providesTags: ["TeamMember"],
+    }),
+    // The role-preset catalogue (owner / caretaker / accountant / secretary).
+    // Served by the backend so the two definitions cannot drift apart.
+    getTeamPresets: builder.query({
+      query: () => "/team/presets",
+      transformResponse: (response) => response.presets ?? [],
+      providesTags: ["TeamPreset"],
     }),
     getTeamMember: builder.query({
       query: (id) => `/team/${id}`,
@@ -36,6 +43,7 @@ export const teamApiSlice = apiSlice.injectEndpoints({
 
 export const {
   useGetTeamMembersQuery,
+  useGetTeamPresetsQuery,
   useGetTeamMemberQuery,
   useCreateTeamMemberMutation,
   useUpdateTeamMemberMutation,

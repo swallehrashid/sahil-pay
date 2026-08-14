@@ -430,7 +430,11 @@ def generate_penalty_invoices_task(landlord_id, issue_date=None, tenant_ids=None
     if tenant_ids:
         query = query.filter(Tenant.id.in_(tenant_ids))
     else:
-        query = query.filter(Tenant.balance > 0)
+        # BUG FIX: this filtered `balance > 0`, which is ADVANCE CREDIT — so it
+        # fined tenants who had paid ahead and left every real debtor alone.
+        # Arrears are NEGATIVE (services/report_generators.py states the
+        # convention). See tests/test_penalties.py, which pins the sign.
+        query = query.filter(Tenant.balance < 0)
 
     created = 0
     for tenant in query.all():

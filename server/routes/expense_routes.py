@@ -18,6 +18,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from extensions import db
 from models import Expense, RecurringExpense, ExpenseStatus
 from decorators import (
+    accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
 )
@@ -129,7 +130,7 @@ def create_expense():
     else:
         data     = request.form.to_dict()
         file     = request.files.get("file")
-        file_url = upload_to_s3(file, folder=f"expenses/{landlord_id}") if file else None
+        file_url = upload_to_s3(file, folder=f"expenses/{landlord_id}", profile="document") if file else None
 
     property_id  = data.get("property_id")
     amount       = data.get("amount")
@@ -412,7 +413,16 @@ def deactivate_recurring_expense(template_id):
 # Helper
 # ---------------------------------------------------------------------------
 def _get_or_404(landlord_id: int, expense_id: int) -> Expense:
-    e = Expense.query.filter_by(id=expense_id, landlord_id=landlord_id, is_deleted=False).first()
+    query = Expense.query.filter_by(id=expense_id, landlord_id=landlord_id, is_deleted=False)
+    # Property scope: a team member restricted to specific properties must not
+    # be able to open an object from another property by guessing its id — under
+    # a property manager that is one owner reading a rival owner's records. This
+    # resolves the caller's scope on demand, so it holds even on routes that
+    # never applied @scope_to_accessible_properties.
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        query = query.filter(Expense.property_id.in_(allowed))
+    e = query.first()
     if not e:
         abort(404, description="Expense not found or access denied.")
     return e

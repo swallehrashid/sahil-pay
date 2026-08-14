@@ -23,16 +23,18 @@ from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from extensions import db
 from models import UserRole, SmsPricingConfig, SmsPoolTopUp, SmsLandlordCredit, Landlord, LandlordSettings
 from services.audit_service import record_audit
+from services.sms_billing import effective_price_per_sms, load_rates
 from services.report_builder import document_to_json, parse_column_selection, render_document
 
 admin_sms_bp = Blueprint("admin_sms", __name__, url_prefix="/api/admin/sms")
 
 
 def _require_admin():
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _admin_id() -> int:
     return int(get_jwt_identity())
@@ -368,6 +370,95 @@ def sync_pool():
 
 
 # ---------------------------------------------------------------------------
+# PUT /api/admin/sms/landlords/<id>/price — negotiated per-credit rate
+# ---------------------------------------------------------------------------
+@admin_sms_bp.route("/landlords/<int:landlord_id>/price", methods=["PUT"])
+@jwt_required()
+def set_landlord_sms_price(landlord_id):
+    """
+    Set the rate ONE landlord pays per SMS credit.
+
+    Body:
+      { sms_price_override: number | null,   -- null returns them to the default
+        reason: str }                        -- mandatory
+
+    The account-wide default applies to everybody until a rate is set here.
+    This is the same shape as the negotiated fixed monthly price
+    (admin_pricing_routes.set_fixed_monthly_price): a figure agreed verbally,
+    so the reason is required and the change is audited.
+
+    It applies to BOTH what the landlord is charged when they buy credits and
+    what the margin report records, because both read
+    services/sms_billing.effective_price_per_sms. It is not affected by whether
+    they send under their own sender ID — every credit comes from the same pool
+    and costs the same to buy.
+    ---
+    tags: [Admin — SMS]
+    responses:
+      200: {description: Rate updated.}
+      400: {description: Validation error.}
+      404: {description: Landlord not found.}
+    """
+    _require_admin()
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    data = request.get_json(silent=True) or {}
+    reason = (data.get("reason") or "").strip()
+    if not reason:
+        return jsonify({"error": "A reason is required for a negotiated rate."}), 400
+
+    raw = data.get("sms_price_override", "__missing__")
+    if raw == "__missing__":
+        return jsonify({"error": "sms_price_override is required (null clears it)."}), 400
+
+    before = landlord.sms_price_override
+    if raw is None:
+        landlord.sms_price_override = None
+    else:
+        try:
+            price = Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return jsonify({"error": "sms_price_override must be a number."}), 400
+        if price <= 0:
+            return jsonify({"error": "The rate must be greater than zero."}), 400
+        # A rate below wholesale would lose money on every message sent. Allowed
+        # deliberately (a loss-leader is a real commercial choice) but never by
+        # accident — the caller has to say so.
+        cost = load_rates()["platform_cost"]
+        if price < cost and not data.get("confirm_below_cost"):
+            return jsonify({
+                "error": f"KES {price} is below the KES {cost} you pay per credit — "
+                         f"every message would lose money. Resend with "
+                         f"confirm_below_cost: true if that is intended."
+            }), 400
+        landlord.sms_price_override = price
+
+    record_audit(
+        actor_user_id=_admin_id(), landlord_id=landlord.id,
+        action="admin_set_landlord_sms_price", entity_type="sms", entity_id=landlord.id,
+        description=(
+            f"ADMIN: SMS rate for landlord {landlord.id} ({landlord.company_name}) "
+            f"set to {landlord.sms_price_override if landlord.sms_price_override is not None else 'the default'} "
+            f"(was {before if before is not None else 'the default'}). Reason: {reason}"
+        ),
+        before_data={"sms_price_override": str(before) if before is not None else None},
+        after_data={"sms_price_override": str(landlord.sms_price_override)
+                    if landlord.sms_price_override is not None else None},
+    )
+    db.session.commit()
+
+    return jsonify({
+        "landlord_id": landlord.id,
+        "sms_price_override": (float(landlord.sms_price_override)
+                               if landlord.sms_price_override is not None else None),
+        "effective_price": float(effective_price_per_sms(
+            landlord.landlord_settings, landlord=landlord)),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # GET / PUT  /api/admin/sms/landlords/<id>/provider — admin connects/edits a
 # landlord's custom SMS sender on their behalf.
 # ---------------------------------------------------------------------------
@@ -389,11 +480,16 @@ def get_landlord_provider(landlord_id):
 @jwt_required()
 def update_landlord_provider(landlord_id):
     """
-    Connect or edit a landlord's custom SMS sender on their behalf. Body:
-      { sms_api_key?, sms_sender_id?, connected?: bool }
-    When connected=true is requested, the key is validated live against the
-    SMS provider first (same check the landlord's own self-service connect
-    performs) — rejected with 400 if the provider doesn't accept it.
+    Register a landlord's own sender ID on their behalf. Body:
+      { sms_sender_id?, connected?: bool, sms_api_key?: str|null }
+
+    The sender ID is registered with FluxSMS on SAHIL PAY'S account, so no
+    per-landlord API key is needed — connecting requires only the approved
+    sender name. Their messages then go out under that name while still
+    drawing Sahil Pay's pool at their agreed rate.
+
+    `sms_api_key` is still accepted so an existing stored key can be CLEARED
+    (send it as null). It is no longer used for sending.
     ---
     tags: [Admin — SMS]
     responses:
@@ -421,11 +517,11 @@ def update_landlord_provider(landlord_id):
         ls.sms_sender_id = (data["sms_sender_id"] or "").strip() or None
 
     if data.get("connected") is True:
-        if not ls.sms_api_key or not ls.sms_sender_id:
-            return jsonify({"error": "sms_api_key and sms_sender_id are required to connect."}), 400
-        from services.sms_service import check_sms_balance
-        if check_sms_balance(api_key=ls.sms_api_key) is None:
-            return jsonify({"error": "The API key was rejected by the SMS provider."}), 400
+        if not ls.sms_sender_id:
+            return jsonify({
+                "error": "A sender ID is required. Register the name with FluxSMS "
+                         "under the Sahil Pay account first, then enter it here."
+            }), 400
         ls.sms_connected = True
     elif data.get("connected") is False:
         ls.sms_connected = False

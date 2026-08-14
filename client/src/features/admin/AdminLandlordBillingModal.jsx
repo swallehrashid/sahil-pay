@@ -11,6 +11,7 @@ import {
   useGetLandlordBillingQuery,
   useUpdateLandlordBillingMutation,
   useAddLandlordToCustomMutation,
+  useSetLandlordFixedPriceMutation,
 } from "./adminPricingApiSlice";
 
 // #16/#17 — admin opens a landlord under a package: view their billing cycle, amount
@@ -23,9 +24,12 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
   const { data, isLoading } = useGetLandlordBillingQuery(landlordId, { skip: !isOpen });
   const [updateBilling, { isLoading: isSaving }] = useUpdateLandlordBillingMutation();
   const [addToCustom, { isLoading: isAdding }] = useAddLandlordToCustomMutation();
+  const [setFixedPrice, { isLoading: isSettingFixed }] = useSetLandlordFixedPriceMutation();
 
   const [form, setForm] = useState({});
   const [customPrice, setCustomPrice] = useState("");
+  const [fixedPrice, setFixedPrice_] = useState("");
+  const [fixedReason, setFixedReason] = useState("");
 
   useEffect(() => {
     if (data) {
@@ -38,6 +42,7 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
         trial_ends_at: data.trial_ends_at ? data.trial_ends_at.slice(0, 10) : "",
       });
       setCustomPrice(data.per_unit_price ?? "");
+      setFixedPrice_(data.fixed_monthly_price ?? "");
     }
   }, [data]);
 
@@ -58,6 +63,30 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
       onClose();
     } catch (err) {
       toast(err?.data?.error || "Could not update billing.", { type: "error" });
+    }
+  };
+
+  const saveFixedPrice = async (clear = false) => {
+    if (!fixedReason.trim()) {
+      toast("Give a reason — it goes on the audit trail.", { type: "error" });
+      return;
+    }
+    try {
+      await setFixedPrice({
+        id: landlordId,
+        fixed_monthly_price: clear ? null : Number(fixedPrice),
+        reason: fixedReason.trim(),
+      }).unwrap();
+      if (clear) setFixedPrice_("");
+      setFixedReason("");
+      toast(
+        clear
+          ? "Fixed price cleared — per-unit pricing resumes next cycle."
+          : "Fixed price set. It takes effect on the next billing cycle.",
+        { type: "success" }
+      );
+    } catch (err) {
+      toast(err?.data?.error || "Could not set the fixed price.", { type: "error" });
     }
   };
 
@@ -120,6 +149,51 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
           <div className="flex justify-end gap-3">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button onClick={save} isLoading={isSaving}>Save billing</Button>
+          </div>
+
+          {/* A negotiated flat monthly fee — the strongest override there is. */}
+          <div className="mt-2 space-y-2 rounded-xl border border-secondary/30 bg-secondary/[0.06] p-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-secondary-100">
+              Fixed monthly price
+            </p>
+            <p className="text-xs leading-relaxed text-white/55">
+              A flat fee agreed with this client. Overrides per-unit pricing
+              entirely — adding units never changes it — and carries{" "}
+              <strong className="text-white/75">no cycle discount</strong>,
+              since the figure is already the negotiated one. Takes effect on
+              the next billing cycle.
+            </p>
+            <div className="flex items-end gap-3">
+              <Input
+                label="Fixed price / month"
+                type="number"
+                step="0.01"
+                value={fixedPrice}
+                onChange={(e) => setFixedPrice_(e.target.value)}
+                className="flex-1"
+              />
+              <Input
+                label="Reason"
+                value={fixedReason}
+                onChange={(e) => setFixedReason(e.target.value)}
+                placeholder="Agreed on call, 20 units"
+                className="flex-1"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={() => saveFixedPrice(false)}
+                isLoading={isSettingFixed}
+                disabled={!fixedPrice}
+              >
+                Set fixed price
+              </Button>
+              {data.fixed_monthly_price && (
+                <Button variant="ghost" onClick={() => saveFixedPrice(true)}>
+                  Clear
+                </Button>
+              )}
+            </div>
           </div>
 
           {/* #17 — move into the Custom package at a negotiated per-unit price */}
