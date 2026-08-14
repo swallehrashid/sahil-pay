@@ -20,7 +20,7 @@ function monthLabel(d) {
 
 // Manual payment entry — allocates part/all of the amount across the tenant's open
 // invoices via payment_allocations; any unallocated remainder becomes a tenant advance.
-export default function RecordPaymentForm({ initialValues, tenants = [], invoices = [], onSubmit, onCancel, isSubmitting }) {
+export default function RecordPaymentForm({ initialValues, tenants = [], onSubmit, onCancel, isSubmitting }) {
   const [form, setForm] = useState({
     tenant_id: "",
     amount: "",

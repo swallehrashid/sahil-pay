@@ -50,6 +50,8 @@ from .admin_copilot_routes    import admin_copilot_bp
 from .etims_routes            import etims_bp
 from .preference_routes       import preference_bp
 from .allocation_routes       import allocation_bp
+from .penalty_routes          import penalty_bp
+from .lease_routes            import lease_bp
 from .tutorial_routes         import tutorial_bp
 from .admin_tutorial_routes   import admin_tutorial_bp
 
@@ -88,6 +90,8 @@ def register_blueprints(app):
     app.register_blueprint(audit_bp)              # /api/audit
     app.register_blueprint(etims_bp)              # /api/etims + /api/reports/kra-monthly
     app.register_blueprint(allocation_bp)         # /api/payments/review-queue, /api/payouts, …
+    app.register_blueprint(penalty_bp)            # /api/properties/<id>/penalty-policy, /api/reports/penalties
+    app.register_blueprint(lease_bp)              # /api/leases, /api/tenants/<id>/leases, /api/portal/lease
 
     # ── Team Member portal (thin — session / permissions only) ─────────────────
     app.register_blueprint(teammember_bp)         # /api/team-member

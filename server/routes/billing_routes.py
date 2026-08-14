@@ -72,13 +72,22 @@ def _sms_account_ref(landlord_id: int) -> str:
 
 
 def _sms_unit_price(landlord: Landlord) -> Decimal:
-    """§9.3 reselling price: the admin-set custom rate for landlords who have
-    connected their own SMS sender ID, else the default rate."""
-    from services.sms_billing import load_rates
-    settings = landlord.landlord_settings
-    uses_own = bool(settings and settings.sms_connected and settings.sms_sender_id)
-    rates    = load_rates()
-    return rates["custom_price"] if uses_own else rates["default_price"]
+    """
+    KES this landlord pays for one SMS credit.
+
+    Delegates to services/sms_billing.effective_price_per_sms — the SAME
+    function the send path and the margin report use — so the price quoted on
+    the buy screen, the price actually charged, and the price in the books can
+    never disagree.
+
+    This used to read the global rate directly and so ignored
+    landlords.sms_price_override entirely: a landlord you had agreed 1.20 with
+    was still charged 1.00 at the till, and the reports showed revenue that
+    never arrived.
+    """
+    from services.sms_billing import effective_price_per_sms
+
+    return effective_price_per_sms(landlord.landlord_settings, landlord=landlord)
 
 
 # ---------------------------------------------------------------------------

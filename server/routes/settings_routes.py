@@ -89,11 +89,11 @@ def general_settings():
         # Handle logo and signature file uploads
         if "logo" in request.files:
             landlord.logo_url = upload_to_s3(
-                request.files["logo"], folder=f"logos/{landlord_id}", profile="image"
+                request.files["logo"], folder=f"logos/{landlord_id}", profile="brand"
             )
         if "signature" in request.files:
             landlord.signature_url = upload_to_s3(
-                request.files["signature"], folder=f"signatures/{landlord_id}", profile="image"
+                request.files["signature"], folder=f"signatures/{landlord_id}", profile="brand"
             )
 
     landlord_fields = [
@@ -298,13 +298,13 @@ def connect_sms_provider():
     landlord_id = get_current_landlord_id()
     ls = _get_or_create_settings(landlord_id)
 
-    missing = [f for f in ("sms_api_key", "sms_sender_id") if not getattr(ls, f)]
-    if missing:
-        return jsonify({"error": f"Save these first: {', '.join(missing)}."}), 400
-
-    from services.sms_service import check_sms_balance
-    if check_sms_balance(api_key=ls.sms_api_key) is None:
-        return jsonify({"error": "The API key was rejected by the SMS provider."}), 400
+    # Only the sender name is needed. It is registered with the provider on
+    # Sahil Pay's account, so there is no per-landlord API key to validate —
+    # messages go out under this name but still draw Sahil Pay's credit pool.
+    if not ls.sms_sender_id:
+        return jsonify({
+            "error": "Enter the sender name you had approved, then connect."
+        }), 400
 
     ls.sms_connected = True
     db.session.commit()
@@ -392,6 +392,9 @@ def automation_settings():
             "monthly_reminders_enabled", "monthly_reminder_day",
             "lease_expiry_notifications", "lease_expiry_range_days",
             "owner_reports_enabled", "owner_reports_day",
+            # Receipts for payments allocated without a human in the loop.
+            "auto_receipt_enabled", "auto_receipt_email",
+            "auto_receipt_sms", "auto_receipt_in_app",
         ]:
             if field in data:
                 setattr(aut, field, data[field])
@@ -551,7 +554,7 @@ def account_settings():
             from decorators import _check_permission
             _check_permission("settings", "edit")
             landlord.signature_url = upload_to_s3(
-                request.files["signature"], folder=f"signatures/{landlord_id}", profile="image"
+                request.files["signature"], folder=f"signatures/{landlord_id}", profile="brand"
             )
 
     # Profile fields on User

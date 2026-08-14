@@ -19,6 +19,7 @@ const SECTIONS = [
   { to: LANDLORD_ROUTES.settings.copilot, label: "Co-pilot", accountLevel: true },
   { to: LANDLORD_ROUTES.settings.taxCompliance, label: "Tax Compliance", accountLevel: true },
   { to: LANDLORD_ROUTES.settings.allocation, label: "Payments & Commission", accountLevel: true },
+  { to: LANDLORD_ROUTES.settings.penalties, label: "Penalties", accountLevel: true },
   { to: LANDLORD_ROUTES.settings.audit, label: "Audit Trail" },
   { to: LANDLORD_ROUTES.settings.impersonationRequests, label: "Client Support", accountLevel: true },
 ];

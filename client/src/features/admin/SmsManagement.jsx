@@ -30,6 +30,7 @@ import {
   useGetLandlordSmsProviderQuery,
   useUpdateLandlordSmsProviderMutation,
   useGetSmsReportQuery,
+  useSetLandlordSmsPriceMutation,
 } from "./adminSmsApiSlice";
 
 const TABS = [
@@ -68,9 +69,12 @@ export default function SmsManagement() {
 function MonitoringTab() {
   const navigate = useNavigate();
   const { data, isLoading } = useGetSmsOverviewQuery();
-  const [providerLandlord, setProviderLandlord] = useState(null); // { landlord_id, landlord }
+  const [providerLandlord, setProviderLandlord] = useState(null);
+  const [priceLandlord, setPriceLandlord] = useState(null); // { landlord_id, landlord }
 
   const t = data?.totals ?? {};
+
+  const lowCount = (data?.landlords ?? []).filter((r) => r.low_balance).length;
 
   const columns = [
     { key: "landlord", header: "Landlord" },
@@ -80,7 +84,34 @@ function MonitoringTab() {
     { key: "spent_shared", header: "Shared", render: (r) => (r.spent_shared ?? 0).toLocaleString() },
     { key: "spent_own", header: "Own", render: (r) => (r.spent_own ?? 0).toLocaleString() },
     { key: "cost", header: "Cost", render: (r) => formatCurrency(r.cost) },
-    { key: "balance", header: "Balance", render: (r) => (r.balance ?? 0).toLocaleString() },
+    {
+      key: "rate", header: "Rate",
+      render: (r) => (
+        <span className="whitespace-nowrap">
+          {formatCurrency(r.rate)}
+          {r.has_own_rate && (
+            <span className="ml-1.5 rounded-full bg-secondary/20 px-1.5 py-0.5 text-[10px] text-secondary-100">
+              agreed
+            </span>
+          )}
+        </span>
+      ),
+    },
+    {
+      key: "sender_id", header: "Sender",
+      render: (r) => r.sender_id || <span className="text-white/35">Sahil Pay</span>,
+    },
+    {
+      key: "balance", header: "Balance",
+      // The number people scan this table for. A low balance is shown as a
+      // state, not just a small figure, so it reads at a glance.
+      render: (r) => (
+        <span className={r.low_balance ? "font-medium text-amber-300" : ""}>
+          {(r.balance ?? 0).toLocaleString()}
+          {r.low_balance && <span className="ml-1.5 text-[10px] uppercase tracking-wide">low</span>}
+        </span>
+      ),
+    },
   ];
 
   return (
@@ -119,24 +150,44 @@ function MonitoringTab() {
       <SmsRevenueCostChart data={data?.monthly ?? []} />
 
       <div className="glass p-6">
-        <h3 className="mb-4 text-sm font-medium text-white/70">Per-landlord SMS activity</h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-medium text-white/70">Per-landlord SMS activity</h3>
+          {lowCount > 0 && (
+            <p className="text-xs text-amber-300">
+              {lowCount} account{lowCount === 1 ? "" : "s"} low on credit — sorted to the top
+            </p>
+          )}
+        </div>
         <ResponsiveTable
           columns={columns}
           rows={data?.landlords ?? []}
           keyField="landlord_id"
           onRowClick={(r) => navigate(ADMIN_ROUTES.landlordDetailPath(r.landlord_id))}
           rowActions={(r) => (
-            <Button
-              variant="ghost"
-              size="sm"
-              leftIcon={<MessageSquare className="h-4 w-4" />}
-              onClick={(e) => {
-                e.stopPropagation();
-                setProviderLandlord(r);
-              }}
-            >
-              SMS provider
-            </Button>
+            <div className="flex flex-wrap justify-end gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<Coins className="h-4 w-4" />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPriceLandlord(r);
+                }}
+              >
+                Rate
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                leftIcon={<MessageSquare className="h-4 w-4" />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setProviderLandlord(r);
+                }}
+              >
+                Sender ID
+              </Button>
+            </div>
           )}
         />
       </div>
@@ -146,6 +197,15 @@ function MonitoringTab() {
           landlordId={providerLandlord.landlord_id}
           landlordName={providerLandlord.landlord}
           onClose={() => setProviderLandlord(null)}
+        />
+      )}
+
+      {priceLandlord && (
+        <LandlordRateModal
+          landlord={priceLandlord}
+          defaultRate={data?.rates?.default_price}
+          platformCost={data?.rates?.platform_cost}
+          onClose={() => setPriceLandlord(null)}
         />
       )}
     </div>
@@ -535,5 +595,116 @@ function ReportTab() {
         <ReportView document={data} endpoint="/admin/sms/report" params={submitted} filenameBase="sms-analytics" />
       )}
     </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Admin — the rate ONE landlord pays per SMS credit
+// ---------------------------------------------------------------------------
+//
+// The margin is shown live while the figure is being typed, because the number
+// that matters is not the price but the gap between it and what a credit costs
+// to buy. A rate below cost is allowed — a loss-leader is a real commercial
+// choice — but it has to be ticked, never typed by accident.
+function LandlordRateModal({ landlord, defaultRate = 1, platformCost = 0, onClose }) {
+  const [save, { isLoading }] = useSetLandlordSmsPriceMutation();
+  const [rate, setRate] = useState(
+    landlord.has_own_rate ? String(landlord.rate ?? "") : "",
+  );
+  const [reason, setReason] = useState("");
+  const [confirmBelowCost, setConfirmBelowCost] = useState(false);
+
+  const parsed = rate.trim() === "" ? null : Number(rate);
+  const effective = parsed ?? defaultRate;
+  const margin = effective - platformCost;
+  const belowCost = parsed !== null && parsed < platformCost;
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await save({
+        landlordId: landlord.landlord_id,
+        sms_price_override: parsed,
+        reason: reason.trim(),
+        confirm_below_cost: confirmBelowCost,
+      }).unwrap();
+      toast(
+        parsed === null
+          ? "Back to the standard rate."
+          : `Rate set to ${formatCurrency(parsed)} per credit.`,
+        { type: "success" },
+      );
+      onClose();
+    } catch (err) {
+      toast(err?.data?.error || "Could not save this rate.", { type: "error" });
+    }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`SMS rate — ${landlord.landlord}`}>
+      <form onSubmit={submit} className="space-y-4">
+        <p className="text-sm text-white/50">
+          What this landlord pays for one SMS credit. Leave it empty to put them
+          back on the standard rate of {formatCurrency(defaultRate)}.
+        </p>
+
+        <Input
+          label="Rate per credit (KES)"
+          type="number"
+          step="0.01"
+          min="0"
+          value={rate}
+          onChange={(e) => setRate(e.target.value)}
+          placeholder={`${defaultRate} (standard)`}
+        />
+
+        <div className="grid grid-cols-3 gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-center">
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-white/40">They pay</p>
+            <p className="text-sm text-white">{formatCurrency(effective)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-white/40">You pay</p>
+            <p className="text-sm text-white">{formatCurrency(platformCost)}</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wide text-white/40">Margin</p>
+            <p className={`text-sm ${margin < 0 ? "text-red-300" : "text-emerald-300"}`}>
+              {formatCurrency(margin)}
+            </p>
+          </div>
+        </div>
+
+        {belowCost && (
+          <Checkbox
+            name="confirm_below_cost"
+            label={`I know this is below the ${formatCurrency(platformCost)} a credit costs — every message will lose money`}
+            checked={confirmBelowCost}
+            onChange={(e) => setConfirmBelowCost(e.target.checked)}
+          />
+        )}
+
+        <Input
+          label="Reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Volume deal agreed on the phone"
+          hint="Recorded in the audit log — this is a verbally agreed commercial term"
+          required
+        />
+
+        <div className="flex justify-end gap-3 pt-1">
+          <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            type="submit"
+            isLoading={isLoading}
+            disabled={!reason.trim() || (belowCost && !confirmBelowCost)}
+          >
+            Save rate
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

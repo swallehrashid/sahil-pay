@@ -699,13 +699,19 @@ def _finalize_message(msg, landlord, ls, device) -> None:
         apply_allocations(payment, tenant, alloc_rows, landlord.id)
 
         from services.alert_service import dispatch_alert
-        from services.automation_service import on_payment_recorded
+        from services.automation_service import (
+            on_payment_auto_allocated, on_payment_recorded,
+        )
         dispatch_alert(
             landlord.id, "payment", title="Payment received",
             body=f"{tenant_name} paid KES {amount} via Co-pilot ({payment.payment_ref}).",
             link="/landlord/payments", entity_type="payment", entity_id=payment.id,
         )
         on_payment_recorded(landlord, payment, tenant)
+        # Only reached once the money is genuinely allocated — the suspense and
+        # unmatched branches above return before here, so a payment nobody could
+        # attribute never sends the tenant a receipt.
+        on_payment_auto_allocated(landlord, payment, tenant)
     elif landlord.user_id:
         notify(
             recipient_user_id=landlord.user_id,

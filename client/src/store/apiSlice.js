@@ -168,6 +168,11 @@ export const apiSlice = createApi({
     "ReviewQueue",
     "CommissionRule",
     "Payout",
+    // Tenancy agreements (staff + tenant portal share this tag)
+    "Lease",
+    // Late-payment penalties (per property)
+    "PenaltyPolicy",
+    "PenaltyReport",
   ],
   endpoints: () => ({}),
 });

@@ -28,7 +28,10 @@ const argOf = (flag, fallback) => {
 
 const BASE = argOf("--base", "http://127.0.0.1:5173");
 const OUT = argOf("--out", "./walkthrough");
-const PASSWORD = "ScaleTest123!";
+// Which seeded estate to drive. `dev` is server/seed.py (+ seed_dev_extras.py,
+// which publishes the help library and switches eTIMS on); `scale` is
+// server/seed_scale.py, the 100-property/1,000-unit performance estate.
+const PROFILE = argOf("--profile", "dev");
 
 // Team members live under /team, not /landlord — pointing them at a landlord
 // URL just bounces them home, which proves nothing about their own portal.
@@ -46,30 +49,89 @@ const LANDLORD_PAGES_FOR = (prefix) => [
   ["communications", `${prefix}/communications`],
 ];
 
-const ACCOUNTS = {
-  manager: {
-    email: "scale-pm@sahilpay.test",
-    label: "Property manager",
-    pages: [
-      ...LANDLORD_PAGES_FOR("/landlord"),
-      ["owner-payouts",   "/landlord/owner-payouts"],
-      ["settings-team",   "/landlord/settings/team"],
-      ["settings-general","/landlord/settings/general"],
-      ["settings-billing","/landlord/settings/billing"],
-      ["settings-receipt-layout", "/landlord/settings/receipt-layout"],
-    ],
+// The eTIMS/KRA, allocation and help-library surfaces. These shipped in the
+// items/eTIMS round and were never in this script, so nothing had ever loaded
+// them in a browser.
+const NEW_LANDLORD_PAGES = [
+  ["review-queue",    "/landlord/payments/review-queue"],
+  ["payout-runs",     "/landlord/payouts"],
+  ["owner-payouts",   "/landlord/owner-payouts"],
+  ["etims-register",  "/landlord/etims-register"],
+  ["kra-monthly",     "/landlord/reports/kra-monthly"],
+  ["help",            "/landlord/help"],
+  ["settings-tax-compliance", "/landlord/settings/tax-compliance"],
+  ["settings-allocation",     "/landlord/settings/allocation"],
+  ["settings-penalties",      "/landlord/settings/penalties"],
+  ["reports-penalties",       "/landlord/reports/penalties"],
+  ["leases",                  "/landlord/leases"],
+  ["settings-account",        "/landlord/settings/account"],
+];
+
+const SETTINGS_PAGES = [
+  ["settings-team",    "/landlord/settings/team"],
+  ["settings-general", "/landlord/settings/general"],
+  ["settings-billing", "/landlord/settings/billing"],
+  ["settings-receipt-layout", "/landlord/settings/receipt-layout"],
+];
+
+const PROFILES = {
+  // server/seed.py — the varied four-landlord dev estate. landlord@ has eTIMS
+  // switched on by seed_dev_extras.py, so its compliance pages have data.
+  dev: {
+    landlord: {
+      email: "landlord@sahilpay.test", password: "Landlord@123",
+      label: "Landlord (Acme)",
+      pages: [...LANDLORD_PAGES_FOR("/landlord"), ...NEW_LANDLORD_PAGES, ...SETTINGS_PAGES],
+    },
+    teamMember: {
+      email: "caretaker@sahilpay.test", password: "Caretaker@123",
+      label: "Team member (Acme)",
+      pages: [
+        ...LANDLORD_PAGES_FOR("/team"),
+        ["help",           "/team/help"],
+        ["etims-register", "/team/etims-register"],
+        ["kra-monthly",    "/team/reports/kra-monthly"],
+        ["reports-penalties", "/team/reports/penalties"],
+        ["tutorials",      "/team/tutorials"],
+        ["leases",         "/team/leases"],
+      ],
+    },
+    // The admin is deliberately NOT enrolled in 2FA, which is the state every
+    // existing admin is in the moment this ships. Signing in must land on the
+    // enrolment screen — see the assertion in run().
+    admin: {
+      email: "admin@sahilpay.test", password: "Admin@123",
+      label: "System admin (2FA not enrolled)",
+      expectRedirectTo: "/two-factor-setup",
+      pages: [["two-factor-setup", "/two-factor-setup"]],
+    },
   },
-  owner: {
-    email: "owner001@scale.sahilpay.test",
-    label: "Owner (view only)",
-    pages: LANDLORD_PAGES_FOR("/team"),
-  },
-  caretaker: {
-    email: "caretaker001@scale.sahilpay.test",
-    label: "Caretaker",
-    pages: LANDLORD_PAGES_FOR("/team"),
+
+  // server/seed_scale.py — the performance estate.
+  scale: {
+    manager: {
+      email: "scale-pm@sahilpay.test", password: "ScaleTest123!",
+      label: "Property manager",
+      pages: [...LANDLORD_PAGES_FOR("/landlord"), ...NEW_LANDLORD_PAGES, ...SETTINGS_PAGES],
+    },
+    owner: {
+      email: "owner001@scale.sahilpay.test", password: "ScaleTest123!",
+      label: "Owner (view only)",
+      pages: LANDLORD_PAGES_FOR("/team"),
+    },
+    caretaker: {
+      email: "caretaker001@scale.sahilpay.test", password: "ScaleTest123!",
+      label: "Caretaker",
+      pages: LANDLORD_PAGES_FOR("/team"),
+    },
   },
 };
+
+const ACCOUNTS = PROFILES[PROFILE];
+if (!ACCOUNTS) {
+  console.error(`Unknown --profile "${PROFILE}". Use one of: ${Object.keys(PROFILES).join(", ")}`);
+  process.exit(2);
+}
 
 const PUBLIC_PAGES = [
   ["home",     "/"],
@@ -155,10 +217,10 @@ async function visit(page, { role, name, url, viewport = "desktop", expectDenied
   return { bodyText, problems };
 }
 
-async function login(page, email) {
+async function login(page, email, password) {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.fill('input[type="email"], input[name="email"]', email);
-  await page.fill('input[type="password"], input[name="password"]', PASSWORD);
+  await page.fill('input[type="password"], input[name="password"]', password);
   await Promise.all([
     page.waitForURL((u) => !u.pathname.includes("/login"), { timeout: 20000 }).catch(() => {}),
     page.click('button[type="submit"]'),
@@ -203,7 +265,7 @@ async function run() {
       const ctx = await browser.newContext({ viewport });
       const page = await ctx.newPage();
 
-      const signedIn = await login(page, account.email);
+      const signedIn = await login(page, account.email, account.password);
       if (!signedIn) {
         record({
           role: key, name: "login", url: "/login", viewport: viewportName,
@@ -212,6 +274,22 @@ async function run() {
         });
         await ctx.close();
         continue;
+      }
+
+      // Where login SENDS them is itself a behaviour worth asserting. An admin
+      // without 2FA must land on enrolment: the server answers `needs_2fa_setup`
+      // and refuses every /api/admin/* route until it is done, so routing them
+      // to the dashboard instead produces a portal of 403s with no way out.
+      if (account.expectRedirectTo) {
+        const landed = new URL(page.url()).pathname;
+        record({
+          role: key, name: "login-redirect", url: landed, viewport: viewportName,
+          ms: 0, ok: landed === account.expectRedirectTo,
+          problems: landed === account.expectRedirectTo
+            ? []
+            : [`expected ${account.expectRedirectTo}, landed on ${landed}`],
+          file: null, bodyChars: 0,
+        });
       }
 
       for (const [name, url] of account.pages) {
@@ -239,6 +317,9 @@ async function run() {
       ["maintenance", "/portal/maintenance"],
       ["messages",    "/portal/messages"],
       ["profile",     "/portal/profile"],
+      // The help library's tenant-facing articles had no reader until now.
+      ["help",        "/portal/help"],
+      ["lease",       "/portal/lease"],
     ];
     for (const [viewportName, viewport] of Object.entries(VIEWPORTS)) {
       const ctx = await browser.newContext({ viewport });

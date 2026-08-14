@@ -8,6 +8,8 @@ export default {
   icon: Users,
   duration: "~2 min",
   section: "setup",
+  // Permission module that gates this tutorial. Drives the Tenants screens.
+  module: "tenants",
   mode: "tour",
   prerequisite: { count: "units", tutorialId: "add-units" },
   steps: [

@@ -399,6 +399,18 @@ class TestingConfig(BaseConfig):
     # Disable rate limiting so tests are not throttled.
     RATELIMIT_ENABLED: bool = False
 
+    # NEVER let the test suite reach the real image CDN. The developer .env
+    # carries live Cloudinary credentials, and the account is on a metered free
+    # tier — a full test run uploading maintenance photos and logos would spend
+    # the month's credits silently, and leave orphaned assets behind. Blanked
+    # here rather than relied upon in each test, so a new test that uploads an
+    # image cannot reintroduce the leak. Uploads fall back to local disk, which
+    # is what the storage tests assert against anyway.
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+    CLOUDINARY_URL: str = ""
+
     # Short token windows to test expiry in a single test run.
     JWT_ACCESS_TOKEN_EXPIRES: timedelta = timedelta(seconds=10)
     JWT_REFRESH_TOKEN_EXPIRES: timedelta = timedelta(minutes=5)

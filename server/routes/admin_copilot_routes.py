@@ -603,7 +603,14 @@ def create_release():
     if CopilotAppRelease.query.filter_by(version_code=version_code).first():
         return jsonify({"error": f"version_code {version_code} already exists."}), 400
 
-    apk_path = upload_to_s3(file, folder="copilot/apks", content_type="application/vnd.android.package-archive")
+    # profile="apk" accepts only .apk and allows the 100MB a real release needs;
+    # force_local keeps it on this server, served from /uploads/ behind the CDN,
+    # because every device fetches this same file on every release.
+    apk_path = upload_to_s3(
+        file, folder="copilot/apks",
+        content_type="application/vnd.android.package-archive",
+        profile="apk", force_local=True,
+    )
 
     is_latest = str(data.get("is_latest", "")).lower() == "true"
     if is_latest:

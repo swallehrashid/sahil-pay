@@ -102,7 +102,6 @@ export default function TenantImportWizard({ isOpen, onClose, onImported }) {
 
   const summary = validation?.summary;
   const rows = validation?.rows ?? [];
-  const badRows = rows.filter((r) => !r.ok);
 
   return (
     <Modal isOpen={isOpen} onClose={close} title="Import tenants from a spreadsheet" size="lg">

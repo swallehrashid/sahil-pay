@@ -23,6 +23,10 @@ import {
   Landmark,
   FileSpreadsheet,
   AlertCircle,
+  AlertTriangle,
+  FileText,
+  Coins,
+  BookOpen,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { LANDLORD_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
@@ -42,6 +46,9 @@ const NAV_ITEMS = [
   // Property managers remit collections to each owner; landlords running
   // their own blocks simply never use it.
   { to: LANDLORD_ROUTES.ownerPayouts, label: "Owner payouts", icon: <Send className="h-4 w-4" /> },
+  // The allocation engine's commission-and-remittance run, as opposed to the
+  // manual disbursement ledger above it.
+  { to: LANDLORD_ROUTES.payouts, label: "Payout runs", icon: <Coins className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.expenses, label: "Expenses", icon: <ReceiptText className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.tenants, label: "Tenants", icon: <Users className="h-4 w-4" />, dataTour: ANCHORS.sidebar.tenants },
   { to: LANDLORD_ROUTES.properties, label: "Properties", icon: <Building2 className="h-4 w-4" />, dataTour: ANCHORS.sidebar.properties },
@@ -49,11 +56,18 @@ const NAV_ITEMS = [
   { to: LANDLORD_ROUTES.utilities, label: "Utilities", icon: <Gauge className="h-4 w-4" />, dataTour: ANCHORS.sidebar.utilities },
   { to: LANDLORD_ROUTES.maintenance, label: "Maintenance", icon: <Wrench className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" /> },
+  { to: LANDLORD_ROUTES.leases, label: "Leases", icon: <FileText className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.reportsStatements, label: "Reports", icon: <BarChart3 className="h-4 w-4" />, dataTour: ANCHORS.sidebar.reports },
+  // Its own entry rather than a tab inside Reports: a penalty is not rent, is
+  // not commissionable, and gets reconciled separately from both.
+  { to: LANDLORD_ROUTES.reportsPenalties, label: "Penalties", icon: <AlertTriangle className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.communications, label: "Communications", icon: <MessageSquare className="h-4 w-4" />, dataTour: ANCHORS.sidebar.communications },
   { to: LANDLORD_ROUTES.messages, label: "Tenant Messages", icon: <MessagesSquare className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" />, dataTour: ANCHORS.sidebar.notifications },
   { to: LANDLORD_ROUTES.tutorials, label: "Help & Tutorials", icon: <GraduationCap className="h-4 w-4" />, dataTour: ANCHORS.sidebar.tutorials },
+  // The admin-authored article library — distinct from the first-run product
+  // tour above, which is hardcoded in the client.
+  { to: LANDLORD_ROUTES.help, label: "Guides", icon: <BookOpen className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.settings.root, label: "Settings", icon: <SettingsIcon className="h-4 w-4" />, dataTour: ANCHORS.sidebar.settings },
 ];
 

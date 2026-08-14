@@ -4,7 +4,6 @@ import { ChevronDown, ChevronUp, Plus, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
-import Select from "@/components/ui/Select";
 import Checkbox from "@/components/ui/Checkbox";
 import Modal from "@/components/ui/Modal";
 import Badge from "@/components/ui/Badge";

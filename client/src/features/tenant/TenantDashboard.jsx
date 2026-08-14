@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Wallet, Receipt, History, Droplets, ShieldCheck } from "lucide-react";
+import { Wallet, Receipt, Droplets, ShieldCheck } from "lucide-react";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -8,7 +8,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { useGetPortalDashboardQuery, useGetPortalScoreQuery } from "./tenantPortalApiSlice";
 import UnitSwitcher from "./components/UnitSwitcher";
 import { TenantScoreDial } from "@/components/ui/TenantScoreBadge";
-import { formatCurrency, formatBalance } from "@/utils/currencyFormatter";
+import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { TENANT_ROUTES } from "@/config/routePaths";
 

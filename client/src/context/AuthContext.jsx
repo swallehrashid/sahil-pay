@@ -15,7 +15,7 @@ export function AuthProvider({ children }) {
   const { user, role, permissions, propertyAccess, impersonating } = useSelector(selectAuth);
   const hasToken = Boolean(getAccessToken());
 
-  const { data, isLoading, isError } = useGetMeQuery(undefined, { skip: !hasToken });
+  const { data, isError } = useGetMeQuery(undefined, { skip: !hasToken });
 
   useEffect(() => {
     if (data) {

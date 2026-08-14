@@ -63,6 +63,18 @@ export const adminSmsApiSlice = apiSlice.injectEndpoints({
     // Preview JSON for the report (downloads go through downloadFile in ReportView).
     getSmsReport: builder.query({
       query: (params) => ({ url: "/admin/sms/report", params }),
+    }),
+
+    // The rate ONE landlord pays per credit. Null returns them to the
+    // account-wide default. A reason is mandatory — it is a verbally agreed
+    // commercial term and lands in the audit log.
+    setLandlordSmsPrice: builder.mutation({
+      query: ({ landlordId, ...body }) => ({
+        url: `/admin/sms/landlords/${landlordId}/price`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["SmsOverview", "AdminLandlord"],
       providesTags: ["SmsOverview"],
     }),
   }),
@@ -82,4 +94,5 @@ export const {
   useCreditLandlordSmsMutation,
   useGetLandlordSmsCreditsQuery,
   useGetSmsReportQuery,
+  useSetLandlordSmsPriceMutation,
 } = adminSmsApiSlice;

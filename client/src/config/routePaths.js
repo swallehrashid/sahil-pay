@@ -24,6 +24,9 @@ export const AUTH_ROUTES = {
   teamActivatePath: (token) => `/team-activate/${token}`,
   tenantLogin: "/tenant/login",
   changePassword: "/change-password",
+  // Mandatory for admins (the admin API refuses them until they enrol),
+  // optional for landlords from Settings → Account.
+  twoFactorSetup: "/two-factor-setup",
 };
 
 // Module path suffixes shared between the Landlord portal and the Team Member
@@ -42,12 +45,20 @@ const SHARED_MODULES = {
   // Suspense/review queue — money that arrived but could not be attributed
   // with certainty (sahilpay_payment_allocation_spec.md §4.7).
   reviewQueue: "payments/review-queue",
+  // Commission-and-remittance run produced by the allocation engine. Distinct
+  // from ownerPayouts above, which is the manual disbursement ledger.
+  payouts: "payouts",
   expenses: "expenses",
   utilities: "utilities",
   maintenance: "maintenance",
   groups: "groups",
   reportsStatements: "reports/statements",
   reportsInsights: "reports/insights",
+  // Late-payment charges. Its own report because a penalty is not rent and
+  // must be reconciled separately from it.
+  reportsPenalties: "reports/penalties",
+  // Tenancy agreements — portal-signed and scanned, one screen.
+  leases: "leases",
   // KRA / eTIMS. Both are rendered ONLY when /api/etims/scope reports at least
   // one enabled property — an account that never opted in has no such links.
   etimsRegister: "etims-register",
@@ -93,6 +104,7 @@ export const LANDLORD_ROUTES = {
     copilot: "/landlord/settings/copilot",
     taxCompliance: "/landlord/settings/tax-compliance",
     allocation: "/landlord/settings/allocation",
+    penalties: "/landlord/settings/penalties",
     audit: "/landlord/settings/audit",
     impersonationRequests: "/landlord/settings/impersonation-requests",
   },
@@ -101,6 +113,9 @@ export const LANDLORD_ROUTES = {
 export const TEAM_ROUTES = {
   ...buildPortalRoutes("/team"),
   profile: "/team/profile",
+  // The product tour, same library as the landlord's. Filtered to the modules
+  // the member actually holds — see features/landlord/tutorials/portal.js.
+  tutorials: "/team/tutorials",
 };
 
 export const AFFILIATE_ROUTES = {
@@ -122,6 +137,13 @@ export const TENANT_ROUTES = {
   messages: "/portal/messages",
   profile: "/portal/profile",
   notifications: "/portal/notifications",
+  // The admin-authored help library. Tenants are a first-class audience of it
+  // (services/tutorial_service.py VALID_ROLES), and the seeded library ships
+  // tenant-specific articles, so the portal needs its own reader.
+  // The tenant reads, signs and downloads their agreement here.
+  lease: "/portal/lease",
+  help: "/portal/help",
+  helpArticle: (slug) => `/portal/help/${slug}`,
 };
 
 export const ADMIN_ROUTES = {

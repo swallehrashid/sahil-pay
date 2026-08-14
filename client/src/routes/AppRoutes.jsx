@@ -44,6 +44,7 @@ const ResetPassword = lazy(() => import("@/features/auth/ResetPassword"));
 const TeamActivation = lazy(() => import("@/features/auth/TeamActivation"));
 const TenantOtpLogin = lazy(() => import("@/features/auth/TenantOtpLogin"));
 const ChangePassword = lazy(() => import("@/features/auth/ChangePassword"));
+const TwoFactorSetupPage = lazy(() => import("@/features/auth/TwoFactorSetupPage"));
 
 // ---- Landlord (and re-mounted by Team Member under permission guards) ----
 const LandlordDashboard = lazy(() => import("@/features/landlord/LandlordDashboard"));
@@ -59,6 +60,10 @@ const OwnerPayoutsPage = lazy(() => import("@/features/landlord/payments/OwnerPa
 const ReviewQueuePage = lazy(() => import("@/features/landlord/allocation/ReviewQueuePage"));
 const PayoutsPage = lazy(() => import("@/features/landlord/allocation/PayoutsPage"));
 const AllocationSettings = lazy(() => import("@/features/landlord/settings/AllocationSettings"));
+const PenaltySettings = lazy(() => import("@/features/landlord/settings/PenaltySettings"));
+const PenaltiesReport = lazy(() => import("@/features/landlord/reports/PenaltiesReport"));
+const LeasesPage = lazy(() => import("@/features/landlord/leases/LeasesPage"));
+const TenantLease = lazy(() => import("@/features/tenant/TenantLease"));
 const ExpensesPage = lazy(() => import("@/features/landlord/expenses/ExpensesPage"));
 const UtilitiesPage = lazy(() => import("@/features/landlord/utilities/UtilitiesPage"));
 const MaintenancePage = lazy(() => import("@/features/landlord/maintenance/MaintenancePage"));
@@ -144,10 +149,14 @@ const AffiliateReports = lazy(() => import("@/features/admin/AffiliateReports"))
 const AffiliateProgramSettings = lazy(() => import("@/features/admin/AffiliateProgramSettings"));
 
 // Wraps a lazy page in the branded glass loader as its Suspense fallback.
-function withSuspense(Component) {
+// `props` is forwarded to the page — HelpPage is mounted once per portal and
+// needs its basePath. Every lazy page MUST go through here: rendering one
+// directly suspends with no boundary above it (App.jsx has none), which throws
+// the whole route into the error boundary instead of showing a loader.
+function withSuspense(Component, props) {
   return (
     <Suspense fallback={<RouteLoader />}>
-      <Component />
+      <Component {...props} />
     </Suspense>
   );
 }
@@ -205,6 +214,7 @@ function LandlordLayout() {
 function TeamMemberLayout() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   return (
+    <TourProvider>
     <div className="app-bg flex min-h-screen">
       <TeamMemberViewLogger />
       <TeamMemberSidebar isMobileOpen={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
@@ -216,6 +226,7 @@ function TeamMemberLayout() {
         </main>
       </div>
     </div>
+    </TourProvider>
   );
 }
 
@@ -292,6 +303,11 @@ export default function AppRoutes() {
             ProtectedRoutes (no role filter) only checks that they're logged in. */}
         <Route element={<ProtectedRoutes />}>
           <Route path={AUTH_ROUTES.changePassword} element={withSuspense(ChangePassword)} />
+          {/* Two-factor enrolment. Mandatory for admins — every /api/admin/*
+              route answers `2fa_required` until this is done — so it must be
+              reachable by any signed-in user, not gated behind the admin
+              portal it unlocks. */}
+          <Route path={AUTH_ROUTES.twoFactorSetup} element={withSuspense(TwoFactorSetupPage)} />
         </Route>
 
         {/* Landlord / Property Manager portal */}
@@ -314,6 +330,8 @@ export default function AppRoutes() {
             <Route path="groups" element={withSuspense(PropertyGroupsPage)} />
             <Route path="reports/statements" element={withSuspense(StatementsPage)} />
             <Route path="reports/insights" element={withSuspense(InsightsPage)} />
+            <Route path="reports/penalties" element={withSuspense(PenaltiesReport)} />
+            <Route path="leases" element={withSuspense(LeasesPage)} />
             <Route path="communications" element={withSuspense(CommunicationsPage)} />
             <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
@@ -329,8 +347,8 @@ export default function AppRoutes() {
             <Route path="reports/kra-monthly" element={withSuspense(KraMonthlyReport)} />
 
             {/* Admin-authored help library (distinct from the product tour). */}
-            <Route path="help" element={<HelpPage basePath="/landlord/help" />} />
-            <Route path="help/:slug" element={<HelpPage basePath="/landlord/help" />} />
+            <Route path="help" element={withSuspense(HelpPage, { basePath: LANDLORD_ROUTES.help })} />
+            <Route path="help/:slug" element={withSuspense(HelpPage, { basePath: LANDLORD_ROUTES.help })} />
 
             <Route path="settings" element={withSuspense(SettingsLayout)}>
               <Route index element={<Navigate to="general" replace />} />
@@ -347,6 +365,7 @@ export default function AppRoutes() {
               <Route path="copilot" element={withDemoBlock(CopilotSettings)} />
               <Route path="tax-compliance" element={withDemoBlock(TaxComplianceSettings)} />
               <Route path="allocation" element={withDemoBlock(AllocationSettings)} />
+              <Route path="penalties" element={withDemoBlock(PenaltySettings)} />
               <Route path="audit" element={withSuspense(AuditTrail)} />
               <Route path="impersonation-requests" element={withDemoBlock(ImpersonationRequests)} />
             </Route>
@@ -370,6 +389,8 @@ export default function AppRoutes() {
               <Route path="tenants" element={withSuspense(TenantsPage)} />
               <Route path="tenants/deleted" element={withSuspense(DeletedTenants)} />
               <Route path="tenants/:id/transactions" element={withSuspense(TenantTransactions)} />
+              {/* A lease belongs to a tenancy, so the tenants permission governs it. */}
+              <Route path="leases" element={withSuspense(LeasesPage)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "invoices", level: "view" }} />}>
               <Route path="invoices" element={withSuspense(InvoicesPage)} />
@@ -393,12 +414,31 @@ export default function AppRoutes() {
             <Route element={<ProtectedRoutes requiredPermission={{ module: "reports", level: "view" }} />}>
               <Route path="reports/statements" element={withSuspense(StatementsPage)} />
               <Route path="reports/insights" element={withSuspense(InsightsPage)} />
+              <Route path="reports/penalties" element={withSuspense(PenaltiesReport)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "messages", level: "view" }} />}>
               <Route path="communications" element={withSuspense(CommunicationsPage)} />
               <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
             </Route>
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
+            {/* The product tour. Ungated: the page itself only offers the
+                tutorials whose module this member holds. */}
+            <Route path="tutorials" element={withSuspense(TutorialsPage)} />
+
+            {/* Help library — the server filters articles to the caller's role,
+                so a team member sees the team_member/caretaker material. */}
+            <Route path="help" element={withSuspense(HelpPage, { basePath: TEAM_ROUTES.help })} />
+            <Route path="help/:slug" element={withSuspense(HelpPage, { basePath: TEAM_ROUTES.help })} />
+
+            {/* eTIMS. Every /api/etims/* route is require_landlord_or_team()
+                and permission-gated server-side, so a member with the rights
+                gets the same pages the landlord uses. */}
+            <Route element={<ProtectedRoutes requiredPermission={{ module: "properties", level: "view" }} />}>
+              <Route path="etims-register" element={withSuspense(EtimsRegisterPage)} />
+            </Route>
+            <Route element={<ProtectedRoutes requiredPermission={{ module: "reports", level: "view" }} />}>
+              <Route path="reports/kra-monthly" element={withSuspense(KraMonthlyReport)} />
+            </Route>
           </Route>
         </Route>
 
@@ -412,7 +452,13 @@ export default function AppRoutes() {
             <Route path="maintenance" element={withSuspense(TenantMaintenance)} />
             <Route path="messages" element={withSuspense(TenantMessages)} />
             <Route path="profile" element={withSuspense(TenantProfile)} />
+            <Route path="lease" element={withSuspense(TenantLease)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
+
+            {/* Help library. The seeded library ships tenant-facing articles
+                ("your receipt and your KRA PIN"), which had no reader until now. */}
+            <Route path="help" element={withSuspense(HelpPage, { basePath: TENANT_ROUTES.help })} />
+            <Route path="help/:slug" element={withSuspense(HelpPage, { basePath: TENANT_ROUTES.help })} />
           </Route>
         </Route>
 

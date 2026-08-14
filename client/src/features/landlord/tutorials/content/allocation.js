@@ -7,6 +7,8 @@ export default {
   icon: ListOrdered,
   duration: "~2 min",
   section: "payments",
+  // Permission module that gates this tutorial. Lives entirely in Settings, which is landlord-only.
+  module: "settings",
   mode: "explainer",
   hubOnly: true,
   slides: [

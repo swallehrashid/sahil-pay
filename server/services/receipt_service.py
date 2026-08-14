@@ -19,12 +19,15 @@ render_receipt_pdf(payment) -> bytes (branded PDF, same letterhead as reports)
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
 from html import escape
 
 from utils import render_pdf
 from services.report_builder import build_meta, _letterhead_html, _signature_html, _platform_credit_html, _REPORT_STYLE
+
+logger = logging.getLogger(__name__)
 
 
 def _f(value) -> float:
@@ -446,3 +449,147 @@ def render_sample_receipt_pdf(landlord, layout: dict) -> bytes:
         f"</head><body>{body}</body></html>"
     )
     return render_pdf(html)
+
+
+# ---------------------------------------------------------------------------
+# Delivery
+# ---------------------------------------------------------------------------
+#
+# ONE implementation, used by both the landlord pressing "send receipt" and the
+# automation that fires when Co-pilot auto-allocates a payment. They used to be
+# separate: the manual path sent a real itemised receipt, while the automatic
+# path sent a bare "we received your payment" with no breakdown, no PDF and no
+# link. A tenant should not get a different quality of answer depending on
+# which route their money happened to take.
+
+# Channels that can actually deliver today. WhatsApp is accepted by the API and
+# reported back as skipped — there is no integration behind it yet, and
+# silently dropping it would look like a delivery failure nobody can explain.
+DELIVERABLE_CHANNELS = ("email", "sms", "in_app")
+
+
+def sms_receipt_text(payment, receipt: dict | None = None) -> str:
+    """
+    The SMS a tenant gets: what arrived, what it cleared, what is left, and a
+    link to the real receipt.
+
+    Kept deliberately tight. SMS is billed per 160-character segment and a
+    single emoji or accented character forces UCS-2, which cuts the segment to
+    70 characters and can triple the cost of every message an account sends. So
+    this is plain ASCII, and only the two largest allocations are itemised —
+    the link carries the full detail for anyone who wants it.
+    """
+    data = receipt or build_receipt(payment)
+    currency = data.get("currency") or "KES"
+
+    lines = []
+    for section in ("rent_section", "utilities_section", "other_section", "deposits_section"):
+        for row in data.get(section) or []:
+            paid = row.get("paid_this_receipt") or 0
+            if paid > 0:
+                lines.append((row.get("description") or "Charge", paid))
+    lines.sort(key=lambda pair: pair[1], reverse=True)
+
+    parts = [f"Payment received: {currency} {_f(payment.amount):,.0f} ({payment.payment_ref})."]
+
+    if lines:
+        shown = "; ".join(f"{name} {amount:,.0f}" for name, amount in lines[:2])
+        if len(lines) > 2:
+            shown += f"; +{len(lines) - 2} more"
+        parts.append(f"Applied to: {shown}.")
+
+    balance = data.get("balance_remaining") or 0
+    credit = data.get("advance_credit") or 0
+    if balance > 0:
+        parts.append(f"Balance: {currency} {balance:,.0f}.")
+    elif credit > 0:
+        parts.append(f"In credit: {currency} {credit:,.0f}.")
+    else:
+        parts.append("Your account is settled.")
+
+    parts.append(f"Receipt: {receipt_link_for(payment)}")
+    parts.append("Thank you.")
+    return " ".join(parts)
+
+
+def send_receipt(payment, channels, *, landlord_id: int | None = None) -> tuple[list, list]:
+    """
+    Deliver a receipt for *payment* over *channels*.
+
+    Returns (sent, skipped). Every channel is best-effort and INDEPENDENT: a
+    tenant with no email still gets the SMS, and a failing SMS gateway does not
+    stop the in-app copy. Skipping is reported with a reason rather than
+    swallowed, because "the tenant never got it" is the kind of thing a manager
+    finds out about a week later from an angry phone call.
+
+    Does not commit — the caller owns the transaction.
+    """
+    from services.communication_service import dispatch_message
+    from services.email_service import send_receipt_email
+    from services.notification_service import notify
+
+    tenant = payment.tenant
+    if tenant is None:
+        return [], ["no tenant linked to this payment"]
+
+    landlord_id = landlord_id or payment.landlord_id
+    data = build_receipt(payment)
+    currency = data.get("currency") or "KES"
+    summary = (
+        f"Receipt {payment.payment_ref}: payment of {currency} "
+        f"{_f(payment.amount):,.2f} received on {payment.payment_date}. Thank you."
+    )
+
+    sent, skipped = [], []
+    for channel in channels or []:
+        if channel == "email":
+            if not tenant.email:
+                skipped.append("email (no email on file)")
+                continue
+            try:
+                pdf_bytes = render_receipt_pdf(payment)
+                send_receipt_email.delay(tenant.email, tenant.first_name,
+                                         pdf_bytes, payment.payment_ref)
+                sent.append("email")
+            except Exception as exc:              # never break the payment
+                logger.exception("Receipt email failed for payment %s", payment.id)
+                skipped.append(f"email ({exc})")
+
+        elif channel == "sms":
+            if not tenant.phone:
+                skipped.append("sms (no phone on file)")
+                continue
+            try:
+                log = dispatch_message(landlord_id=landlord_id, tenant=tenant,
+                                       channel="sms",
+                                       content=sms_receipt_text(payment, data))
+                if log and log.status == "delivered":
+                    sent.append("sms")
+                else:
+                    skipped.append("sms (send failed or insufficient balance)")
+            except Exception as exc:
+                logger.exception("Receipt SMS failed for payment %s", payment.id)
+                skipped.append(f"sms ({exc})")
+
+        elif channel == "in_app":
+            if not tenant.user_id:
+                skipped.append("in_app (tenant has no app account yet)")
+                continue
+            notify(
+                recipient_user_id=tenant.user_id,
+                category="payment_receipt",
+                title="Payment received",
+                body=summary,
+                landlord_id=landlord_id,
+                link="/portal/statement",
+                entity_type="payment",
+                entity_id=payment.id,
+            )
+            sent.append("in_app")
+
+        elif channel == "whatsapp":
+            skipped.append("whatsapp (not yet integrated)")
+        else:
+            skipped.append(f"{channel} (unknown channel)")
+
+    return sent, skipped

@@ -21,7 +21,8 @@ _SMS_UNIT_CHARGE = Decimal("1.00")
 
 
 def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
-                     *, email_subject: str | None = None, email_html: str | None = None):
+                     *, email_subject: str | None = None, email_html: str | None = None,
+                     recipient_type: str = "tenant"):
     """
     Send *content* to *tenant* over *channel* ("sms" | "whatsapp" | "email"),
     decrementing the landlord's SMS balance for SMS sends, and writing one
@@ -61,7 +62,20 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
     if is_demo:
         simulate = True
     # Destination the message needs to be deliverable at all.
-    destination = tenant.email if channel == "email" else getattr(tenant, "phone", None)
+    #
+    # `tenant` is any recipient with the same shape — a Tenant or a TeamMember.
+    # A team member has no email column of its own (it lives on their User row),
+    # and an in-app message needs a linked account rather than a phone or an
+    # address, so both are resolved here rather than at every call site.
+    if channel == "in_app":
+        destination = getattr(tenant, "user_id", None)
+    elif channel == "email":
+        destination = getattr(tenant, "email", None)
+        if destination is None:
+            user = getattr(tenant, "user", None)
+            destination = getattr(user, "email", None)
+    else:
+        destination = getattr(tenant, "phone", None)
 
     status = "failed"
     sms_charge = Decimal("0.00")
@@ -92,29 +106,51 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         # Credits (from the admin word→credit tiers) are the billed/decremented
         # unit — a long message can cost several credits.
         sms_credits  = econ["credits"]
-        if uses_own and settings is not None:
-            sms_api_key = settings.sms_api_key
+        # Deliberately NOT the landlord's own key. Every alphanumeric sender ID
+        # is registered with FluxSMS on SahilPay's account, so the platform key
+        # is what delivers it — a branded sender ID changes the name on the
+        # handset, not whose credits pay for it. send_sms() falls back to the
+        # platform key when api_key is None.
 
         if landlord is not None and not is_demo and (landlord.sms_balance or 0) < sms_credits:
             blocked = "Insufficient SMS balance — top up to keep sending."
 
-        if not blocked and not uses_own and not is_demo:
-            # Shared (default) sends are additionally gated by the master
-            # toggle and the shared pool balance; custom sends never touch
-            # the pool. A demo shadow never draws from the real shared pool
-            # or shows up in platform SMS revenue.
+        if not blocked and not is_demo:
+            # EVERY send is gated by the pool, branded sender or not: the
+            # credits come out of SahilPay's FluxSMS account either way. The
+            # master toggle still only governs the shared SAHILPAY sender,
+            # since switching that off should not strand a landlord who has
+            # their own registered name. A demo shadow never draws from the
+            # real pool or shows up in platform SMS revenue.
             cfg = SmsPricingConfig.get_singleton()
-            if not rates["shared_enabled"]:
+            if not uses_own and not rates["shared_enabled"]:
                 blocked = "Shared-sender sending is disabled by the administrator."
             elif cfg.pool_balance < sms_credits:
-                blocked = "Sahil Pay shared SMS pool is exhausted."
+                blocked = "Sahil Pay SMS pool is exhausted."
 
     if channel == "sms" and blocked:
         logger.warning("dispatch_message: SMS to tenant %s blocked — %s", tenant.id, blocked)
         status = "failed"
-    elif channel not in ("sms", "email", "whatsapp"):
+    elif channel not in ("sms", "email", "whatsapp", "in_app"):
         logger.warning("dispatch_message: unknown channel '%s'", channel)
         status = "failed"
+    elif channel == "in_app":
+        # Deliberately BEFORE the simulation branch. Simulation exists to avoid
+        # calling an external provider and spending real money; an in-app
+        # notification has neither, so stubbing it would mean a demo or a test
+        # environment silently produced no notification at all.
+        if not destination:
+            status = "failed"          # no linked account to notify
+        else:
+            from services.notification_service import notify
+            notify(
+                recipient_user_id=destination,
+                category="landlord_message",
+                title="A message from your landlord",
+                body=content,
+                landlord_id=landlord_id,
+            )
+            status = "delivered"
     elif simulate:
         # No external API call — mark delivered when there's a destination to
         # deliver to, failed otherwise. Flip COMMS_SIMULATION_MODE off + add the
@@ -161,17 +197,21 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
             # (from the admin word→credit tiers); the resale price only affects
             # KES billed at purchase.
             decrement_sms_balance(landlord, sms_credits)
-        if not uses_own and cfg is not None:
+        if cfg is not None:
+            # Branded senders included — the credits left SahilPay's FluxSMS
+            # account regardless of the name printed on the message.
             cfg.pool_balance = max(0, cfg.pool_balance - sms_credits)
 
-    unit = getattr(tenant, "unit", None)
+    is_team_member = recipient_type == "team_member"
+    unit = None if is_team_member else getattr(tenant, "unit", None)
     log = CommunicationLog(
         landlord_id=landlord_id,
         message_type=channel,
-        recipient_type="tenant",
-        tenant_id=tenant.id,
+        recipient_type=recipient_type,
+        tenant_id=None if is_team_member else tenant.id,
+        team_member_id=tenant.id if is_team_member else None,
         property_id=unit.property_id if unit else None,
-        unit_id=tenant.unit_id,
+        unit_id=None if is_team_member else getattr(tenant, "unit_id", None),
         content=content,
         sms_charge=sms_charge,
         sms_segments=sms_segments,

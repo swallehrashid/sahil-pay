@@ -718,59 +718,14 @@ def send_receipt(payment_id):
 
     data     = request.get_json(silent=True) or {}
     channels = data.get("channels") or ["email"]
-    summary  = (
-        f"Receipt {pay.payment_ref}: payment of KES {pay.amount} received "
-        f"on {pay.payment_date}. Thank you."
-    )
-    # SMS carries a tappable link: opening it downloads the receipt and emails a
-    # copy to the tenant (no login needed).
-    from services.receipt_service import receipt_link_for
-    sms_summary = (
-        f"Payment received: KES {pay.amount} ({pay.payment_ref}). "
-        f"Get your receipt: {receipt_link_for(pay)}"
-    )
 
-    sent, skipped = [], []
-    for ch in channels:
-        if ch == "email":
-            if tenant.email:
-                # Same detailed, branded, line-item-itemised receipt the tenant
-                # portal download uses — NOT the plain pdf_service one — so the
-                # emailed receipt is identical to the downloaded one.
-                from services.receipt_service import render_receipt_pdf
-                pdf_bytes = render_receipt_pdf(pay)
-                send_receipt_email.delay(tenant.email, tenant.first_name, pdf_bytes, pay.payment_ref)
-                sent.append("email")
-            else:
-                skipped.append("email (no email on file)")
-        elif ch == "sms":
-            if tenant.phone:
-                log = dispatch_message(landlord_id=landlord_id, tenant=tenant, channel="sms", content=sms_summary)
-                if log and log.status == "delivered":
-                    sent.append("sms")
-                else:
-                    skipped.append("sms (send failed or insufficient balance)")
-            else:
-                skipped.append("sms (no phone on file)")
-        elif ch == "in_app":
-            if tenant.user_id:
-                notify(
-                    recipient_user_id=tenant.user_id,
-                    category="payment_receipt",
-                    title="Payment received",
-                    body=summary,
-                    landlord_id=landlord_id,
-                    link="/portal/statement",
-                    entity_type="payment",
-                    entity_id=pay.id,
-                )
-                sent.append("in_app")
-            else:
-                skipped.append("in_app (tenant has no app account yet)")
-        elif ch == "whatsapp":
-            skipped.append("whatsapp (not yet integrated)")
-        else:
-            skipped.append(f"{ch} (unknown channel)")
+    # ONE implementation, shared with the automation that fires when Co-pilot
+    # allocates a payment on its own (services/automation_service.py). These
+    # used to be separate code paths, and the automatic one sent a bare
+    # acknowledgement with no breakdown, no PDF and no link — a worse receipt
+    # for no reason other than which route the money took.
+    from services.receipt_service import send_receipt as deliver_receipt
+    sent, skipped = deliver_receipt(pay, channels, landlord_id=landlord_id)
 
     db.session.commit()   # persist any in-app notification rows
 

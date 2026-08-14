@@ -63,6 +63,7 @@ TASK_MODULES = [
     "tasks.invoice_tasks",
     "tasks.mpesa_reconciliation_tasks",
     "tasks.payment_tasks",
+    "tasks.penalty_tasks",
     "tasks.sms_dlr_tasks",
 ]
 
@@ -174,5 +175,14 @@ celery.conf.beat_schedule = {
     "etims-mri-filing-reminders": {
         "task": "tasks.etims_tasks.send_mri_filing_reminders",
         "schedule": crontab(day_of_month="15", hour="9", minute="0"),
+    },
+    # 02:30 EVERY day, not monthly: each property sets its own trigger — one
+    # block charges on the 6th, another five days after each tenant's own due
+    # date — so the job has to look every day and let the policy decide. The
+    # partial unique index on penalty_charges is what stops a tenant being
+    # charged twice, so running daily is safe by construction.
+    "apply-due-penalties": {
+        "task": "tasks.penalty_tasks.apply_due_penalties",
+        "schedule": crontab(hour="2", minute="30"),
     },
 }

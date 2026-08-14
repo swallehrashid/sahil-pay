@@ -10,6 +10,10 @@ import { toast } from "@/components/ui/Toast";
 import { toRows } from "@/utils/tableAdapters";
 import { useGetPropertiesQuery } from "@/features/landlord/properties/propertyApiSlice";
 import {
+  useGetAutomationSettingsQuery,
+  useUpdateAutomationSettingsMutation,
+} from "./settingsApiSlice";
+import {
   useGetAllocationMethodQuery,
   useSetAllocationMethodMutation,
   useGetCommissionRulesQuery,
@@ -271,6 +275,90 @@ export default function AllocationSettings() {
             <Plus size={14} className="mr-1" /> Add paybill
           </Button>
         </div>
+      </div>
+
+      <AutoReceiptCard />
+    </div>
+  );
+}
+
+// Receipts for payments that arrive and allocate with nobody watching —
+// Co-pilot matching an M-Pesa SMS, or M-Pesa reconciliation. Lives here rather
+// than in its own tab because it is the same mental model as allocation: what
+// happens to money that arrives on its own.
+//
+// A payment that lands in the review queue deliberately sends NOTHING. Telling
+// a tenant "we have your money but don't know what it is for" produces exactly
+// the phone call the review queue exists to prevent.
+function AutoReceiptCard() {
+  const { data, isLoading } = useGetAutomationSettingsQuery();
+  const [save, { isLoading: isSaving }] = useUpdateAutomationSettingsMutation();
+
+  const settings = data?.data ?? data ?? {};
+  const enabled = Boolean(settings.auto_receipt_enabled);
+
+  const update = async (patch) => {
+    try {
+      await save({ ...patch }).unwrap();
+    } catch (err) {
+      toast(err?.data?.error || "Could not save this setting.", { type: "error" });
+    }
+  };
+
+  if (isLoading) return <SkeletonForm fields={3} />;
+
+  return (
+    <div className="glass space-y-4 p-6">
+      <div>
+        <h3 className="text-base font-medium text-white">Automatic payment receipts</h3>
+        <p className="mt-1 text-sm leading-relaxed text-white/50">
+          When a payment arrives and is matched automatically, send the tenant
+          their receipt without anyone having to press anything.
+        </p>
+      </div>
+
+      <Checkbox
+        name="auto_receipt_enabled"
+        label="Send receipts for automatically matched payments"
+        checked={enabled}
+        disabled={isSaving}
+        onChange={(e) => update({ auto_receipt_enabled: e.target.checked })}
+      />
+
+      {enabled && (
+        <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-sm text-white/70">Send by</p>
+          <Checkbox
+            name="auto_receipt_email"
+            label="Email — the full itemised receipt as a PDF"
+            checked={Boolean(settings.auto_receipt_email)}
+            disabled={isSaving}
+            onChange={(e) => update({ auto_receipt_email: e.target.checked })}
+          />
+          <Checkbox
+            name="auto_receipt_sms"
+            label="SMS — a breakdown, the balance, and a link to the receipt"
+            checked={Boolean(settings.auto_receipt_sms)}
+            disabled={isSaving}
+            onChange={(e) => update({ auto_receipt_sms: e.target.checked })}
+          />
+          <p className="-mt-1 pl-7 text-xs text-white/40">
+            SMS is charged per message from your balance. Email and in-app are free.
+          </p>
+          <Checkbox
+            name="auto_receipt_in_app"
+            label="In the tenant's portal"
+            checked={Boolean(settings.auto_receipt_in_app)}
+            disabled={isSaving}
+            onChange={(e) => update({ auto_receipt_in_app: e.target.checked })}
+          />
+        </div>
+      )}
+
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3 text-xs text-white/50">
+        Payments held in the review queue send nothing until someone allocates
+        them — a tenant should never be told their money arrived without being
+        told what it paid for.
       </div>
     </div>
   );

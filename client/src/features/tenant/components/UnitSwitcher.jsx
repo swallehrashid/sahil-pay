@@ -17,7 +17,7 @@ import { formatCurrency } from "@/utils/currencyFormatter";
  * everybody: no reason to add a control that does nothing.
  */
 export default function UnitSwitcher({ className }) {
-  const { data, isLoading, refetch } = useGetPortalContextQuery();
+  const { data, isLoading } = useGetPortalContextQuery();
   const [open, setOpen] = useState(false);
 
   if (isLoading || !data || data.unit_count <= 1) return null;

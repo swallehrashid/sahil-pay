@@ -8,6 +8,8 @@ export default {
   icon: LayoutDashboard,
   duration: "~1 min",
   section: "setup",
+  // Permission module that gates this tutorial. Explains the product itself — no module gates it.
+  module: null,
   mode: "tour",
   steps: [
     {

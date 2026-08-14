@@ -394,6 +394,9 @@ class MessageChannel(str, enum.Enum):
     sms      = "sms"
     whatsapp = "whatsapp"
     email    = "email"
+    # Free and instant, and it cannot be lost with a handset. Stored as a
+    # string like the others, so no migration is needed to add it.
+    in_app   = "in_app"
 
 
 class MessageTemplateType(str, enum.Enum):
@@ -1282,6 +1285,10 @@ class Property(SoftDeleteMixin, TimestampMixin, Base):
     owner          = relationship("PropertyOwner",  back_populates="properties")
 
     units            = relationship("Unit",                    back_populates="property")
+    # Late-payment penalty rules live per property (DOMAIN K): different owners
+    # in the same managed portfolio charge different fees, or none at all.
+    penalty_policy   = relationship("PropertyPenaltyPolicy",   back_populates="property",
+                                    uselist=False, cascade="all, delete-orphan")
     recurring_bills  = relationship("RecurringBill",           back_populates="property",
                                     foreign_keys="RecurringBill.property_id")
     expenses         = relationship("Expense",                 back_populates="property")
@@ -1778,6 +1785,9 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
     unit_history         = relationship("TenantUnitHistory",  back_populates="tenant",
                                         cascade="all, delete-orphan")
     mpesa_transactions   = relationship("MpesaTransaction",   back_populates="tenant")
+    # Tenancy agreements, portal-signed or scanned in (DOMAIN L).
+    lease_agreements     = relationship("LeaseAgreement",     back_populates="tenant",
+                                        order_by="LeaseAgreement.created_at.desc()")
     credit_ledger        = relationship("CreditLedger",       back_populates="tenant",
                                         cascade="all, delete-orphan")
     balance_rollovers    = relationship("BalanceRollover",    back_populates="tenant",
@@ -3803,6 +3813,23 @@ class AutomationSettings(TimestampMixin, Base):
     auto_generate_recurring_bills    = Column(Boolean, default=False, nullable=False)
     alert_on_new_tenant              = Column(Boolean, default=True,  nullable=False)
     auto_send_payment_acknowledgments = Column(Boolean, default=False, nullable=False)
+    # --- Receipts for payments nobody touched ------------------------------
+    # A payment that Co-pilot matched and allocated on its own has no human in
+    # the loop to press "send receipt", so without this the tenant hears
+    # nothing. Each channel is separate because their costs differ wildly: SMS
+    # is billed per segment, email and in-app are free.
+    #
+    # A payment that lands in SUSPENSE deliberately sends nothing at all —
+    # "we have your money but don't know what it's for" generates the exact
+    # phone call the feature exists to prevent.
+    auto_receipt_enabled = Column(Boolean, default=False, nullable=False,
+                                  server_default="false")
+    auto_receipt_email   = Column(Boolean, default=True,  nullable=False,
+                                  server_default="true")
+    auto_receipt_sms     = Column(Boolean, default=False, nullable=False,
+                                  server_default="false")
+    auto_receipt_in_app  = Column(Boolean, default=True,  nullable=False,
+                                  server_default="true")
     monthly_reminders_enabled        = Column(Boolean, default=False, nullable=False)
     monthly_reminder_day             = Column(Integer, nullable=True)
     lease_expiry_notifications       = Column(Boolean, default=False, nullable=False)
@@ -3822,6 +3849,10 @@ class AutomationSettings(TimestampMixin, Base):
             "auto_generate_recurring_bills":     self.auto_generate_recurring_bills,
             "alert_on_new_tenant":               self.alert_on_new_tenant,
             "auto_send_payment_acknowledgments": self.auto_send_payment_acknowledgments,
+            "auto_receipt_enabled": self.auto_receipt_enabled,
+            "auto_receipt_email":   self.auto_receipt_email,
+            "auto_receipt_sms":     self.auto_receipt_sms,
+            "auto_receipt_in_app":  self.auto_receipt_in_app,
             "monthly_reminders_enabled":         self.monthly_reminders_enabled,
             "monthly_reminder_day":              self.monthly_reminder_day,
             "lease_expiry_notifications":        self.lease_expiry_notifications,
@@ -4335,6 +4366,402 @@ class PlatformSettings(TimestampMixin, Base):
             "created_at":             _serialise(self.created_at),
             "updated_at":             _serialise(self.updated_at),
         }
+
+
+# ===========================================================================
+# DOMAIN K — Late-payment penalties  (2 tables)
+# ===========================================================================
+
+class PenaltyMode(str, enum.Enum):
+    """How a property's penalty amount is worked out."""
+    fixed      = "fixed"        # a flat figure, e.g. 500
+    percentage = "percentage"   # a share of the rent arrears outstanding
+    tiered     = "tiered"       # banded by how much is owed — see PenaltyTier
+
+
+class PenaltyTrigger(str, enum.Enum):
+    """When in the month the charge falls due."""
+    day_of_month   = "day_of_month"    # e.g. the 6th, whatever the invoice said
+    days_after_due = "days_after_due"  # e.g. 5 days after each invoice's due date
+
+
+class PenaltySource(str, enum.Enum):
+    auto   = "auto"      # applied by the nightly task from a policy
+    manual = "manual"    # raised by a person, on top of any automatic charge
+
+
+class PropertyPenaltyPolicy(TimestampMixin, Base):
+    """
+    Late-payment penalty rules, held PER PROPERTY.
+
+    Per property rather than per account because that is how the business
+    actually works: a manager running eighty blocks for seventy landlords has
+    some owners who charge late fees and some who refuse to, at different
+    amounts and on different days. An account-wide setting could not express
+    that without lying about somebody's block.
+
+    Penalties are NEVER commissionable. The charge is filed under the protected
+    "Penalty" charge category, which keeps it out of the rent bucket that
+    services/commission_service.py computes commission from — so a manager
+    cannot earn a percentage of a fine. That is enforced by where the money is
+    filed, not by a flag anyone could flip.
+    """
+    __tablename__ = "property_penalty_policies"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    property_id = Column(Integer, ForeignKey("properties.id"), nullable=False,
+                         unique=True, index=True)
+
+    # The automation switch. Off (the default, and the state of every existing
+    # property) means nothing is ever charged without a person asking for it.
+    is_enabled  = Column(Boolean, default=False, nullable=False, server_default="false")
+
+    mode            = Column(String(12), nullable=False,
+                             default=PenaltyMode.fixed.value,
+                             server_default=PenaltyMode.fixed.value)
+    fixed_amount    = Column(Numeric(12, 2), nullable=True)   # mode=fixed
+    percentage_rate = Column(Numeric(5, 2),  nullable=True)   # mode=percentage, e.g. 5.00
+
+    trigger_type = Column(String(16), nullable=False,
+                          default=PenaltyTrigger.day_of_month.value,
+                          server_default=PenaltyTrigger.day_of_month.value)
+    # Capped at 28 so the rule means the same thing in February.
+    trigger_day  = Column(Integer, nullable=True)   # trigger=day_of_month
+    grace_days   = Column(Integer, nullable=True)   # trigger=days_after_due
+
+    # Below this much owed, no penalty. Stops a 20-shilling rounding remainder
+    # generating a 500-shilling fine and a furious phone call.
+    min_balance  = Column(Numeric(12, 2), nullable=True)
+    # Ceiling for percentage/tiered modes, so a long-running arrear cannot
+    # compound into something nobody intended to charge.
+    max_penalty  = Column(Numeric(12, 2), nullable=True)
+
+    landlord = relationship("Landlord")
+    property = relationship("Property", back_populates="penalty_policy")
+    tiers    = relationship("PenaltyTier", back_populates="policy",
+                            order_by="PenaltyTier.min_balance",
+                            cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint("fixed_amount IS NULL OR fixed_amount >= 0",
+                        name="ck_penalty_policy_fixed_non_negative"),
+        CheckConstraint("percentage_rate IS NULL OR "
+                        "(percentage_rate >= 0 AND percentage_rate <= 100)",
+                        name="ck_penalty_policy_rate_range"),
+        CheckConstraint("trigger_day IS NULL OR (trigger_day >= 1 AND trigger_day <= 28)",
+                        name="ck_penalty_policy_trigger_day"),
+        CheckConstraint("grace_days IS NULL OR grace_days >= 0",
+                        name="ck_penalty_policy_grace_days"),
+    )
+
+    def to_dict(self, include_tiers: bool = True):
+        data = {
+            "id":              self.id,
+            "landlord_id":     self.landlord_id,
+            "property_id":     self.property_id,
+            "is_enabled":      self.is_enabled,
+            "mode":            self.mode,
+            "fixed_amount":    _serialise(self.fixed_amount),
+            "percentage_rate": _serialise(self.percentage_rate),
+            "trigger_type":    self.trigger_type,
+            "trigger_day":     self.trigger_day,
+            "grace_days":      self.grace_days,
+            "min_balance":     _serialise(self.min_balance),
+            "max_penalty":     _serialise(self.max_penalty),
+            "created_at":      _serialise(self.created_at),
+            "updated_at":      _serialise(self.updated_at),
+        }
+        if include_tiers:
+            data["tiers"] = [t.to_dict() for t in self.tiers]
+        return data
+
+
+class PenaltyTier(TimestampMixin, Base):
+    """
+    One band of a tiered penalty: "owe 5,000-7,000 → 400; owe over 10,000 → 500".
+
+    Bands are half-open [min_balance, max_balance) so adjacent tiers cannot both
+    match the same figure; a NULL max_balance is the open-ended top band.
+    """
+    __tablename__ = "penalty_tiers"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    policy_id   = Column(Integer, ForeignKey("property_penalty_policies.id"),
+                         nullable=False, index=True)
+    min_balance = Column(Numeric(12, 2), nullable=False)
+    max_balance = Column(Numeric(12, 2), nullable=True)      # NULL = no ceiling
+    amount_type = Column(String(12), nullable=False,
+                         default=PenaltyMode.fixed.value)    # fixed | percentage
+    amount      = Column(Numeric(12, 2), nullable=False)
+
+    policy = relationship("PropertyPenaltyPolicy", back_populates="tiers")
+
+    __table_args__ = (
+        CheckConstraint("min_balance >= 0", name="ck_penalty_tier_min_non_negative"),
+        CheckConstraint("max_balance IS NULL OR max_balance > min_balance",
+                        name="ck_penalty_tier_band_ordered"),
+        CheckConstraint("amount >= 0", name="ck_penalty_tier_amount_non_negative"),
+    )
+
+    def to_dict(self):
+        return {
+            "id":          self.id,
+            "policy_id":   self.policy_id,
+            "min_balance": _serialise(self.min_balance),
+            "max_balance": _serialise(self.max_balance),
+            "amount_type": self.amount_type,
+            "amount":      _serialise(self.amount),
+        }
+
+
+class PenaltyCharge(TimestampMixin, Base):
+    """
+    An append-only record of every penalty raised — the source of truth for the
+    penalties report and, more importantly, the once-per-month guarantee.
+
+    The guarantee is enforced in the DATABASE, not in the task: a partial index
+    over (tenant_id, period_year, period_month) for automatic charges means a
+    retried Celery job, two workers racing, or a hand-run task physically cannot
+    double-charge a tenant. Manual top-ups are deliberately outside that index,
+    because a person adding a further charge is a decision, not a duplicate.
+
+    `basis_balance` is stored so the report can always answer "why 500?" months
+    later, even after the arrears have been cleared.
+    """
+    __tablename__ = "penalty_charges"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id  = Column(Integer, ForeignKey("landlords.id"),  nullable=False, index=True)
+    property_id  = Column(Integer, ForeignKey("properties.id"), nullable=False, index=True)
+    unit_id      = Column(Integer, ForeignKey("units.id"),      nullable=True,  index=True)
+    tenant_id    = Column(Integer, ForeignKey("tenants.id"),    nullable=False, index=True)
+    invoice_id   = Column(Integer, ForeignKey("invoices.id"),   nullable=True,  index=True)
+    policy_id    = Column(Integer, ForeignKey("property_penalty_policies.id"),
+                          nullable=True, index=True)   # NULL for manual charges
+
+    period_year  = Column(Integer, nullable=False)
+    period_month = Column(Integer, nullable=False)
+    source       = Column(String(10), nullable=False,
+                          default=PenaltySource.auto.value,
+                          server_default=PenaltySource.auto.value)
+
+    basis_balance = Column(Numeric(12, 2), nullable=False, server_default="0")
+    amount        = Column(Numeric(12, 2), nullable=False)
+    note          = Column(String(255), nullable=True)
+    applied_by    = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    landlord = relationship("Landlord")
+    property = relationship("Property")
+    unit     = relationship("Unit")
+    tenant   = relationship("Tenant")
+    invoice  = relationship("Invoice")
+    policy   = relationship("PropertyPenaltyPolicy")
+
+    __table_args__ = (
+        CheckConstraint("amount >= 0", name="ck_penalty_charge_amount_non_negative"),
+        CheckConstraint("period_month >= 1 AND period_month <= 12",
+                        name="ck_penalty_charge_month_range"),
+        # The once-per-month guarantee, at the only layer that cannot be raced.
+        Index("uq_penalty_charge_auto_per_month",
+              "tenant_id", "period_year", "period_month",
+              unique=True,
+              postgresql_where=sa_text("source = 'auto'")),
+        Index("ix_penalty_charges_report",
+              "landlord_id", "period_year", "period_month"),
+    )
+
+    def to_dict(self):
+        return {
+            "id":            self.id,
+            "landlord_id":   self.landlord_id,
+            "property_id":   self.property_id,
+            "unit_id":       self.unit_id,
+            "tenant_id":     self.tenant_id,
+            "invoice_id":    self.invoice_id,
+            "policy_id":     self.policy_id,
+            "period_year":   self.period_year,
+            "period_month":  self.period_month,
+            "source":        self.source,
+            "basis_balance": _serialise(self.basis_balance),
+            "amount":        _serialise(self.amount),
+            "note":          self.note,
+            "applied_by":    self.applied_by,
+            "created_at":    _serialise(self.created_at),
+        }
+
+
+# ===========================================================================
+# DOMAIN L — Lease agreements  (1 table)
+# ===========================================================================
+
+class LeaseStatus(str, enum.Enum):
+    """
+    Where a lease is in its life.
+
+    Two routes reach the same destination — a signed lease both sides can
+    download — and the status says which one is in play:
+
+      draft     → sent → submitted → approved        (tenant signs in the portal)
+                              ↘ rejected → submitted (returned to be corrected)
+      uploaded                                       (signed on paper, scanned in)
+    """
+    draft     = "draft"       # prepared, not yet sent to the tenant
+    sent      = "sent"        # with the tenant, awaiting their details + signature
+    submitted = "submitted"   # signed by the tenant, awaiting the landlord's review
+    rejected  = "rejected"    # returned to the tenant to correct and resubmit
+    approved  = "approved"    # countersigned; downloadable by both sides
+    uploaded  = "uploaded"    # signed on paper and scanned in; downloadable by both
+
+
+class LeaseSource(str, enum.Enum):
+    portal   = "portal"     # filled in and signed by the tenant in their portal
+    uploaded = "uploaded"   # signed physically, then photographed or scanned
+
+
+# The statuses where the tenant may see and download their own lease. A draft
+# or a lease still in review is deliberately not among them: showing a tenant a
+# document the landlord has not accepted invites arguments about which version
+# is binding.
+TENANT_VISIBLE_LEASE_STATUSES = (
+    LeaseStatus.sent.value,
+    LeaseStatus.submitted.value,
+    LeaseStatus.rejected.value,
+    LeaseStatus.approved.value,
+    LeaseStatus.uploaded.value,
+)
+
+DOWNLOADABLE_LEASE_STATUSES = (LeaseStatus.approved.value, LeaseStatus.uploaded.value)
+
+
+class LeaseAgreement(TimestampMixin, Base):
+    """
+    One tenancy agreement, however it was signed.
+
+    Deliberately ONE table for both routes rather than two. A landlord asking
+    "do I have a signed lease for this unit?" does not care whether it was
+    typed in the portal or photographed at the kitchen table, and splitting it
+    would mean every query, every report and every permission check had to ask
+    twice and merge the answers.
+
+    THE SIGNATURE IS AN AUDIT RECORD, NOT AN IMAGE. A typed name, the moment it
+    was submitted, the IP it came from and the browser that sent it — captured
+    at submission and never editable afterwards. That is what makes the
+    agreement evidence rather than a form someone filled in; a drawn squiggle
+    proves considerably less.
+
+    `field_values` holds what the tenant typed, so a rejected lease can be
+    handed back with their answers still in it. Nobody re-types a whole
+    agreement because a landlord queried one date.
+    """
+    __tablename__ = "lease_agreements"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"),  nullable=False, index=True)
+    tenant_id   = Column(Integer, ForeignKey("tenants.id"),    nullable=False, index=True)
+    unit_id     = Column(Integer, ForeignKey("units.id"),      nullable=True,  index=True)
+    property_id = Column(Integer, ForeignKey("properties.id"), nullable=True,  index=True)
+    # The template this was generated from. Nullable: an uploaded scan has none,
+    # and a template may be deleted long after the leases it produced.
+    template_id = Column(Integer, ForeignKey("document_templates.id"),
+                         nullable=True, index=True)
+
+    status = Column(String(12), nullable=False,
+                    default=LeaseStatus.draft.value,
+                    server_default=LeaseStatus.draft.value, index=True)
+    source = Column(String(10), nullable=False,
+                    default=LeaseSource.portal.value,
+                    server_default=LeaseSource.portal.value)
+
+    # Snapshot of the agreement's body at the time it was sent, so later edits
+    # to the template can never alter an agreement somebody already signed.
+    body_html    = Column(Text, nullable=True)
+    field_values = Column(JSON, nullable=False, server_default="{}", default=dict)
+
+    # --- The signature, captured once and never edited -----------------------
+    signed_name       = Column(String(200), nullable=True)
+    signed_at         = Column(DateTime,    nullable=True)
+    signed_ip         = Column(String(45),  nullable=True)   # fits IPv6
+    signed_user_agent = Column(String(400), nullable=True)
+
+    # --- Review --------------------------------------------------------------
+    reviewed_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at      = Column(DateTime, nullable=True)
+    rejection_reason = Column(String(500), nullable=True)
+
+    # The finished article: a rendered PDF for a portal lease, or the uploaded
+    # scan for one signed on paper. Either way this is what both sides download.
+    document_url = Column(String(500), nullable=True)
+
+    sent_at      = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    created_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    @property
+    def is_downloadable(self) -> bool:
+        """Both sides may take a copy once it is settled, and not before."""
+        return (self.status in DOWNLOADABLE_LEASE_STATUSES
+                and bool(self.document_url))
+
+    @property
+    def awaiting_tenant(self) -> bool:
+        return self.status in (LeaseStatus.sent.value, LeaseStatus.rejected.value)
+
+    # NOTE: `property` below shadows the built-in inside this class body, so the
+    # two @property helpers MUST stay above it. Keeping the relationship named
+    # `property` matches Unit/Invoice/Payment, which is worth the ordering rule.
+    landlord = relationship("Landlord")
+    tenant   = relationship("Tenant", back_populates="lease_agreements")
+    unit     = relationship("Unit")
+    property = relationship("Property")
+    template = relationship("DocumentTemplate")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+    creator  = relationship("User", foreign_keys=[created_by])
+
+    __table_args__ = (
+        Index("ix_lease_agreements_tenant_status", "tenant_id", "status"),
+        Index("ix_lease_agreements_landlord_status", "landlord_id", "status"),
+    )
+
+    def to_dict(self, include_body: bool = False):
+        data = {
+            "id":               self.id,
+            "landlord_id":      self.landlord_id,
+            "tenant_id":        self.tenant_id,
+            "unit_id":          self.unit_id,
+            "property_id":      self.property_id,
+            "template_id":      self.template_id,
+            "status":           self.status,
+            "source":           self.source,
+            "field_values":     self.field_values or {},
+            "signed_name":      self.signed_name,
+            "signed_at":        _serialise(self.signed_at),
+            # The IP and user agent are audit evidence for the landlord and the
+            # courts, not something to show a tenant their own browser string.
+            "reviewed_at":      _serialise(self.reviewed_at),
+            "rejection_reason": self.rejection_reason,
+            "document_url":     self.document_url,
+            "is_downloadable":  self.is_downloadable,
+            "awaiting_tenant":  self.awaiting_tenant,
+            "sent_at":          _serialise(self.sent_at),
+            "submitted_at":     _serialise(self.submitted_at),
+            "created_at":       _serialise(self.created_at),
+            "updated_at":       _serialise(self.updated_at),
+        }
+        if include_body:
+            data["body_html"] = self.body_html
+        return data
+
+    def to_audit_dict(self):
+        """Everything, including the signature provenance. Staff only."""
+        data = self.to_dict(include_body=True)
+        data.update({
+            "signed_ip":         self.signed_ip,
+            "signed_user_agent": self.signed_user_agent,
+            "reviewed_by":       self.reviewed_by,
+            "created_by":        self.created_by,
+        })
+        return data
 
 
 # ===========================================================================

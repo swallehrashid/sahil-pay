@@ -91,6 +91,14 @@ export default function Login() {
         navigate(AUTH_ROUTES.changePassword, { replace: true });
         return;
       }
+      // Enrolled users are challenged above (requires_2fa). This is the other
+      // half: an admin who has never enrolled signs in normally but every
+      // /api/admin/* route refuses them with `2fa_required`, so send them
+      // straight to enrolment rather than to a portal that cannot load.
+      if (result.needs_2fa_setup) {
+        navigate(AUTH_ROUTES.twoFactorSetup, { replace: true });
+        return;
+      }
       const redirectTo = location.state?.from?.pathname || roleHomePath(result.role);
       navigate(redirectTo, { replace: true });
     } catch (err) {
