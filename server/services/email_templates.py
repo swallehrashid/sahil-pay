@@ -101,6 +101,53 @@ def credentials(rows: list[tuple[str, str]]) -> str:
     )
 
 
+def breakdown(rows: list[tuple[str, str]], total: tuple[str, str] | None = None) -> str:
+    """A compact, layered charge list — the block for money on a phone.
+
+    Each charge is TWO stacked lines: the label, then its amount directly
+    beneath it. Never two columns side by side: on a 360px screen a
+    label/amount pair sharing a row leaves each side ~150px, so "Rent balance
+    brought forward" wraps to three lines while its amount hangs alone in the
+    right column — which is what made invoice emails read so badly.
+
+    It is deliberately tighter than credentials(): 4px between the label and its
+    amount, 10px between charges, one hairline rule per charge, and no uppercase
+    label styling. credentials() spaces rows for a handful of login details; an
+    invoice has six or more charges and needs the vertical room.
+
+    The total gets a heavier rule above it and a larger figure, so the one
+    number the tenant is looking for is findable without reading the list.
+    """
+    cells = ""
+    for label, value in rows:
+        cells += (
+            f'<tr><td style="padding:10px 0 0;font-family:{FONT};font-size:12px;'
+            f'line-height:1.35;color:{MUTED};">{escape(label)}</td></tr>'
+            f'<tr><td style="padding:2px 0 10px;font-family:{FONT};font-size:16px;'
+            f'line-height:1.3;color:#ffffff;font-weight:600;word-break:break-word;'
+            f'border-bottom:1px solid {BORDER};">{escape(value)}</td></tr>'
+        )
+
+    if total is not None:
+        label, value = total
+        cells += (
+            f'<tr><td style="padding:14px 0 0;font-family:{FONT};font-size:12px;'
+            f'letter-spacing:.04em;text-transform:uppercase;color:{ACCENT};'
+            f'font-weight:600;">{escape(label)}</td></tr>'
+            f'<tr><td style="padding:2px 0 4px;font-family:{FONT};font-size:20px;'
+            f'line-height:1.25;color:#ffffff;font-weight:700;word-break:break-word;">'
+            f'{escape(value)}</td></tr>'
+        )
+
+    return (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        f'style="margin:4px 0 18px;background:{PANEL};border:1px solid {BORDER};'
+        f'border-radius:14px;"><tr><td style="padding:4px 16px 14px;">'
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">'
+        f'{cells}</table></td></tr></table>'
+    )
+
+
 def code_box(code: str, caption: str = "") -> str:
     """A large, centred, monospaced panel for an OTP / one-time code."""
     cap = (

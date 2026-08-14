@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { useAuth } from "@/hooks/useAuth";
 import { useOnboardingState } from "./useOnboardingState";
 import { getTutorial, ONBOARDING_SEQUENCE } from "./content";
+import { portaliseTutorial } from "./portal";
 import {
   selectTour,
   tourStarted,
@@ -38,6 +40,9 @@ export default function TourProvider({ children }) {
   const tour = useSelector(selectTour);
   const { impersonating } = useAuth();
   const onboarding = useOnboardingState();
+  // The provider is mounted in both portal layouts. A team member's tour must
+  // walk /team/... routes and skip the landlord-only screens — see ./portal.js.
+  const portal = useLocation().pathname.startsWith("/team") ? "team" : "landlord";
   const [welcomeDismissedThisSession, setWelcomeDismissedThisSession] = useState(false);
 
   const startTutorial = useCallback(
@@ -96,7 +101,9 @@ export default function TourProvider({ children }) {
     [dispatch, onboarding, tour.activeTutorialId, tour.origin, tour.sequenceIds, tour.sequencePos]
   );
 
-  const activeTutorial = tour.activeTutorialId ? getTutorial(tour.activeTutorialId) : null;
+  const activeTutorial = tour.activeTutorialId
+    ? portaliseTutorial(getTutorial(tour.activeTutorialId), portal)
+    : null;
 
   // ---- Tour-mode (spotlight) handlers ----
   const handleTourNext = useCallback(() => {

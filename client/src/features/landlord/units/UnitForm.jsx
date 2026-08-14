@@ -2,6 +2,7 @@ import { useState } from "react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Textarea from "@/components/ui/Textarea";
+import PayCodeField from "./PayCodeField";
 import Button from "@/components/ui/Button";
 import { isRequired, validateMoneyField } from "@/utils/validators";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
@@ -48,6 +49,10 @@ export default function UnitForm({ initialValues, properties = [], onSubmit, onC
         <Input label="Tax rate (%)" type="number" step="0.01" value={form.tax_rate} onChange={update("tax_rate")} hint="Inherits property if blank" />
       </div>
       <Textarea label="Notes" value={form.notes} onChange={update("notes")} />
+
+      {/* Saved on its own button — changing a code retires the old one rather
+          than deleting it, and the owner needs telling that. */}
+      <PayCodeField unit={initialValues} />
       <div className="flex justify-end gap-3 pt-2">
         <Button type="button" variant="ghost" onClick={onCancel}>
           Cancel

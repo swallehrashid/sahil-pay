@@ -9,10 +9,13 @@ Excel generation uses openpyxl via the same service.
 No report data is stored in the DB — generated on demand.
 """
 
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, g
 from flask_jwt_extended import jwt_required
 
-from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from decorators import (
+    require_landlord_or_team, require_permission, get_current_landlord_id,
+    scope_to_accessible_properties,
+)
 from services.export_service import generate_occupancy_report
 from services.report_builder import document_to_json, parse_column_selection, render_document
 from services.report_generators import (
@@ -34,6 +37,117 @@ def _current_landlord():
     from models import Landlord
 
     return Landlord.query.filter_by(id=get_current_landlord_id()).first()
+
+
+# ---------------------------------------------------------------------------
+# Scope guards
+# ---------------------------------------------------------------------------
+# A report is the richest export in the product — a property statement carries
+# every tenant's name, phone, balance and the property's whole P&L. So the
+# subject of a report has to be checked against the caller's scope BEFORE it is
+# built, on two axes:
+#
+#   1. the landlord axis — the subject must belong to the calling account
+#      (the generators already filter on landlord_id, but they answer a missing
+#      subject with a "Not found" DOCUMENT at HTTP 200, which is
+#      indistinguishable from success to any caller probing for ids);
+#   2. the property axis — a team member restricted to certain properties must
+#      not pull a statement for a property they cannot open. Under a property
+#      manager, that is one owner reading a rival owner's book.
+#
+# Both answer 404: an object outside your scope should not even confirm it exists.
+
+def _accessible_property_ids():
+    return g.get("accessible_property_ids")
+
+
+def _property_in_scope(property_id: int) -> bool:
+    """True when the caller may report on this property."""
+    from models import Property
+
+    landlord_id = get_current_landlord_id()
+    prop = Property.query.filter_by(
+        id=property_id, landlord_id=landlord_id, is_deleted=False
+    ).first()
+    if prop is None:
+        return False
+    allowed = _accessible_property_ids()
+    return allowed is None or prop.id in allowed
+
+
+def _tenant_in_scope(tenant_id: int) -> bool:
+    """True when the caller may report on this tenant (via their unit's property)."""
+    from models import Tenant, Unit
+
+    landlord_id = get_current_landlord_id()
+    tenant = Tenant.query.filter_by(id=tenant_id, landlord_id=landlord_id).first()
+    if tenant is None:
+        return False
+    allowed = _accessible_property_ids()
+    if allowed is None:
+        return True
+    unit = Unit.query.filter_by(id=tenant.unit_id).first()
+    return bool(unit and unit.property_id in allowed)
+
+
+def _group_in_scope(group_id: int) -> bool:
+    """True when the caller may report on this property group."""
+    from models import Property, PropertyGroup
+
+    landlord_id = get_current_landlord_id()
+    group = PropertyGroup.query.filter_by(id=group_id, landlord_id=landlord_id).first()
+    if group is None:
+        return False
+    allowed = _accessible_property_ids()
+    if allowed is None:
+        return True
+    # A scoped member may only pull a group report when every property in the
+    # group is one they can see — a partial group total would still expose the
+    # other properties' figures in aggregate.
+    group_property_ids = {
+        p.id for p in Property.query.filter_by(
+            property_group_id=group.id, is_deleted=False
+        ).all()
+    }
+    return bool(group_property_ids) and group_property_ids <= set(allowed)
+
+
+def _not_found_response(subject: str):
+    return jsonify({"error": f"{subject} not found."}), 404
+
+
+def _include_etims() -> bool:
+    """
+    Whether this request asked for the eTIMS column (?include_etims=true).
+
+    Defaults to FALSE — absent means "the document exactly as it has always
+    been". Even when true the generator still omits the column unless a line
+    actually carries a number and its property has statements enabled, so
+    ticking the box on an account with nothing recorded changes nothing
+    (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §2.2, §3.2).
+    """
+    return (request.args.get("include_etims") or "").lower() in ("1", "true", "yes", "on")
+
+
+def _requested_basis():
+    """
+    The gross basis for this request: ?gross_basis=all|rent_only, falling back to
+    the landlord's saved preference inside the generators when absent.
+
+    Passing ?remember=true also persists the choice, so a manager who works on
+    the rent-only basis sets it once instead of every time they open a report.
+    """
+    basis = request.args.get("gross_basis")
+    if basis and (request.args.get("remember") or "").lower() in ("1", "true", "yes"):
+        from extensions import db
+        from services.commission_service import normalise_basis
+
+        landlord = _current_landlord()
+        settings = getattr(landlord, "landlord_settings", None) if landlord else None
+        if settings is not None:
+            settings.report_gross_basis = normalise_basis(basis)
+            db.session.commit()
+    return basis
 
 
 def _serve_report(doc, filename: str):
@@ -129,6 +243,7 @@ def line_item_rollover_trail(line_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def tenant_statement(tenant_id):
     """
     Tenant statement: transaction date, item, description, money due, money paid,
@@ -137,9 +252,13 @@ def tenant_statement(tenant_id):
     ---
     tags: [Reports]
     """
+    if not _tenant_in_scope(tenant_id):
+        return _not_found_response("Tenant")
+
     doc = build_tenant_statement(
         _current_landlord(), tenant_id,
         request.args.get("start_date"), request.args.get("end_date"),
+        include_etims=_include_etims(),
     )
     return _serve_report(doc, f"tenant_statement_{tenant_id}")
 
@@ -151,15 +270,21 @@ def tenant_statement(tenant_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def property_statement(property_id):
     """
     Property statement — 4 sections (tenants, expenses, occupancy, summary) with
     net-income roll-up using the per-property tax rate.
     ?format=json|pdf|excel, ?start_date=, ?end_date=, ?columns=tenants.rent,...
     """
+    if not _property_in_scope(property_id):
+        return _not_found_response("Property")
+
     doc = build_property_statement(
         _current_landlord(), property_id,
         request.args.get("start_date"), request.args.get("end_date"),
+        gross_basis=_requested_basis(),
+        include_etims=_include_etims(),
     )
     return _serve_report(doc, f"property_statement_{property_id}")
 
@@ -171,13 +296,20 @@ def property_statement(property_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def arrears_report():
     """Tenants in arrears (unit, name, phone, arrears b/f, current bills, total, days).
     ?format=json|pdf|excel, ?property_id=, ?as_of_date=, ?columns="""
+    requested = request.args.get("property_id", type=int)
+    if requested and not _property_in_scope(requested):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
+
     doc = build_arrears_report(
         _current_landlord(),
-        request.args.get("property_id", type=int),
+        requested,
         request.args.get("as_of_date"),
+        allowed_property_ids=allowed,
     )
     return _serve_report(doc, "arrears_report")
 
@@ -189,14 +321,21 @@ def arrears_report():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def expenses_report():
     """Expenses report (date, property, unit, category, description, amount).
     ?format=json|pdf|excel, ?property_id=, ?start_date=, ?end_date=, ?columns="""
+    requested = request.args.get("property_id", type=int)
+    if requested and not _property_in_scope(requested):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
+
     doc = build_expenses_report(
         _current_landlord(),
-        request.args.get("property_id", type=int),
+        requested,
         request.args.get("start_date"),
         request.args.get("end_date"),
+        allowed_property_ids=allowed,
     )
     return _serve_report(doc, "expenses_report")
 
@@ -208,14 +347,22 @@ def expenses_report():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def mom_report():
     """Month-on-month comparative (occupancy, rent, water, bills, paid, %, expense
     per month) with per-metric graphs. ?format=json|pdf|excel, ?property_id=,
     ?year=, ?columns=, ?charts="""
+    requested = request.args.get("property_id", type=int)
+    if requested and not _property_in_scope(requested):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
+
     doc = build_mom_report(
         _current_landlord(),
-        request.args.get("property_id", type=int),
+        requested,
         request.args.get("year", type=int),
+        allowed_property_ids=allowed,
+        gross_basis=_requested_basis(),
     )
     return _serve_report(doc, "month_on_month_report")
 
@@ -227,12 +374,20 @@ def mom_report():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def yoy_report():
     """Year-on-year comparative (same metrics as MoM, bucketed by year) with graphs.
     ?format=json|pdf|excel, ?property_id=, ?columns=, ?charts="""
+    requested = request.args.get("property_id", type=int)
+    if requested and not _property_in_scope(requested):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
+
     doc = build_yoy_report(
         _current_landlord(),
-        request.args.get("property_id", type=int),
+        requested,
+        allowed_property_ids=allowed,
+        gross_basis=_requested_basis(),
     )
     return _serve_report(doc, "year_on_year_report")
 
@@ -244,10 +399,14 @@ def yoy_report():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def grouping_report(group_id):
     """Property-grouping report — every property in the group compared across the
     comparative metrics, with a group total. ?format=json|pdf|excel, ?start_date=,
     ?end_date=, ?columns=, ?charts="""
+    if not _group_in_scope(group_id):
+        return _not_found_response("Property group")
+
     doc = build_grouping_report(
         _current_landlord(), group_id,
         request.args.get("start_date"),
@@ -263,12 +422,19 @@ def grouping_report(group_id):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def deleted_tenants_report():
     """Archived (soft-deleted) tenants — unit, name, phone, move-in/out, deleted-on,
     balance, deposits, notes. ?format=json|pdf|excel, ?property_id=, ?columns="""
+    requested = request.args.get("property_id", type=int)
+    if requested and not _property_in_scope(requested):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
+
     doc = build_deleted_tenants_report(
         _current_landlord(),
-        request.args.get("property_id", type=int),
+        requested,
+        allowed_property_ids=allowed,
     )
     return _serve_report(doc, "deleted_tenants_report")
 
@@ -280,6 +446,7 @@ def deleted_tenants_report():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 def insights():
     """
     Per-property breakdown: tenants with arrears / advances / zero balance.
@@ -297,18 +464,37 @@ def insights():
     landlord_id = get_current_landlord_id()
     prop_filter = request.args.get("property_id", type=int)
 
+    if prop_filter and not _property_in_scope(prop_filter):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
+
     prop_query = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
     if prop_filter:
         prop_query = prop_query.filter(Property.id == prop_filter)
+    if allowed is not None:
+        prop_query = prop_query.filter(Property.id.in_(allowed))
 
-    result = []
-    for prop in prop_query.all():
-        tenants = (
-            Tenant.query
+    properties = prop_query.all()
+
+    # One query for every tenant in scope, bucketed by property in Python —
+    # querying per property cost 100 round-trips on a 100-property estate.
+    tenants_by_property = {p.id: [] for p in properties}
+    if properties:
+        rows = (
+            db.session.query(Tenant, Unit.property_id)
             .join(Unit, Unit.id == Tenant.unit_id)
-            .filter(Unit.property_id == prop.id, Tenant.is_deleted.is_(False))
+            .filter(
+                Unit.property_id.in_(list(tenants_by_property.keys())),
+                Tenant.is_deleted.is_(False),
+            )
             .all()
         )
+        for tenant, property_id in rows:
+            tenants_by_property[property_id].append(tenant)
+
+    result = []
+    for prop in properties:
+        tenants = tenants_by_property.get(prop.id, [])
         result.append({
             "property_id":   prop.id,
             "property_name": prop.name,

@@ -8,7 +8,8 @@ SMS to landlords; this module answers, platform-wide:
     and the **revenue** that generated (default vs custom rate),
   * how many SMS have been **spent** by landlords (delivered CommunicationLog
     rows), split shared (default, out of the pool) vs own-sender (custom),
-  * SahilPay's **platform cost** for those sends (0 for custom users),
+  * SahilPay's **platform cost** for those sends — charged on EVERY send, since
+    every sender ID is registered on SahilPay's own provider account,
   * the resulting **gross margin** and margin %, the shared-pool balance, the
     pool usage %, and the effective average resale rate,
   * a **per-landlord** breakdown, and a **monthly** revenue-vs-cost series.
@@ -176,20 +177,39 @@ def _pct(part: float, whole: float) -> float:
 # Public: overview payload + per-landlord rows
 # ---------------------------------------------------------------------------
 
+# Below this many credits a landlord is about to stop being able to send, and
+# is worth a "top up?" nudge. A landlord who has never bought sits at 0 and is
+# therefore always flagged, which is correct — they are the ones to call.
+LOW_BALANCE_THRESHOLD = 50
+
+
 def _landlord_rows() -> list[dict]:
+    """
+    One row per ACTIVE landlord — not merely those who have transacted.
+
+    Listing only buyers would hide exactly the accounts worth chasing: a
+    landlord sitting on zero credits never appears in a purchase or usage
+    query, yet they are the one who cannot send a rent reminder tomorrow.
+    """
+    from services.sms_billing import effective_price_per_sms
+
     purchases = _purchases_by_landlord()
     usage = _usage_by_landlord()
-    lids = set(purchases) | set(usage)
-    if not lids:
-        return []
-    landlords = {l.id: l for l in Landlord.query.filter(Landlord.id.in_(lids)).all()}
+
+    landlords = (
+        Landlord.query
+        .filter(Landlord.is_demo.is_(False))    # demo shadows are not customers
+        .all()
+    )
+
     rows = []
-    for lid in lids:
-        l = landlords.get(lid)
-        p = purchases.get(lid, {})
-        u = usage.get(lid, {})
+    for l in landlords:
+        p = purchases.get(l.id, {})
+        u = usage.get(l.id, {})
+        settings = l.landlord_settings
+        balance = int(l.sms_balance or 0)
         rows.append({
-            "landlord_id":  lid,
+            "landlord_id":  l.id,
             "landlord":     _label(l),
             "bought":       int(p.get("bought", 0)),
             "revenue":      round(p.get("revenue", 0.0), 2),
@@ -197,9 +217,17 @@ def _landlord_rows() -> list[dict]:
             "spent_shared": int(u.get("spent_shared", 0)),
             "spent_own":    int(u.get("spent_own", 0)),
             "cost":         round(u.get("cost", 0.0), 2),
-            "balance":      int(l.sms_balance) if l else 0,
+            "balance":      balance,
+            "low_balance":  balance < LOW_BALANCE_THRESHOLD,
+            # What this landlord pays per credit right now, and whether that is
+            # a negotiated figure or the account-wide default.
+            "rate":         float(effective_price_per_sms(settings, landlord=l)),
+            "has_own_rate": l.sms_price_override is not None,
+            "sender_id":    (settings.sms_sender_id
+                             if settings and settings.sms_connected else None),
         })
-    rows.sort(key=lambda r: r["revenue"], reverse=True)
+    # Lowest balances first: this table is read to find who needs topping up.
+    rows.sort(key=lambda r: (r["balance"], -r["revenue"]))
     return rows
 
 
@@ -233,6 +261,14 @@ def sms_overview(months: int = 6) -> dict:
         "pool_used":          pool_used,
         "pool_usage_pct":     _pct(pool_used, pool_capacity),
         "shared_enabled":     rates["shared_enabled"],
+        # The two figures the rate dialog needs: what everyone pays by default,
+        # and what a credit costs Sahil Pay — so the margin on a proposed rate
+        # is visible while it is being typed.
+        "rates": {
+            "default_price": float(rates["default_price"]),
+            "platform_cost": float(rates["platform_cost"]),
+            "low_balance_threshold": LOW_BALANCE_THRESHOLD,
+        },
         "totals": {
             "sms_sold":       total_sold,
             "revenue":        total_revenue,

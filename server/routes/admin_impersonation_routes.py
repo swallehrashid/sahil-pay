@@ -51,10 +51,11 @@ _DEFAULT_GRANT_HOURS = 24   # how long a grant is valid by default
 
 
 def _require_admin():
-    claims = get_jwt()
-    if claims.get("role") != UserRole.system_admin.value:
-        abort(403, description="System Admin access required.")
+    """Admin gate — delegates to the ONE shared implementation, which also
+    enforces two-factor authentication (decorators.require_system_admin)."""
+    from decorators import require_system_admin
 
+    require_system_admin()
 
 def _require_landlord():
     claims = get_jwt()

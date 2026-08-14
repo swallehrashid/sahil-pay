@@ -18,7 +18,7 @@ import csv
 import io
 from datetime import datetime, date
 
-from flask import Blueprint, request, jsonify, abort, Response, g
+from flask import Blueprint, request, jsonify, abort, Response, g, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
@@ -28,6 +28,7 @@ from models import (
     CommunicationStatus, MessageChannel, RecipientType,
 )
 from decorators import (
+    accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
 )
@@ -108,8 +109,15 @@ def list_tenants():
         if t.lease_expiry_date and in_30 <= t.lease_expiry_date <= near_expiry_date
     )
 
-    paginated = query.order_by(Tenant.last_name, Tenant.first_name).paginate(
-        page=page, per_page=per_page, error_out=False
+    from sqlalchemy.orm import joinedload
+
+    paginated = (
+        query
+        # unit → property is read for every row; loading it lazily costs
+        # 2 extra queries per tenant on every page.
+        .options(joinedload(Tenant.unit).joinedload(Unit.property))
+        .order_by(Tenant.last_name, Tenant.first_name)
+        .paginate(page=page, per_page=per_page, error_out=False)
     )
 
     items = []
@@ -203,6 +211,11 @@ def create_tenant():
     db.session.add(tenant)
     db.session.flush()
 
+    # Link this tenancy to an existing tenant login with the same phone/email,
+    # so somebody who already rents another unit signs in once and sees both.
+    from services.tenant_identity_service import link_tenant_to_user
+    link_tenant_to_user(tenant)
+
     # Mark unit occupied + record unit history
     unit.is_occupied = True
     history = TenantUnitHistory(
@@ -226,10 +239,117 @@ def create_tenant():
     # Run the new-tenant automation (Settings → Automation). No-op if disabled.
     from services.automation_service import on_tenant_created
 
-    on_tenant_created(db.session.get(Landlord, landlord_id), tenant)
+    landlord = db.session.get(Landlord, landlord_id)
+    on_tenant_created(landlord, tenant)
     db.session.commit()
 
-    return jsonify(tenant.to_dict()), 201
+    # Optional welcome message — opt-in per tenant, because sending costs the
+    # landlord SMS credits and should never be a surprise.
+    welcome_status = "skipped"
+    if data.get("send_welcome_message"):
+        welcome_status = _send_welcome_message(landlord, tenant)
+
+    payload = tenant.to_dict()
+    payload["welcome_message"] = welcome_status
+
+    # Not a warning — a heads-up. One person legitimately renting several units
+    # is normal and fully supported; each unit keeps its own account number and
+    # its own ledger, so payments can never cross over.
+    from services.tenant_identity_service import same_landlord_siblings
+
+    others = same_landlord_siblings(tenant)
+    if others:
+        names = ", ".join(
+            f"{o.unit.name}" for o in others if o.unit
+        )
+        payload["multi_unit_notice"] = (
+            f"This phone already belongs to a tenant here ({names}). "
+            f"They now hold {len(others) + 1} units — each is billed separately "
+            f"under its own account number."
+        )
+
+    return jsonify(payload), 201
+
+
+def _send_welcome_message(landlord, tenant) -> str:
+    """
+    Send the tenant their welcome message: SMS always, plus an email copy when
+    we have an address.
+
+    Returns "sent", "failed" or "skipped". A messaging failure must NEVER undo
+    the tenant creation — the tenant record is the important thing, and the
+    landlord can always resend from the Communications page.
+    """
+    from services.communication_service import dispatch_message
+    from services.message_variables import render_message, welcome_body_for
+
+    try:
+        body = render_message(welcome_body_for(landlord.id), tenant, landlord)
+    except Exception:
+        current_app.logger.warning(
+            "welcome message render failed for tenant %s", tenant.id, exc_info=True
+        )
+        return "failed"
+
+    status = "skipped"
+    try:
+        if tenant.phone:
+            dispatch_message(
+                landlord_id=landlord.id, tenant=tenant, channel="sms", content=body,
+            )
+            status = "sent"
+        if tenant.email:
+            dispatch_message(
+                landlord_id=landlord.id, tenant=tenant, channel="email", content=body,
+            )
+            status = "sent"
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.warning(
+            "welcome message dispatch failed for tenant %s", tenant.id, exc_info=True
+        )
+        return "failed"
+
+    return status
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tenants/<id>/score
+# ---------------------------------------------------------------------------
+@tenant_bp.route("/<int:tenant_id>/score", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("tenants", "view")
+@scope_to_accessible_properties
+def tenant_score(tenant_id):
+    """
+    The tenant's payment score with the month-by-month working behind it —
+    what was due, when it was cleared, which band that earned, and any arrears
+    penalty. ?refresh=true recomputes before returning.
+    ---
+    tags: [Tenants]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Score breakdown.}
+      404: {description: Tenant not found.}
+    """
+    from services.tenant_score_service import compute_tenant_score, refresh_tenant_score
+
+    landlord_id = get_current_landlord_id()
+    tenant = _get_or_404(landlord_id, tenant_id)
+
+    if (request.args.get("refresh") or "").lower() in ("1", "true", "yes"):
+        result = refresh_tenant_score(tenant, commit=True)
+    else:
+        result = compute_tenant_score(tenant)
+
+    return jsonify({
+        "tenant_id":   tenant.id,
+        "tenant_name": f"{tenant.first_name} {tenant.last_name}",
+        **result,
+    }), 200
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +406,14 @@ def get_tenant(tenant_id):
     d["property_name"] = unit.property.name if (unit and unit.property) else None
     d["property_id"]   = unit.property_id   if unit else None
     d["documents"]     = [doc.to_dict() for doc in tenant.documents]
+
+    # "Also holds N units here" — the heads-up a landlord needs when the same
+    # person rents more than one unit from them. Scoped to THIS landlord's
+    # account: telling them their tenant also rents from somebody else would
+    # leak another landlord's business.
+    from services.tenant_identity_service import occupancy_summary
+    d["occupancy"] = occupancy_summary(tenant)
+
     return jsonify(d), 200
 
 
@@ -821,7 +949,7 @@ def upload_document(tenant_id):
         return jsonify({"error": "A file is required."}), 400
 
     name     = request.form.get("name") or file.filename
-    file_url = upload_to_s3(file, folder=f"tenants/{tenant.id}/documents")
+    file_url = upload_to_s3(file, folder=f"tenants/{tenant.id}/documents", profile="document")
 
     doc = TenantDocument(
         tenant_id = tenant.id,
@@ -854,7 +982,10 @@ def _get_or_404(landlord_id: int, tenant_id: int) -> Tenant:
     ).first()
     if not t:
         abort(404, description="Tenant not found or access denied.")
-    accessible = getattr(g, "accessible_property_ids", None)
+    # Resolved on demand rather than read off `g`, so the scope check holds even
+    # on routes that never applied @scope_to_accessible_properties (reading it
+    # off g silently returned None there, i.e. no restriction at all).
+    accessible = accessible_property_ids()
     if accessible is not None and (not t.unit or t.unit.property_id not in accessible):
         abort(404, description="Tenant not found or access denied.")
     return t

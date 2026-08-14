@@ -18,11 +18,12 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import (
-    CommunicationLog, MessageTemplate, Tenant, Landlord,
+    CommunicationLog, MessageTemplate, Tenant, TeamMember, Unit, Landlord,
     MessageChannel, CommunicationStatus, RecipientType,
     MessageTemplateType,
 )
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
+from utils import accessible_property_ids
 from services.audit_service        import record_audit
 from services.communication_service import dispatch_message
 from services.message_variables     import render_message, UNIVERSAL_VARIABLES, DEFAULT_TEMPLATES
@@ -205,11 +206,21 @@ def send_message():
 
     channel    = data.get("channel", MessageChannel.sms.value)
     tenant_ids = data.get("tenant_ids", [])
+    team_member_ids = data.get("team_member_ids", [])
     content    = (data.get("content") or "").strip()
     template_id = data.get("template_id")
 
-    if not tenant_ids:
-        return jsonify({"error": "tenant_ids list is required."}), 400
+    valid_channels = {c.value for c in MessageChannel}
+    if channel not in valid_channels:
+        return jsonify({
+            "error": f"Unknown channel '{channel}'. "
+                     f"Use one of: {', '.join(sorted(valid_channels))}."
+        }), 400
+
+    if not tenant_ids and not team_member_ids:
+        return jsonify({
+            "error": "Choose at least one recipient (tenant_ids or team_member_ids)."
+        }), 400
 
     # Resolve template content if provided
     if template_id:
@@ -224,12 +235,41 @@ def send_message():
 
     landlord = db.session.get(Landlord, landlord_id)
 
-    # Fetch tenants
-    tenants = Tenant.query.filter(
-        Tenant.id.in_(tenant_ids),
-        Tenant.landlord_id == landlord_id,
-        Tenant.is_deleted.is_(False),
-    ).all()
+    # Fetch tenants — scoped to the account AND to the caller's own properties,
+    # so a team member restricted to one block cannot message another block's
+    # tenants by putting their ids in the request body.
+    tenants = []
+    if tenant_ids:
+        query = Tenant.query.filter(
+            Tenant.id.in_(tenant_ids),
+            Tenant.landlord_id == landlord_id,
+            Tenant.is_deleted.is_(False),
+        )
+        allowed_properties = accessible_property_ids()
+        if allowed_properties is not None:
+            query = (query.join(Tenant.unit)
+                          .filter(Unit.property_id.in_(allowed_properties or {0})))
+        tenants = query.all()
+
+    # Fetch team members. Only ACTIVE ones: an invitation that was never
+    # accepted has no working contact route, and a deactivated member should
+    # stop receiving the account's messages the moment they are switched off.
+    team_members = []
+    if team_member_ids:
+        team_members = TeamMember.query.filter(
+            TeamMember.id.in_(team_member_ids),
+            TeamMember.landlord_id == landlord_id,
+            TeamMember.is_active.is_(True),
+        ).all()
+        allowed_properties = accessible_property_ids()
+        if allowed_properties is not None:
+            # A scoped member may only message colleagues who share at least one
+            # of their properties (or who can see everything anyway).
+            team_members = [
+                m for m in team_members
+                if m.property_access_all
+                or {a.property_id for a in m.property_accesses} & set(allowed_properties)
+            ]
 
     # SMS balance check — cost is the sum of each message's CREDIT cost (from the
     # admin word→credit tiers), not a flat 1-per-recipient, so a batch of long
@@ -241,6 +281,10 @@ def send_message():
         for t in tenants:
             resolved = render_message(content, t, landlord) if content else content
             cost += price_sms(resolved, settings)["credits"]
+        for _ in team_members:
+            # Team members get the content unsubstituted — tenant placeholders
+            # like {balance} mean nothing for a colleague.
+            cost += price_sms(content, settings)["credits"]
         if landlord.sms_balance < cost:
             return jsonify({
                 "error": f"Insufficient SMS balance. Required: {cost} credit(s), Available: {landlord.sms_balance}."
@@ -249,6 +293,7 @@ def send_message():
     simulate = current_app.config.get("COMMS_SIMULATION_MODE", True)
 
     log_ids = []
+    recipients_sent = 0
     for i, tenant in enumerate(tenants):
         # Substitute every universal variable ({tenant_name}, {unit}, {balance},
         # {payment_method}, …) for this specific tenant + landlord.
@@ -268,12 +313,29 @@ def send_message():
         # a large selection here doesn't burst past the rate limit.
         if channel == MessageChannel.sms.value and not simulate and i < len(tenants) - 1:
             time.sleep(0.75)
+        recipients_sent += 1
+
+    for i, member in enumerate(team_members):
+        # No placeholder substitution: {balance}/{unit} describe a tenancy, and
+        # rendering them for a colleague would emit blanks or nonsense.
+        log = dispatch_message(
+            landlord_id=landlord_id,
+            tenant=member,
+            channel=channel,
+            content=content,
+            recipient_type="team_member",
+        )
+        log_ids.append(log.id if log else None)
+        if channel == MessageChannel.sms.value and not simulate and i < len(team_members) - 1:
+            time.sleep(0.75)
+        recipients_sent += 1
 
     db.session.commit()
 
     return jsonify({
-        "message":  f"{len(tenants)} message(s) dispatched via {channel}.",
+        "message":  f"{recipients_sent} message(s) dispatched via {channel}.",
         "log_ids":  log_ids,
+        "recipients": {"tenants": len(tenants), "team_members": len(team_members)},
         "sms_balance_remaining": landlord.sms_balance,
     }), 200
 

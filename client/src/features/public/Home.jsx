@@ -8,6 +8,7 @@ import { AUTH_ROUTES, PUBLIC_ROUTES } from "@/config/routePaths";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
 import { FeatureCard, CheckItem, StatTile, MockPanel } from "./components/pieces";
+import { useSeo } from "./useSeo";
 
 const FEATURES = [
   { icon: Banknote, title: "M-Pesa rent collection", text: "Paybill & Till matching, STK push and automatic reconciliation of every shilling to the right tenant and invoice." },
@@ -32,6 +33,13 @@ const HOME_FAQS = [
 ];
 
 export default function Home() {
+  useSeo({
+    title: "Sahil Pay — Rental & Property Management Software for Kenya",
+    description:
+      "Collect rent by M-Pesa, invoice tenants automatically, track utilities and arrears, and run every property from one dashboard. Built for Kenyan landlords, property managers and caretakers.",
+    path: "/",
+  });
+
   return (
     <div>
       {/* 1 — Hero */}

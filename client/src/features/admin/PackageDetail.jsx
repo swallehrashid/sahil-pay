@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, FileText, FileSpreadsheet } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
@@ -21,7 +21,6 @@ import { ADMIN_ROUTES } from "@/config/routePaths";
 // monthly performance chart, subscriber roster, and downloadable reports.
 export default function PackageDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [range, setRange] = useState({ start_date: "", end_date: "" });
   const [downloading, setDownloading] = useState(false);
   const [billingLandlordId, setBillingLandlordId] = useState(null); // #16/#17

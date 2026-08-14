@@ -13,6 +13,7 @@ import { useGetDashboardSummaryQuery, useGetUnpaidTenantsQuery, useGetPerformanc
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import GettingStartedChecklist from "./tutorials/GettingStartedChecklist";
+import EtimsNudgeCard from "./etims/EtimsNudgeCard";
 import { ANCHORS } from "./tutorials/anchors";
 
 // §4.1 — landlord dashboard: arrears/advances/occupancy, payments-vs-invoices,
@@ -42,6 +43,12 @@ export default function LandlordDashboard() {
       <PageHeader title="Dashboard" subtitle="An overview of how your portfolio is performing" />
 
       <GettingStartedChecklist />
+
+      {/* One-time, dismissible-forever offer of the KRA tools. Renders nothing
+          once dismissed or once the account has opted in. */}
+      <div className="mb-6">
+        <EtimsNudgeCard />
+      </div>
 
       {isSummaryLoading ? (
         <SkeletonStatCards count={4} />

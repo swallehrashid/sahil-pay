@@ -126,7 +126,7 @@ def recompute_subscription(landlord):
         return landlord.subscription
 
     from extensions import db
-    from models import Subscription, SubscriptionStatus
+    from models import Package, Subscription, SubscriptionStatus
 
     unit_count = count_units(landlord.id)
 
@@ -139,12 +139,27 @@ def recompute_subscription(landlord):
     else:
         package = resolve_package(unit_count)
 
-    # A per-unit price override on the landlord (set for Custom or negotiated deals)
-    # supersedes the package's own price.
-    if landlord.per_unit_price is not None:
+    # Pricing precedence, highest first:
+    #   1. fixed_monthly_price — a negotiated flat fee. Unit count is irrelevant:
+    #      20 units or 200, the landlord pays the agreed figure. Adding units
+    #      must never silently change a price that was agreed in a conversation.
+    #   2. per_unit_price — a negotiated rate per unit.
+    #   3. the package's own price.
+    if landlord.fixed_monthly_price is not None:
+        cost = Decimal(str(landlord.fixed_monthly_price)).quantize(Decimal("0.01"))
+    elif landlord.per_unit_price is not None:
         cost = (Decimal(str(landlord.per_unit_price)) * unit_count).quantize(Decimal("0.01"))
     else:
         cost = _cost_for(package, unit_count)
+
+    # A landlord on a negotiated price belongs in the Custom package — that is
+    # what "Custom" means, and it stops the nightly recategoriser moving them
+    # into a band whose price they are not paying.
+    if landlord.fixed_monthly_price is not None and not is_custom:
+        custom_pkg = Package.query.filter_by(is_custom=True).first()
+        if custom_pkg is not None:
+            package = custom_pkg
+            is_custom = True
 
     sub = landlord.subscription
     if sub is None:
@@ -197,6 +212,15 @@ def preview_subscription_cost(subscription, billing_cycle: str, new_package_id: 
 
     if billing_cycle not in _CYCLE_DISCOUNTS:
         raise ValueError(f"billing_cycle must be one of: {valid_cycles()}.")
+
+    # A negotiated fixed price is FINAL: it was agreed in a conversation and is
+    # already a discount, so the quarterly/annual cycle discounts do not stack
+    # on top of it. Paying for three months costs exactly three times the fee.
+    landlord = getattr(subscription, "landlord", None)
+    if landlord is not None and landlord.fixed_monthly_price is not None:
+        months = _CYCLE_MONTHS[billing_cycle]
+        amount = (Decimal(str(landlord.fixed_monthly_price)) * months).quantize(Decimal("0.01"))
+        return amount, months, Decimal("0.00")
 
     base_cost = Decimal(str(subscription.subscription_cost or 0))
     if new_package_id:

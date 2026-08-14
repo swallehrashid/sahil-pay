@@ -78,36 +78,35 @@ export default function SmsProviderSettings() {
           icon={<MessageSquare className="h-5 w-5" />}
         />
         <SummaryCard label="Sender ID" value={connected ? (data?.sms_sender_id ?? "—") : "Sahil Pay (shared)"} accent="third" />
-        <SummaryCard label="Billing" value={connected ? priceLabel : "By length"} accent="third" />
+        <SummaryCard label="Your rate" value={priceLabel} accent="third" />
       </div>
 
       <div className="glass space-y-2 p-6 text-sm text-white/60">
         <p className="text-white/80 font-medium">How it works</p>
         <p>
-          Connect your own registered sender ID and API key to send SMS under your own brand —
-          billed a flat <span className="text-white">{priceLabel}</span>. Sahil Pay delivers the messages for you.
+          Every message you send uses credits from your Sahil Pay balance, charged at
+          <span className="text-white"> {priceLabel}</span>. Longer messages use more credits.
         </p>
         <p>
-          No sender ID? You can still send using Sahil Pay's shared sender ID — those messages are
-          <span className="text-white"> billed by length</span> (longer messages use more segments and cost more).
+          By default messages go out under Sahil Pay's shared sender name. If you have had your
+          own sender name approved, enter it below to have it appear on your tenants' handsets
+          instead — <span className="text-white">the rate is exactly the same</span>, only the name changes.
         </p>
       </div>
 
       <form onSubmit={handleSave} className="glass space-y-4 p-6">
-        <h3 className="text-base font-medium text-white">Custom SMS sender credentials</h3>
+        <h3 className="text-base font-medium text-white">Your own sender name</h3>
+        <p className="-mt-1 text-sm text-white/50">
+          Sahil Pay registers the name with the networks on your behalf, so there is
+          nothing else to set up here. Ask us to arrange it, then enter the approved
+          name below.
+        </p>
         <Input
-          label="API key"
-          type="password"
-          placeholder={data?.sms_api_key_set ? `Saved (${data.sms_api_key_masked})` : "Paste your SMS provider API key"}
-          value={form.sms_api_key}
-          onChange={(e) => setForm((f) => ({ ...f, sms_api_key: e.target.value }))}
-          hint={data?.sms_api_key_set ? "Leave blank to keep the saved key." : undefined}
-        />
-        <Input
-          label="Sender ID"
+          label="Sender name"
           placeholder="e.g. YOURBRAND"
           value={form.sms_sender_id}
           onChange={(e) => setForm((f) => ({ ...f, sms_sender_id: e.target.value }))}
+          hint="Up to 11 characters, letters and numbers"
         />
         <div className="flex flex-wrap justify-end gap-3">
           <Button type="submit" variant="ghost" isLoading={isSaving}>Save details</Button>

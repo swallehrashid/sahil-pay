@@ -94,7 +94,10 @@ export default function TenantPayments() {
           ) : (details?.outstanding_invoices?.length ?? 0) === 0 ? (
             <p className="text-sm text-white/50">You have no outstanding charges. You can still pay in advance.</p>
           ) : (
-            <table className="w-full text-sm">
+            // Scrolls inside its own box rather than squashing the columns or
+            // dragging the whole page sideways on a phone.
+            <div className="-mx-1 overflow-x-auto px-1">
+              <table className="w-full min-w-[26rem] text-sm">
               <thead>
                 <tr className="text-left text-xs text-white/40">
                   <th className="py-1 font-medium">Charge</th>
@@ -116,6 +119,7 @@ export default function TenantPayments() {
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
@@ -226,7 +230,8 @@ export default function TenantPayments() {
             {confirmed.length === 0 ? (
               <p className="text-sm text-white/50">No confirmed payments yet.</p>
             ) : (
-              <table className="w-full text-sm">
+              <div className="-mx-1 overflow-x-auto px-1">
+              <table className="w-full min-w-[26rem] text-sm">
                 <thead>
                   <tr className="text-left text-xs text-white/40">
                     <th className="py-1 font-medium">Date</th>
@@ -250,6 +255,7 @@ export default function TenantPayments() {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
 

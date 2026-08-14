@@ -43,7 +43,7 @@ from models import (
     Landlord, BillingTransaction, SubscriptionPlan,
     BillingTransactionType, BillingTransactionStatus,
 )
-from decorators import require_landlord_or_team, get_current_landlord_id
+from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service import record_audit
 from services import billing_service, daraja_service
 from services.daraja_service import DarajaError, normalize_msisdn
@@ -72,13 +72,22 @@ def _sms_account_ref(landlord_id: int) -> str:
 
 
 def _sms_unit_price(landlord: Landlord) -> Decimal:
-    """§9.3 reselling price: the admin-set custom rate for landlords who have
-    connected their own SMS sender ID, else the default rate."""
-    from services.sms_billing import load_rates
-    settings = landlord.landlord_settings
-    uses_own = bool(settings and settings.sms_connected and settings.sms_sender_id)
-    rates    = load_rates()
-    return rates["custom_price"] if uses_own else rates["default_price"]
+    """
+    KES this landlord pays for one SMS credit.
+
+    Delegates to services/sms_billing.effective_price_per_sms — the SAME
+    function the send path and the margin report use — so the price quoted on
+    the buy screen, the price actually charged, and the price in the books can
+    never disagree.
+
+    This used to read the global rate directly and so ignored
+    landlords.sms_price_override entirely: a landlord you had agreed 1.20 with
+    was still charged 1.00 at the till, and the reports showed revenue that
+    never arrived.
+    """
+    from services.sms_billing import effective_price_per_sms
+
+    return effective_price_per_sms(landlord.landlord_settings, landlord=landlord)
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +96,7 @@ def _sms_unit_price(landlord: Landlord) -> Decimal:
 @billing_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "view")
 def get_billing_summary():
     """
     Return the landlord's current billing plan details:
@@ -141,6 +151,7 @@ def get_billing_summary():
 @billing_bp.route("/pay-subscription", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def pay_subscription():
     """
     LEGACY self-reported subscription payment — the Daraja-outage escape
@@ -231,6 +242,7 @@ def pay_subscription():
 @billing_bp.route("/pay-subscription/stk", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def pay_subscription_stk():
     """
     Verified subscription payment — Daraja STK Push to Sahil's OWN paybill
@@ -378,6 +390,7 @@ def pay_subscription_stk():
 @billing_bp.route("/transactions/<int:txn_id>/status", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "view")
 def transaction_status(txn_id):
     """
     Poll a pending transaction's verification status — used by the client
@@ -404,6 +417,7 @@ def transaction_status(txn_id):
 @billing_bp.route("/buy-sms", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def buy_sms():
     """
     LEGACY self-reported SMS credit purchase — the Daraja-outage escape
@@ -472,6 +486,7 @@ def buy_sms():
 @billing_bp.route("/buy-sms/stk", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def buy_sms_stk():
     """
     Verified SMS credit purchase — Daraja STK Push to Sahil's OWN paybill.
@@ -597,6 +612,7 @@ def buy_sms_stk():
 @billing_bp.route("/transactions", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "view")
 def list_transactions():
     """
     Return all billing transactions (subscription payments + SMS purchases).
@@ -634,6 +650,7 @@ def list_transactions():
 @billing_bp.route("/tax-invoice", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("settings", "edit")
 def generate_tax_invoice():
     """
     Generate a platform-fee tax invoice (PDF) for a specific BillingTransaction.

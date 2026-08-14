@@ -1,26 +1,45 @@
 """
 SahilPay — services/sms_billing.py
 =====================================
-§9.3  The SMS reselling charge model.
+§9.3  The SMS reselling charge model — ONE POOL, ONE PRICE.
 
-SahilPay acts as the SMS provider for its landlords:
+SahilPay is the wholesaler for every landlord on the platform. There is a
+single arrangement, and the sender ID a message goes out under does not change
+the money:
 
-  * A landlord who has **connected their own SMS sender ID** (a *custom*
-    user) sends under that sender ID out of their own provider account
-    and is billed SahilPay's **custom price per SMS** — a pure service fee
-    (SahilPay incurs no delivery cost for them).
+  * SahilPay buys credits from FluxSMS in bulk at the platform cost and holds
+    them in the shared pool (``SmsPricingConfig.pool_balance``).
 
-  * A landlord **without** a sender ID (a *default* user) falls back to
-    SahilPay's shared sender ID, delivered out of SahilPay's shared credit
-    pool, and is billed the **default price per SMS** for every 160-char
-    (GSM-7) segment the message occupies, so long messages cost more.
+  * A landlord buys credits from SahilPay at their price — the account-wide
+    default, or a negotiated per-landlord rate. That fills their
+    ``landlords.sms_balance``, which is a claim against the pool, not stock of
+    its own.
 
-The per-SMS prices, the fixed platform cost per SMS (for margin analytics) and
-the shared-pool balance all live in the admin-editable ``SmsPricingConfig``
-singleton. This module reads that config at call time and falls back to the
-module constants when no config row (or app context) is available, so it stays
-trivially testable and remains the single source of truth for "how much does
-this SMS cost, who is it from, and what does it cost us".
+  * Sending ALWAYS spends SahilPay's pool and ALWAYS costs SahilPay the
+    wholesale price, whether the message goes out as ``SAHILPAY`` or under the
+    landlord's own registered sender ID. Every alphanumeric sender ID is
+    registered with FluxSMS **on SahilPay's account**, so delivery is billed to
+    SahilPay in both cases. The margin is (landlord price − platform cost).
+
+WHY THERE IS NO "BRING YOUR OWN PROVIDER ACCOUNT" PATH
+------------------------------------------------------
+There used to be one: a landlord with their own sender ID sent using their own
+FluxSMS API key, out of their own FluxSMS balance, and was charged a smaller
+"service fee" with SahilPay recording zero delivery cost. It was removed
+because it silently lost money the moment a sender ID was registered under
+SahilPay's account instead — the pool drained for real while the books recorded
+nothing, and there was no way to tell the two situations apart from inside the
+app. One pool and one price cannot drift like that.
+
+A landlord's own sender ID is now purely cosmetic: it changes the name on the
+recipient's handset and nothing else.
+
+The per-credit prices, the wholesale cost (for margin analytics) and the pool
+balance all live in the admin-editable ``SmsPricingConfig`` singleton. This
+module reads that config at call time and falls back to the module constants
+when no config row (or app context) is available, so it stays trivially
+testable and remains the single source of truth for "what does this cost the
+landlord, and what does it cost us".
 """
 
 from __future__ import annotations
@@ -33,9 +52,14 @@ SINGLE_SEGMENT_LEN = 160
 MULTI_SEGMENT_LEN = 153
 
 # Fallback rates when no SmsPricingConfig row / app context is available.
-DEFAULT_PRICE_PER_SMS = Decimal("1.00")   # KES/SMS, shared sender (default users)
-CUSTOM_PRICE_PER_SMS  = Decimal("0.50")   # KES/SMS, own sender (custom users)
-PLATFORM_COST_PER_SMS = Decimal("0.65")   # KES/SMS SahilPay pays the provider
+DEFAULT_PRICE_PER_SMS = Decimal("1.00")   # KES/credit charged to a landlord
+PLATFORM_COST_PER_SMS = Decimal("0.40")   # KES/credit SahilPay pays FluxSMS
+
+# RETIRED. Kept only so an existing SmsPricingConfig row and the admin PUT that
+# writes it do not break; nothing reads it for pricing any more. Every landlord
+# pays the default price unless they have a negotiated override, whichever
+# sender ID their messages go out under.
+CUSTOM_PRICE_PER_SMS  = Decimal("1.00")
 
 DEFAULT_PLATFORM_SENDER = "SAHILPAY"
 
@@ -169,25 +193,59 @@ def _platform_sender() -> str:
         return DEFAULT_PLATFORM_SENDER
 
 
-def compute_sms_charge(text: str, uses_own_sender_id: bool, rates: dict | None = None) -> Decimal:
+def effective_price_per_sms(settings, uses_own_sender_id: bool = False,
+                            rates: dict | None = None,
+                            landlord=None) -> Decimal:
     """
-    KES charged to the landlord for sending `text`:
-      * own sender  (custom) → custom_price × segment count
-      * shared      (default)→ default_price × segment count (length-based)
+    What THIS landlord pays per SMS credit.
+
+    Precedence:
+      1. landlords.sms_price_override — the rate negotiated with this landlord.
+      2. the account-wide default price.
+
+    The sender ID is NOT part of this decision. Every credit comes out of the
+    same pool and costs SahilPay the same to buy, so a branded sender ID has no
+    bearing on what a credit is worth. `uses_own_sender_id` is accepted only so
+    existing callers keep working.
+
+    This is the ONE place a landlord's price is decided — the buy screen, the
+    balance decrement and the margin report all call it, so the price a
+    landlord is quoted and the price they are charged cannot drift apart.
     """
     rates = rates or load_rates()
-    unit = rates["custom_price"] if uses_own_sender_id else rates["default_price"]
-    return (unit * count_segments(text)).quantize(Decimal("0.01"))
+
+    # Prefer an explicitly supplied landlord: a landlord with no
+    # LandlordSettings row would otherwise silently lose their negotiated rate.
+    landlord = landlord or getattr(settings, "landlord", None)
+    override = getattr(landlord, "sms_price_override", None) if landlord else None
+    if override is not None:
+        try:
+            return Decimal(str(override))
+        except (TypeError, ValueError, ArithmeticError):
+            pass
+
+    return rates["default_price"]
 
 
-def compute_platform_cost(text: str, uses_own_sender_id: bool, rates: dict | None = None) -> Decimal:
+def compute_sms_charge(text: str, uses_own_sender_id: bool = False,
+                       rates: dict | None = None) -> Decimal:
     """
-    SahilPay's own cost of delivering `text`. Zero for custom users (they
-    deliver via their own AT account); platform_cost × segments for shared
-    (default) sends out of SahilPay's pool.
+    DEPRECATED — use price_sms(), which bills by credits rather than raw
+    segments and honours a landlord's negotiated rate. Retained only so any
+    out-of-tree caller keeps working; it cannot see a per-landlord override
+    because it is given no landlord.
     """
-    if uses_own_sender_id:
-        return Decimal("0.00")
+    rates = rates or load_rates()
+    return (rates["default_price"] * count_segments(text)).quantize(Decimal("0.01"))
+
+
+def compute_platform_cost(text: str, uses_own_sender_id: bool = False,
+                          rates: dict | None = None) -> Decimal:
+    """
+    DEPRECATED — see compute_sms_charge. SahilPay pays for delivery whichever
+    sender ID is on the message, so this no longer returns zero for branded
+    senders.
+    """
     rates = rates or load_rates()
     return (rates["platform_cost"] * count_segments(text)).quantize(Decimal("0.01"))
 
@@ -208,9 +266,12 @@ def price_sms(text: str, settings, rates: dict | None = None,
     segments = count_segments(text)
     words = count_words(text)
     credits = credits_for_words(words, ranges)
-    unit_price = rates["custom_price"] if uses_own else rates["default_price"]
+    unit_price = effective_price_per_sms(settings, uses_own, rates)
     charge = (unit_price * credits).quantize(Decimal("0.01"))
-    cost = Decimal("0.00") if uses_own else (rates["platform_cost"] * credits).quantize(Decimal("0.01"))
+    # Delivery is billed to SahilPay whichever sender ID is on the message,
+    # because every registered sender ID sits on SahilPay's FluxSMS account.
+    # Recording 0 here for branded senders is what used to hide the loss.
+    cost = (rates["platform_cost"] * credits).quantize(Decimal("0.01"))
     return {
         "sender_id":          sender_id,
         "uses_own_sender_id": uses_own,

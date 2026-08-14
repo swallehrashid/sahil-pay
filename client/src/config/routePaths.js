@@ -24,6 +24,9 @@ export const AUTH_ROUTES = {
   teamActivatePath: (token) => `/team-activate/${token}`,
   tenantLogin: "/tenant/login",
   changePassword: "/change-password",
+  // Mandatory for admins (the admin API refuses them until they enrol),
+  // optional for landlords from Settings → Account.
+  twoFactorSetup: "/two-factor-setup",
 };
 
 // Module path suffixes shared between the Landlord portal and the Team Member
@@ -38,12 +41,31 @@ const SHARED_MODULES = {
   tenantTransactions: "tenants/:id/transactions",
   invoices: "invoices",
   payments: "payments",
+  ownerPayouts: "owner-payouts",
+  // Suspense/review queue — money that arrived but could not be attributed
+  // with certainty (sahilpay_payment_allocation_spec.md §4.7).
+  reviewQueue: "payments/review-queue",
+  // Commission-and-remittance run produced by the allocation engine. Distinct
+  // from ownerPayouts above, which is the manual disbursement ledger.
+  payouts: "payouts",
   expenses: "expenses",
   utilities: "utilities",
   maintenance: "maintenance",
   groups: "groups",
   reportsStatements: "reports/statements",
   reportsInsights: "reports/insights",
+  // Late-payment charges. Its own report because a penalty is not rent and
+  // must be reconciled separately from it.
+  reportsPenalties: "reports/penalties",
+  // Tenancy agreements — portal-signed and scanned, one screen.
+  leases: "leases",
+  // KRA / eTIMS. Both are rendered ONLY when /api/etims/scope reports at least
+  // one enabled property — an account that never opted in has no such links.
+  etimsRegister: "etims-register",
+  kraMonthly: "reports/kra-monthly",
+  // The admin-authored help library (distinct from the first-run product tour
+  // at /landlord/tutorials).
+  help: "help",
   communications: "communications",
   messages: "messages",
   notifications: "notifications",
@@ -55,6 +77,9 @@ function buildPortalRoutes(rootPrefix) {
     routes[key] = `${rootPrefix}/${suffix}`;
   }
   routes.tenantTransactionsPath = (id) => `${rootPrefix}/tenants/${id}/transactions`;
+  // Help articles are addressed by SLUG, which stays stable when the admin
+  // rewrites a title — so dashboard nudges and settings links never rot.
+  routes.helpArticle = (slug) => `${rootPrefix}/help/${slug}`;
   return routes;
 }
 
@@ -71,11 +96,15 @@ export const LANDLORD_ROUTES = {
     alerts: "/landlord/settings/alerts",
     account: "/landlord/settings/account",
     documents: "/landlord/settings/documents",
+    receiptLayout: "/landlord/settings/receipt-layout",
     team: "/landlord/settings/team",
     billing: "/landlord/settings/billing",
     smsProvider: "/landlord/settings/sms-provider",
     mpesa: "/landlord/settings/mpesa",
     copilot: "/landlord/settings/copilot",
+    taxCompliance: "/landlord/settings/tax-compliance",
+    allocation: "/landlord/settings/allocation",
+    penalties: "/landlord/settings/penalties",
     audit: "/landlord/settings/audit",
     impersonationRequests: "/landlord/settings/impersonation-requests",
   },
@@ -84,6 +113,9 @@ export const LANDLORD_ROUTES = {
 export const TEAM_ROUTES = {
   ...buildPortalRoutes("/team"),
   profile: "/team/profile",
+  // The product tour, same library as the landlord's. Filtered to the modules
+  // the member actually holds — see features/landlord/tutorials/portal.js.
+  tutorials: "/team/tutorials",
 };
 
 export const AFFILIATE_ROUTES = {
@@ -105,6 +137,13 @@ export const TENANT_ROUTES = {
   messages: "/portal/messages",
   profile: "/portal/profile",
   notifications: "/portal/notifications",
+  // The admin-authored help library. Tenants are a first-class audience of it
+  // (services/tutorial_service.py VALID_ROLES), and the seeded library ships
+  // tenant-specific articles, so the portal needs its own reader.
+  // The tenant reads, signs and downloads their agreement here.
+  lease: "/portal/lease",
+  help: "/portal/help",
+  helpArticle: (slug) => `/portal/help/${slug}`,
 };
 
 export const ADMIN_ROUTES = {
@@ -142,6 +181,9 @@ export const ADMIN_ROUTES = {
   affiliateDetail: "/admin/affiliates/:id",
   affiliateDetailPath: (id) => `/admin/affiliates/${id}`,
   copilot: "/admin/copilot",
+  helpContent: "/admin/help-content",
+  helpArticleEdit: "/admin/help-content/articles/:id",
+  helpArticleEditPath: (id) => `/admin/help-content/articles/${id}`,
 };
 
 export const NOT_FOUND_ROUTE = "*";

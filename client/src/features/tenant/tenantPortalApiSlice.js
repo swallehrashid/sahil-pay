@@ -7,6 +7,18 @@ export const tenantPortalApiSlice = apiSlice.injectEndpoints({
       query: () => "/portal/dashboard",
       providesTags: ["TenantPortal"],
     }),
+    // Every unit this person rents — one entry per tenancy, each with its own
+    // account number and balance, because each is billed and paid separately.
+    getPortalContext: builder.query({
+      query: () => "/portal/context",
+      providesTags: ["TenantPortal"],
+    }),
+    // The tenant's own payment score. Shown to them deliberately: it is the
+    // clearest incentive to pay early, and it is their record.
+    getPortalScore: builder.query({
+      query: () => "/portal/score",
+      providesTags: ["TenantPortal"],
+    }),
     getPaymentDetails: builder.query({
       query: () => "/portal/payment-details",
       providesTags: ["TenantPortal"],
@@ -56,6 +68,8 @@ export const tenantPortalApiSlice = apiSlice.injectEndpoints({
 
 export const {
   useGetPortalDashboardQuery,
+  useGetPortalContextQuery,
+  useGetPortalScoreQuery,
   useGetPaymentDetailsQuery,
   useGetPortalPaymentsQuery,
   useSubmitPortalPaymentMutation,

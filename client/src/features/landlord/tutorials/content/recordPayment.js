@@ -8,6 +8,8 @@ export default {
   icon: Wallet,
   duration: "~2 min",
   section: "payments",
+  // Permission module that gates this tutorial. Drives the Payments screens.
+  module: "payments",
   mode: "tour",
   prerequisite: { count: "invoices", tutorialId: "create-invoice", soft: true },
   steps: [

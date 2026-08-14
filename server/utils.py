@@ -259,16 +259,60 @@ def get_jwt_user():
 
     Always use this inside a route that has @jwt_required().
     """
-    # Cache on g so a single request makes at most one DB round-trip.
-    if hasattr(g, "_jwt_user") and g._jwt_user is not None:
-        return g._jwt_user
-
     from extensions import db
     from models import User
 
+    from flask_jwt_extended import get_jwt
+
     user_id = get_jwt_identity()
+
+    # ── Judge the TOKEN before trusting any cache ───────────────────────────
+    # Every rejection below must run on each request, ahead of the cache read.
+    # Ordering this the other way round was a real hole: a cache entry left by
+    # an earlier, fully-authenticated request in the same application context
+    # was returned for a later PRE-AUTH request, so a stolen password reached
+    # the admin dashboard. Caught by test_twofa.py.
+
     if not user_id:
         raise ApiError("Authentication required.", status=401, code="missing_identity")
+
+    # Tenant portal tokens carry a namespaced identity ("tenant:<id>", see
+    # routes/otp_routes.py) precisely so they can never be mistaken for a
+    # users.id. Reject them here rather than passing the string to the query:
+    # Postgres raises DataError on `users.id = 'tenant:5'`, which surfaced as a
+    # 500 with a SQL fragment in the log every time a tenant token touched a
+    # landlord route. A tenant has no User scope on these routes — that is a
+    # 403, not a server error.
+    if isinstance(user_id, str) and not user_id.isdigit():
+        raise ApiError(
+            "This action requires a staff account.",
+            status=403,
+            code="forbidden_role",
+        )
+
+    # A PRE-AUTH token proves only "this password was correct" — the second
+    # factor has not been supplied yet. It must open nothing: routes/twofa_routes
+    # exchanges it for a real token at /api/auth/2fa/verify (which resolves the
+    # user directly, not through here) and that is the ONLY thing it is good for.
+    #
+    # Rejecting it at this chokepoint rather than per-route is deliberate: every
+    # guarded route runs through here, so there is no endpoint anyone can forget.
+    if get_jwt().get("pre_2fa"):
+        raise ApiError(
+            "Complete two-factor sign-in first.",
+            status=403,
+            code="2fa_incomplete",
+        )
+
+    # ── Only now is the cache safe to use ───────────────────────────────────
+    # Keyed by the identity it was resolved FOR: `flask.g` belongs to the
+    # application context, which can outlive one request (scripts, Celery tasks,
+    # and a test client driven inside an app_context all reuse a single one). An
+    # unkeyed cache there would hand request #2 the user resolved for request #1
+    # — i.e. authenticate a caller as somebody else.
+    cached = g.get("_jwt_user_cache")
+    if cached is not None and cached[0] == user_id and cached[1] is not None:
+        return cached[1]
 
     user = db.session.query(User).filter(
         User.id == user_id,
@@ -278,6 +322,8 @@ def get_jwt_user():
     if user is None:
         raise ApiError("User account not found or deactivated.", status=401, code="inactive_user")
 
+    g._jwt_user_cache = (user_id, user)
+    # Retained for any code still reading the old attribute directly.
     g._jwt_user = user
     return user
 
@@ -496,28 +542,77 @@ def scope_to_accessible_properties(fn):
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        from extensions import db
-        from models import TeamMember, TeamMemberPropertyAccess
-
-        user = get_jwt_user()
-
-        if user.role != "team_member":
-            g.accessible_property_ids = None  # no restriction
-            return fn(*args, **kwargs)
-
-        tm: TeamMember | None = user.team_member_profile
-        if tm is None or tm.property_access_all:
-            g.accessible_property_ids = None
-            return fn(*args, **kwargs)
-
-        rows = (
-            db.session.query(TeamMemberPropertyAccess)
-            .filter(TeamMemberPropertyAccess.team_member_id == tm.id)
-            .all()
-        )
-        g.accessible_property_ids = {row.property_id for row in rows}
+        # Delegates to accessible_property_ids() so there is exactly ONE
+        # implementation of "what may this caller see" — and therefore no way
+        # for the decorator and the on-demand helper to disagree. It sets
+        # g.accessible_property_ids as a side effect, which is what the
+        # list endpoints read.
+        accessible_property_ids()
         return fn(*args, **kwargs)
     return wrapper
+
+
+def accessible_property_ids() -> set[int] | None:
+    """
+    The property ids the CURRENT caller may see, or None for no restriction.
+
+    The decorator form above only helps routes that remembered to apply it.
+    This function resolves the same answer on demand and caches it on `g`, so
+    an object-fetch helper (`_get_or_404`) can enforce property scope even on a
+    route with no decorator — which is what stops a team member restricted to
+    one block from opening an invoice, payment or expense belonging to another
+    block by guessing its id.
+
+    Returns None for landlords, property managers, admins, and team members
+    with property_access_all.
+
+    CACHING: `flask.g` lives for the APPLICATION context, which can outlive a
+    single request (scripts, Celery tasks, and a test client used inside an
+    app_context all reuse one). Caching a bare value there would let one
+    caller's scope leak into the next caller's request — on a security control,
+    that is a cross-tenant data leak. So the cache carries the JWT identity it
+    was computed for and is only reused for that same identity.
+    """
+    from flask_jwt_extended import get_jwt_identity
+
+    from extensions import db
+    from models import TeamMember, TeamMemberPropertyAccess
+
+    try:
+        identity = get_jwt_identity()
+    except Exception:
+        identity = None
+
+    cached = g.get("_scope_cache")
+    if cached is not None and cached[0] == identity:
+        return cached[1]
+
+    def _remember(value):
+        g._scope_cache = (identity, value)
+        # Kept in sync for the routes that read g directly after the decorator.
+        g.accessible_property_ids = value
+        return value
+
+    try:
+        user = get_jwt_user()
+    except ApiError:
+        # No resolvable staff user (e.g. a tenant token) — such callers never
+        # reach landlord object helpers, and the route guards answer them first.
+        return _remember(None)
+
+    if user.role != "team_member":
+        return _remember(None)
+
+    tm: TeamMember | None = user.team_member_profile
+    if tm is None or tm.property_access_all:
+        return _remember(None)
+
+    rows = (
+        db.session.query(TeamMemberPropertyAccess)
+        .filter(TeamMemberPropertyAccess.team_member_id == tm.id)
+        .all()
+    )
+    return _remember({row.property_id for row in rows})
 
 
 # ===========================================================================

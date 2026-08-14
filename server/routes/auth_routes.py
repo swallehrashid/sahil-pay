@@ -161,8 +161,39 @@ def register():
 # ---------------------------------------------------------------------------
 # POST /api/auth/login
 # ---------------------------------------------------------------------------
+def build_login_claims(user) -> dict:
+    """
+    The JWT claims a signed-in user carries.
+
+    Shared with the 2FA verify step so a second-factor login is issued exactly
+    the same token an ordinary login would have — if these two ever drifted, a
+    2FA user could end up with a token missing their landlord_id and silently
+    lose access to their own data.
+    """
+    claims = {"role": user.role}
+
+    if user.role in (UserRole.landlord.value, UserRole.property_manager.value):
+        lp = user.landlord_profile
+        if lp:
+            claims["landlord_id"] = lp.id
+    elif user.role == UserRole.team_member.value:
+        tm = user.team_member_profile
+        if tm:
+            claims["landlord_id"]    = tm.landlord_id
+            claims["team_member_id"] = tm.id
+    elif user.role == UserRole.affiliate.value:
+        af = user.affiliate_profile
+        if af:
+            claims["affiliate_id"] = af.id
+            claims["affiliate_status"] = af.status
+
+    return claims
+
+
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit("20 per minute")
+# Tight per-IP budget: a human signing in needs two or three attempts, not
+# twenty. The hourly cap stops a slow drip that stays under the per-minute one.
+@limiter.limit("5 per minute; 30 per hour")
 def login():
     """
     Email + password login for admin, landlord/PM, and team member roles.
@@ -186,11 +217,29 @@ def login():
     password = data.get("password", "")
     remember_me = bool(data.get("remember_me"))
 
+    from services import login_guard
+
+    # Per-ACCOUNT lockout, on top of the per-IP rate limit above: rotating IPs
+    # resets a per-IP budget, so without this a distributed attempt could keep
+    # guessing one valuable account indefinitely.
+    locked_for = login_guard.lock_seconds_remaining(email)
+    if locked_for:
+        # Same generic wording as a wrong password — confirming "this account
+        # exists and is locked" would tell an attacker they found a real one.
+        return jsonify({
+            "error": "Invalid email or password.",
+            "retry_after_seconds": locked_for,
+        }), 401
+
     user = User.query.filter_by(email=email).first()
 
     if not user or not user.password_hash or \
             not check_password_hash(user.password_hash, password):
+        login_guard.record_failure(email)
         return jsonify({"error": "Invalid email or password."}), 401
+
+    # Correct credentials — an honest user who mistyped twice starts clean.
+    login_guard.clear(email)
 
     if not user.is_active:
         return jsonify({"error": "This account has been deactivated. Contact support."}), 403
@@ -214,23 +263,29 @@ def login():
         if not tm or not tm.is_active:
             return jsonify({"error": "Account not yet activated. Check your email."}), 403
 
-    additional_claims = {"role": user.role}
+    additional_claims = build_login_claims(user)
 
-    # Attach landlord_id to token for all non-admin roles
-    if user.role in (UserRole.landlord.value, UserRole.property_manager.value):
-        lp = user.landlord_profile
-        if lp:
-            additional_claims["landlord_id"] = lp.id
-    elif user.role == UserRole.team_member.value:
-        tm = user.team_member_profile
-        if tm:
-            additional_claims["landlord_id"]    = tm.landlord_id
-            additional_claims["team_member_id"] = tm.id
-    elif user.role == UserRole.affiliate.value:
-        af = user.affiliate_profile
-        if af:
-            additional_claims["affiliate_id"] = af.id
-            additional_claims["affiliate_status"] = af.status
+    # ── Second factor ────────────────────────────────────────────────────────
+    # The password was right, but that is only half the proof. Hand back a
+    # short-lived PRE-AUTH token that is accepted at exactly one endpoint
+    # (/api/auth/2fa/verify) and nowhere else, so a stolen password on its own
+    # opens nothing.
+    if user.totp_enabled:
+        from routes.twofa_routes import issue_pre_auth_token
+
+        return jsonify({
+            "requires_2fa": True,
+            "pre_auth_token": issue_pre_auth_token(user),
+            "message": "Enter the 6-digit code from your authenticator app.",
+        }), 200
+
+    # An admin without 2FA set up gets in, but lands on the mandatory enrolment
+    # screen: every /api/admin/* route refuses them until it is on (see
+    # decorators.require_role). Locking them out entirely would strand an
+    # existing admin the moment this shipped.
+    from services.twofa_service import is_required_for
+
+    needs_2fa_setup = is_required_for(user) and not user.totp_enabled
 
     # "Keep me logged in (24h)": issue a 24-hour access token so the session
     # survives across a working day without re-login. Unchecked keeps the short
@@ -250,6 +305,10 @@ def login():
         "role":          user.role,
         "must_change_password": user.must_change_password,
         "remember_me":   remember_me,
+        # Admins are let in, but every /api/admin/* route refuses them until the
+        # second factor is on — the frontend uses this to route them straight to
+        # the enrolment screen instead of a wall of 403s.
+        "needs_2fa_setup": needs_2fa_setup,
     }), 200
 
 

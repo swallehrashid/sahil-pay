@@ -8,6 +8,8 @@ export default {
   icon: MessageSquare,
   duration: "~4 min",
   section: "communication",
+  // Permission module that gates this tutorial. Drives Communications; its final step is landlord-only and is dropped for team members.
+  module: "messages",
   mode: "mixed",
   slides: [
     {
