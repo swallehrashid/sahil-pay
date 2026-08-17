@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   Receipt,
   Wallet,
-  Send,
   ReceiptText,
   Users,
   Building2,
@@ -26,6 +25,7 @@ import {
   AlertTriangle,
   FileText,
   Coins,
+  UploadCloud,
   BookOpen,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
@@ -43,17 +43,20 @@ const NAV_ITEMS = [
   // Money that arrived but couldn't be attributed with certainty. Sits next to
   // Payments because that is where someone looks when a tenant says they paid.
   { to: LANDLORD_ROUTES.reviewQueue, label: "Review queue", icon: <AlertCircle className="h-4 w-4" /> },
-  // Property managers remit collections to each owner; landlords running
-  // their own blocks simply never use it.
-  { to: LANDLORD_ROUTES.ownerPayouts, label: "Owner payouts", icon: <Send className="h-4 w-4" /> },
-  // The allocation engine's commission-and-remittance run, as opposed to the
-  // manual disbursement ledger above it.
-  { to: LANDLORD_ROUTES.payouts, label: "Payout runs", icon: <Coins className="h-4 w-4" /> },
+  // Property managers remit collections to each owner; landlords running their
+  // own blocks simply never use it. One entry, two tabs inside (runs → ledger):
+  // as two sibling links called "Owner payouts" and "Payout runs" they read as
+  // duplicates, and neither name told you which one you wanted.
+  { to: LANDLORD_ROUTES.payouts, label: "Owner payouts", icon: <Coins className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.expenses, label: "Expenses", icon: <ReceiptText className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.tenants, label: "Tenants", icon: <Users className="h-4 w-4" />, dataTour: ANCHORS.sidebar.tenants },
   { to: LANDLORD_ROUTES.properties, label: "Properties", icon: <Building2 className="h-4 w-4" />, dataTour: ANCHORS.sidebar.properties },
   { to: LANDLORD_ROUTES.units, label: "Units", icon: <DoorOpen className="h-4 w-4" />, dataTour: ANCHORS.sidebar.units },
   { to: LANDLORD_ROUTES.utilities, label: "Utilities", icon: <Gauge className="h-4 w-4" />, dataTour: ANCHORS.sidebar.utilities },
+  // Sits with Properties/Units/Tenants because that is what it creates, and
+  // because "where do I upload my spreadsheet?" is asked while looking at an
+  // empty tenants list.
+  { to: LANDLORD_ROUTES.imports, label: "Bulk import", icon: <UploadCloud className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.maintenance, label: "Maintenance", icon: <Wrench className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" /> },
   { to: LANDLORD_ROUTES.leases, label: "Leases", icon: <FileText className="h-4 w-4" /> },

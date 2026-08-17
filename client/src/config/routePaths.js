@@ -41,13 +41,24 @@ const SHARED_MODULES = {
   tenantTransactions: "tenants/:id/transactions",
   invoices: "invoices",
   payments: "payments",
+  // Owner money, one page with two tabs (features/landlord/payouts/):
+  //   runs   — work out what each owner is owed for a period and generate it
+  //   ledger — the record of every remittance actually sent
+  // These used to be two unrelated top-level pages ("Owner payouts" and
+  // "Payout runs") whose names gave no clue which one you wanted, even though
+  // they are consecutive steps in one job.
+  payouts: "payouts",
+  payoutRuns: "payouts",
+  payoutLedger: "payouts/ledger",
+  // Kept so existing links, bookmarks and the tour keep working; the route
+  // redirects to the ledger tab.
   ownerPayouts: "owner-payouts",
   // Suspense/review queue — money that arrived but could not be attributed
   // with certainty (sahilpay_payment_allocation_spec.md §4.7).
   reviewQueue: "payments/review-queue",
-  // Commission-and-remittance run produced by the allocation engine. Distinct
-  // from ownerPayouts above, which is the manual disbursement ledger.
-  payouts: "payouts",
+  // Bring an existing estate in from a spreadsheet: properties, then units,
+  // then tenants.
+  imports: "imports",
   expenses: "expenses",
   utilities: "utilities",
   maintenance: "maintenance",

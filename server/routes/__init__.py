@@ -15,6 +15,7 @@ from .unit_routes             import unit_bp
 from .property_group_routes   import group_bp
 from .tenant_routes           import tenant_bp
 from .tenant_import_routes    import tenant_import_bp
+from .bulk_import_routes      import bulk_import_bp
 from .invoice_routes          import invoice_bp
 from .charge_category_routes  import charge_category_bp
 from .payment_routes          import payment_bp, receipts_bp
@@ -71,6 +72,7 @@ def register_blueprints(app):
     app.register_blueprint(group_bp)              # /api/property-groups
     app.register_blueprint(tenant_bp)             # /api/tenants
     app.register_blueprint(tenant_import_bp)      # /api/tenants/import
+    app.register_blueprint(bulk_import_bp)        # /api/imports
     app.register_blueprint(invoice_bp)            # /api/invoices
     app.register_blueprint(charge_category_bp)    # /api/charge-categories
     app.register_blueprint(payment_bp)            # /api/payments

@@ -28,6 +28,7 @@ from models import (
     PropertyOwner, TeamMember, TeamMemberPropertyPermission as TMPP,
 )
 from services import etims_service as etims
+from services.report_access import require_report
 from services.audit_service import record_audit
 from utils import ApiError, get_jwt_user, success
 
@@ -467,6 +468,7 @@ def etims_scope():
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@require_report("kra_monthly")
 def kra_monthly():
     landlord_id = get_current_landlord_id()
     consolidated = (request.args.get("consolidated", "true").lower()

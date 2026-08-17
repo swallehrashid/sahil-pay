@@ -109,6 +109,10 @@ export const apiSlice = createApi({
     "RecurringExpense",
     "Utility",
     "Maintenance",
+    "ImportMapping",
+    // Separate from "Maintenance" so posting a note refetches the thread
+    // without re-pulling the whole request list behind the dialog.
+    "MaintenanceComment",
     "Communication",
     "MessageTemplate",
     "DocumentTemplate",

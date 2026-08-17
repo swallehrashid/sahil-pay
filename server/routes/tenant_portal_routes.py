@@ -26,7 +26,6 @@ from models import (
     MaintenanceStatus, MaintenanceCategory,
 )
 from services.pdf_service  import generate_tenant_statement_pdf, generate_receipt_pdf
-from services.email_service import send_receipt_email
 
 tenant_portal_bp = Blueprint("tenant_portal", __name__, url_prefix="/api/portal")
 
@@ -77,7 +76,16 @@ def _get_portal_tenant() -> tuple[Tenant | None, int | None]:
                 abort(404, description="Unit not found.")
             return switched, switched.landlord_id
 
-    return tenant, landlord_id
+    # Take the landlord from the TENANT ROW, not from the token claim.
+    #
+    # The claim is a copy made at sign-in, and the row is the authority. A token
+    # issued without the claim (or carrying a stale one after the tenancy was
+    # moved) otherwise yields landlord_id=None, which does not fail loudly — it
+    # flows into whatever the handler writes next. For maintenance requests that
+    # meant a NOT NULL violation surfaced to the tenant as a generic
+    # "record already exists" 409, and the uploaded photo had already been
+    # stored under a path containing the literal string "None".
+    return tenant, tenant.landlord_id
 
 
 def _require_tenant():
@@ -572,14 +580,11 @@ def download_receipt(payment_id):
 
     pdf_bytes = render_receipt_pdf(payment)
 
-    # Auto-email a copy on download.
-    if tenant.email:
-        try:
-            send_receipt_email.delay(
-                tenant.email, tenant.first_name, pdf_bytes, payment.payment_ref
-            )
-        except Exception:
-            pass
+    # Downloading a receipt does NOT email one. This used to "auto-email a copy
+    # on download", which meant a tenant who opened their own receipt was sent
+    # the very document they had just opened — and every re-open, refresh or
+    # double-click produced another. The receipt is emailed once, when the
+    # payment is recorded; this endpoint only hands back the file.
 
     return Response(
         pdf_bytes,
@@ -832,9 +837,18 @@ def list_maintenance():
 
     requests = query.order_by(MaintenanceRequest.created_at.desc()).all()
 
+    # Each request carries the notes meant for the tenant. Internal notes — what
+    # a contractor quoted, who to chase — are filtered out HERE rather than in
+    # the portal, so they cannot leak through a client that forgets to check.
+    payload = []
+    for r in requests:
+        data = r.to_dict()
+        data["comments"] = [c.to_dict() for c in r.comments if not c.is_internal]
+        payload.append(data)
+
     return jsonify({
-        "requests": [r.to_dict() for r in requests],
-        "total":    len(requests),
+        "requests": payload,
+        "total":    len(payload),
     }), 200
 
 
@@ -958,6 +972,63 @@ def create_maintenance():
         "message": "Maintenance request submitted successfully.",
         "request": req.to_dict(),
     }), 201
+
+
+# ---------------------------------------------------------------------------
+# POST /api/portal/maintenance/<id>/comments
+# ---------------------------------------------------------------------------
+@tenant_portal_bp.route("/maintenance/<int:request_id>/comments", methods=["POST"])
+@jwt_required()
+def add_maintenance_comment(request_id):
+    """
+    The tenant replies on their own request — "still leaking", "I'll be out
+    Tuesday". Without this the thread is one-way and the tenant has to phone.
+
+    A tenant's note is never internal: they wrote it, so hiding it from them
+    would be incoherent.
+    """
+    tenant, landlord_id = _require_tenant()
+
+    req = MaintenanceRequest.query.filter_by(
+        id=request_id, tenant_id=tenant.id
+    ).first()
+    if not req:
+        return jsonify({"error": "Maintenance request not found."}), 404
+
+    body = ((request.get_json(silent=True) or {}).get("body") or "").strip()
+    if not body:
+        return jsonify({"error": "A comment cannot be empty."}), 400
+
+    from models import MaintenanceComment
+
+    comment = MaintenanceComment(
+        request_id     = req.id,
+        author_user_id = tenant.user_id,
+        author_role    = "tenant",
+        author_name    = f"{tenant.first_name} {tenant.last_name}".strip(),
+        body           = body,
+        is_internal    = False,
+    )
+    db.session.add(comment)
+    db.session.flush()
+
+    from models import Landlord
+    from services.notification_service import notify
+    landlord_row = db.session.get(Landlord, landlord_id)
+    if landlord_row and landlord_row.user_id:
+        notify(
+            recipient_user_id=landlord_row.user_id,
+            category="maintenance_update",
+            title="Tenant replied on a maintenance request",
+            body=f"{req.summary}: {body[:120]}",
+            landlord_id=landlord_id,
+            link="/landlord/maintenance",
+            entity_type="maintenance",
+            entity_id=req.id,
+        )
+
+    db.session.commit()
+    return jsonify(comment.to_dict()), 201
 
 
 # ---------------------------------------------------------------------------

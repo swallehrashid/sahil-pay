@@ -170,6 +170,20 @@ class PermissionModule(str, enum.Enum):
     maintenance    = "maintenance"
     reports        = "reports"
     groups         = "groups"
+    # These three used to have no module of their own, so each borrowed one and
+    # inherited the wrong answer:
+    #   leases were gated on `tenants`  — you could not let a caretaker read a
+    #     lease without also handing them edit rights over tenant records;
+    #   penalties were gated on `invoices`/`reports` — a late fee is not an
+    #     invoice, and reconciling one is not running a report;
+    #   notifications were gated on NOTHING, and the send endpoint simply
+    #     refused every team member by role, so a secretary with a full
+    #     permission matrix still could not send one.
+    # Migration x1a1b2c3d4e5 backfills them from whatever each member held
+    # before, so nobody gains or loses access on the way through.
+    notifications  = "notifications"
+    leases         = "leases"
+    penalties      = "penalties"
     # KRA/eTIMS compliance work (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §1.4).
     # Unlike every other module this one is ALSO scoped per property, through
     # team_member_property_permissions — holding the module row alone grants
@@ -686,7 +700,11 @@ class User(TimestampMixin, Base):
     role               = Column(String(50),  nullable=False)          # enum UserRole
     is_verified        = Column(Boolean, default=False, nullable=False)
     is_active          = Column(Boolean, default=True,  nullable=False)
+    # Email-confirmation token ONLY. Password resets use their own column
+    # below: sharing one made each flow consume the other's live token, which
+    # is an account lockout now that login requires a verified address.
     verification_token = Column(String(255), nullable=True)
+    password_reset_token = Column(String(255), nullable=True, index=True)
     # True when the account is on a system-issued temporary password (e.g. a team
     # member created by their landlord). The frontend forces a password change on
     # next login; cleared the moment they set their own password.
@@ -1020,6 +1038,17 @@ class TeamMemberPermission(TimestampMixin, Base):
     module         = Column(String(30), nullable=False)    # enum PermissionModule
     can_view       = Column(Boolean, default=False, nullable=False)
     can_edit       = Column(Boolean, default=False, nullable=False)
+    # Only meaningful on the `reports` row: WHICH reports this member may open.
+    #
+    # NULL means "every report", which is what every existing row means and why
+    # the column is nullable rather than defaulting to an empty list — an empty
+    # list means "none", and the two must not be confused. A list of report keys
+    # (services/report_access.py REPORT_KEYS) narrows it.
+    #
+    # Reports are the one module where view/edit is too blunt: an owner needs
+    # the statement for their own block, and giving them that used to hand them
+    # the payments report and every tenant's arrears alongside it.
+    allowed_reports = Column(JSON, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("team_member_id", "module", name="uq_tmp_team_member_module"),
@@ -1034,6 +1063,8 @@ class TeamMemberPermission(TimestampMixin, Base):
             "module":         self.module,
             "can_view":       self.can_view,
             "can_edit":       self.can_edit,
+            # null = every report; a list narrows it. Only set on `reports`.
+            "allowed_reports": self.allowed_reports,
             "created_at":     _serialise(self.created_at),
             "updated_at":     _serialise(self.updated_at),
         }
@@ -2069,6 +2100,15 @@ class Payment(EtimsMixin, SoftDeleteMixin, TimestampMixin, Base):
     receipt_url       = Column(String(255), nullable=True)
     proof_url         = Column(String(255), nullable=True)   # tenant-uploaded proof of payment (pending submissions)
     notes             = Column(Text, nullable=True)
+    # When the receipt was FIRST emailed for this payment. A receipt is a
+    # statement of fact about one event, so it goes out once: several code paths
+    # can each legitimately decide a receipt is due (manual record, co-pilot
+    # auto-allocation, M-Pesa reconciliation) and without a shared record of
+    # having already sent one they each send their own. Downloading a receipt
+    # used to re-send it too, so a tenant opening their own PDF — or a mail
+    # scanner merely PREFETCHING the link — generated another copy.
+    # A deliberate resend by a human is still allowed and updates this stamp.
+    receipt_emailed_at = Column(DateTime, nullable=True)
     # --- Resolver fields (sahilpay_payment_allocation_spec.md §4.1, §4.5) ----
     # The account reference the payer actually typed, kept verbatim. This is the
     # ONE field that reliably survives a forwarded M-Pesa SMS — payer phone is
@@ -2125,6 +2165,7 @@ class Payment(EtimsMixin, SoftDeleteMixin, TimestampMixin, Base):
             "till_number":       self.till_number,
             "bank_statement_id": self.bank_statement_id,
             "receipt_url":       self.receipt_url,
+            "receipt_emailed_at": _serialise(self.receipt_emailed_at),
             "proof_url":         self.proof_url,
             "notes":             self.notes,
             "reference_text":    self.reference_text,
@@ -3016,6 +3057,13 @@ class MaintenanceRequest(TimestampMixin, Base):
         post_update=True,
     )
 
+    comments = relationship(
+        "MaintenanceComment",
+        back_populates="request",
+        order_by="MaintenanceComment.created_at",
+        cascade="all, delete-orphan",
+    )
+
     def to_dict(self):
         return {
             "id":          self.id,
@@ -3031,6 +3079,47 @@ class MaintenanceRequest(TimestampMixin, Base):
             "expense_id":  self.expense_id,
             "created_at":  _serialise(self.created_at),
             "updated_at":  _serialise(self.updated_at),
+        }
+
+
+class MaintenanceComment(TimestampMixin, Base):
+    """
+    A note on a maintenance request — the running conversation about a job.
+
+    A request has a status, but a status cannot say "plumber booked for
+    Tuesday", "tenant not home, rebooked", or "this is the third leak on that
+    stack". Without somewhere to put those, they end up in WhatsApp and are lost
+    the moment the person who wrote them is unavailable.
+
+    `is_internal` keeps two audiences apart on one thread. An office note about
+    a contractor's price is not for the tenant; "we'll be there Tuesday" is.
+    Tenant-authored comments are never internal — they wrote them.
+    """
+    __tablename__ = "maintenance_comments"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    request_id   = Column(Integer, ForeignKey("maintenance_requests.id"),
+                          nullable=False, index=True)
+    # Who wrote it. author_user_id is null for an OTP-only tenant with no User
+    # row, which is why the display name is snapshotted alongside it.
+    author_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    author_role    = Column(String(20), nullable=False)   # tenant | landlord | team_member
+    author_name    = Column(String(120), nullable=True)
+    body           = Column(Text, nullable=False)
+    is_internal    = Column(Boolean, default=False, nullable=False)
+
+    request = relationship("MaintenanceRequest", back_populates="comments")
+    author  = relationship("User", foreign_keys=[author_user_id])
+
+    def to_dict(self):
+        return {
+            "id":             self.id,
+            "request_id":     self.request_id,
+            "author_role":    self.author_role,
+            "author_name":    self.author_name,
+            "body":           self.body,
+            "is_internal":    self.is_internal,
+            "created_at":     _serialise(self.created_at),
         }
 
 
@@ -3738,7 +3827,13 @@ class LandlordSettings(TimestampMixin, Base):
     #   "rent_only" — rent current + rent arrears, excluding deposits and
     #                 utilities (a Kenyan property manager's commissionable base)
     # Remembered per landlord so the choice sticks between sessions.
-    report_gross_basis = Column(String(10), default="all", nullable=False)
+    # Defaults to "rent_only": on a property statement, "gross" is the figure an
+    # owner reads as "what my block earned in rent", and folding water, garbage
+    # and penalty income into it overstates that. Deposits are excluded from
+    # BOTH bases regardless — held money is never income. A landlord who does
+    # want every income shilling in one number switches this to "all" in
+    # Reports; the selector is unchanged.
+    report_gross_basis = Column(String(10), default="rent_only", nullable=False)
 
     # Receipt layout (services/receipt_layout.py): paper size, which header
     # component sits in which slot, density. NULL means the built-in default, so
@@ -3789,7 +3884,7 @@ class LandlordSettings(TimestampMixin, Base):
             "sms_connected":             self.sms_connected,
             "sms_api_key_set":           bool(self.sms_api_key),
             "sms_api_key_masked":        api_key_display,
-            "report_gross_basis":        self.report_gross_basis or "all",
+            "report_gross_basis":        self.report_gross_basis or "rent_only",
             "copilot_enabled":           self.copilot_enabled,
             "copilot_auto_allocate":     self.copilot_auto_allocate,
             "copilot_consented_at":      _serialise(self.copilot_consented_at),
@@ -4308,6 +4403,49 @@ class TutorialImage(TimestampMixin, Base):
             "markdown":            f"![{self.alt_text or self.caption or ''}]({self.file_path})",
             "created_at":          _serialise(self.created_at),
             "updated_at":          _serialise(self.updated_at),
+        }
+
+
+class ImportMapping(TimestampMixin, Base):
+    """
+    A saved column mapping for the bulk importer.
+
+    The same spreadsheet shape arrives every month — the agent's own rent roll,
+    a bank's tenant list, whatever their previous system exported. Re-pointing
+    fifteen columns by hand each time is the part that makes people give up on
+    an importer, so a mapping is named once and picked from a list afterwards.
+
+    `mapping` is {field_key: column_header}; `options` carries the
+    per-import switches (auto account numbers, separator) so a saved mapping
+    reproduces the whole setup, not just the columns.
+    """
+    __tablename__ = "import_mappings"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    entity      = Column(String(20), nullable=False)   # properties | units | tenants
+    name        = Column(String(120), nullable=False)
+    mapping     = Column(JSON, nullable=False)
+    options     = Column(JSON, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("landlord_id", "entity", "name",
+                         name="uq_import_mapping_landlord_entity_name"),
+    )
+
+    landlord   = relationship("Landlord")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def to_dict(self):
+        return {
+            "id":         self.id,
+            "entity":     self.entity,
+            "name":       self.name,
+            "mapping":    self.mapping or {},
+            "options":    self.options or {},
+            "created_at": _serialise(self.created_at),
+            "updated_at": _serialise(self.updated_at),
         }
 
 

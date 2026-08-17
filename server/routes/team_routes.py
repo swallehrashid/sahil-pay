@@ -33,6 +33,7 @@ from models import (
 )
 from decorators import require_landlord_or_team, require_permission, get_current_landlord_id
 from services.audit_service   import record_audit
+from services import report_access
 from services.email_service   import send_team_credentials_email
 from services.team_preset_service import (
     PRESETS, apply_preset_permissions, normalise_preset, to_public_list,
@@ -75,6 +76,30 @@ def list_presets():
       200: {description: Preset catalogue.}
     """
     return jsonify({"presets": to_public_list()}), 200
+
+
+# ---------------------------------------------------------------------------
+# GET /api/team/report-catalogue
+# ---------------------------------------------------------------------------
+@team_bp.route("/report-catalogue", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "view")
+def report_catalogue():
+    """
+    The reports that can be granted individually, for the permission matrix.
+
+    Served from the backend for the same reason the presets are: the client
+    rendering its own copy of this list is how a report ends up grantable in the
+    UI but ungated on the route, or gated on a key the UI never offers.
+    ---
+    tags: [Team]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Grantable report catalogue.}
+    """
+    return jsonify({"reports": report_access.catalogue()}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -195,16 +220,22 @@ def create_team_member():
     # System-issued temporary password the member must change on first login.
     temp_password = _generate_temp_password()
 
-    # User base record — active and verified immediately, on a temp password.
+    # The member must confirm the address before the temp password works. The
+    # landlord types that address from memory or off a scrap of paper, so a
+    # typo would otherwise mail working credentials to a stranger and leave the
+    # real colleague locked out with no signal that anything went wrong.
+    # One click on the emailed link both verifies and takes them to sign in.
+    verification_token = secrets.token_urlsafe(32)
+
     user = User(
         email                = email,
         phone                = data.get("phone"),
         password_hash        = generate_password_hash(temp_password),
         role                 = UserRole.team_member.value,
-        is_verified          = True,
+        is_verified          = False,
         is_active            = True,
         must_change_password = True,
-        verification_token   = None,
+        verification_token   = verification_token,
     )
     db.session.add(user)
     db.session.flush()
@@ -240,6 +271,7 @@ def create_team_member():
         email, username, temp_password,
         first_name=data.get("first_name"),
         company_name=company_name,
+        verification_token=verification_token,
     )
 
     record_audit(
@@ -397,7 +429,13 @@ def set_permissions(member_id):
     """
     Replace the full permission matrix for a team member.
     Body:
-      { permissions: [{ module: str, can_view: bool, can_edit: bool }] }
+      { permissions: [{ module: str, can_view: bool, can_edit: bool,
+                        allowed_reports?: [str] | null }] }
+
+    allowed_reports applies to the `reports` row only and answers "which
+    reports", not "whether reports". Omit it (or send null) for every report;
+    send a list of keys from services/report_access.REPORT_KEYS to narrow it;
+    send [] for none. null and [] are different on purpose.
 
     Modules — the PermissionModule enum ONLY: payments, invoices, utilities,
     unit_utilities, tenants, units, properties, messages, expenses,
@@ -449,6 +487,12 @@ def set_permissions(member_id):
             module         = module,
             can_view       = can_view,
             can_edit       = can_edit,
+            # Only the reports row carries this; storing it elsewhere would be
+            # dead data that later reads as a restriction nobody set.
+            allowed_reports = (
+                report_access.normalise(p.get("allowed_reports"))
+                if module == "reports" else None
+            ),
         )
         db.session.add(row)
         inserted.append(row)

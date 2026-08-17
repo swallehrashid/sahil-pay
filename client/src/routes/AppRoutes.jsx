@@ -59,6 +59,8 @@ const BankStatementReview = lazy(() => import("@/features/landlord/payments/Bank
 const OwnerPayoutsPage = lazy(() => import("@/features/landlord/payments/OwnerPayoutsPage"));
 const ReviewQueuePage = lazy(() => import("@/features/landlord/allocation/ReviewQueuePage"));
 const PayoutsPage = lazy(() => import("@/features/landlord/allocation/PayoutsPage"));
+const PayoutsLayout = lazy(() => import("@/features/landlord/payouts/PayoutsLayout"));
+const BulkImportPage = lazy(() => import("@/features/landlord/imports/BulkImportPage"));
 const AllocationSettings = lazy(() => import("@/features/landlord/settings/AllocationSettings"));
 const PenaltySettings = lazy(() => import("@/features/landlord/settings/PenaltySettings"));
 const PenaltiesReport = lazy(() => import("@/features/landlord/reports/PenaltiesReport"));
@@ -323,7 +325,15 @@ export default function AppRoutes() {
             <Route path="invoices" element={withSuspense(InvoicesPage)} />
             <Route path="payments" element={withSuspense(PaymentsPage)} />
             <Route path="payments/bank-statement/:id" element={withSuspense(BankStatementReview)} />
-            <Route path="owner-payouts" element={withSuspense(OwnerPayoutsPage)} />
+            {/* Owner money — one page, two tabs. */}
+            <Route path="payouts" element={withSuspense(PayoutsLayout)}>
+              <Route index element={withSuspense(PayoutsPage)} />
+              <Route path="ledger" element={withSuspense(OwnerPayoutsPage)} />
+            </Route>
+            {/* The ledger's old address. Bookmarks and older emails still point
+                here, so redirect rather than 404. */}
+            <Route path="owner-payouts" element={<Navigate to="/landlord/payouts/ledger" replace />} />
+            <Route path="imports" element={withSuspense(BulkImportPage)} />
             <Route path="expenses" element={withSuspense(ExpensesPage)} />
             <Route path="utilities" element={withSuspense(UtilitiesPage)} />
             <Route path="maintenance" element={withSuspense(MaintenancePage)} />
@@ -342,7 +352,6 @@ export default function AppRoutes() {
                 these once /api/etims/scope reports an enabled property, and
                 every endpoint behind them is scoped server-side regardless. */}
             <Route path="payments/review-queue" element={withSuspense(ReviewQueuePage)} />
-            <Route path="payouts" element={withSuspense(PayoutsPage)} />
             <Route path="etims-register" element={withSuspense(EtimsRegisterPage)} />
             <Route path="reports/kra-monthly" element={withSuspense(KraMonthlyReport)} />
 
@@ -400,7 +409,8 @@ export default function AppRoutes() {
               <Route path="payments/bank-statement/:id" element={withSuspense(BankStatementReview)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "expenses", level: "view" }} />}>
-              <Route path="expenses" element={withSuspense(ExpensesPage)} />
+              <Route path="imports" element={withSuspense(BulkImportPage)} />
+            <Route path="expenses" element={withSuspense(ExpensesPage)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "utilities", level: "view" }} />}>
               <Route path="utilities" element={withSuspense(UtilitiesPage)} />

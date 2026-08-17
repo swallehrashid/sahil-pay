@@ -274,3 +274,209 @@ def test_suspense_never_reaches_the_receipt_path():
     # And the suspense branch must still return before reaching it.
     between = source[suspense_at:receipt_at]
     assert "return" in between
+
+
+# ---------------------------------------------------------------------------
+# One receipt per payment
+# ---------------------------------------------------------------------------
+# A receipt is a statement of fact about one event, but several paths could each
+# decide one was due — recording the payment, co-pilot allocating it, M-Pesa
+# reconciliation — and none could see what the others had done. Two GET download
+# endpoints emailed a copy on every fetch on top of that, which is how one
+# payment produced a handful of receipts: opening the PDF sent another, and a
+# mail scanner merely PREFETCHING the public link sent one with no human at all.
+
+@pytest.fixture()
+def emails(monkeypatch):
+    """Every receipt email the code tries to dispatch."""
+    from services import email_service
+
+    captured = []
+    monkeypatch.setattr(
+        email_service.send_receipt_email, "delay",
+        lambda *args, **kwargs: captured.append(args),
+    )
+    return captured
+
+
+def test_the_receipt_email_goes_out_once(db_session, estate, emails):
+    from services.receipt_service import send_receipt
+
+    payment = estate["payment"]
+    landlord_id = estate["landlord"].id
+
+    first, _ = send_receipt(payment, ["email"], landlord_id=landlord_id)
+    assert first == ["email"]
+    assert len(emails) == 1
+
+    # The other paths that would each have sent their own copy.
+    for _ in range(4):
+        send_receipt(payment, ["email"], landlord_id=landlord_id)
+
+    assert len(emails) == 1, f"receipt emailed {len(emails)} times for one payment"
+
+
+def test_a_repeat_send_reports_why_it_skipped(db_session, estate, emails):
+    """Skipping silently is how "the tenant never got it" goes unnoticed."""
+    from services.receipt_service import send_receipt
+
+    send_receipt(estate["payment"], ["email"], landlord_id=estate["landlord"].id)
+    _, skipped = send_receipt(estate["payment"], ["email"], landlord_id=estate["landlord"].id)
+
+    assert any("already emailed" in reason for reason in skipped)
+
+
+def test_the_first_send_is_stamped_on_the_payment(db_session, estate, emails):
+    from services.receipt_service import send_receipt
+
+    payment = estate["payment"]
+    assert payment.receipt_emailed_at is None
+
+    send_receipt(payment, ["email"], landlord_id=estate["landlord"].id)
+
+    assert payment.receipt_emailed_at is not None
+
+
+def test_a_human_can_still_deliberately_resend(db_session, estate, emails):
+    """
+    The landlord pressing "send receipt" means it: the tenant deleted it, or the
+    address was fixed. That is the one caller allowed past the guard.
+    """
+    from services.receipt_service import send_receipt
+
+    payment = estate["payment"]
+    landlord_id = estate["landlord"].id
+
+    send_receipt(payment, ["email"], landlord_id=landlord_id)
+    sent, _ = send_receipt(payment, ["email"], landlord_id=landlord_id, force_email=True)
+
+    assert sent == ["email"]
+    assert len(emails) == 2
+
+
+def test_two_different_payments_each_get_their_own_receipt(db_session, estate, emails):
+    """The guard is per payment, not per tenant — an obvious way to get it wrong."""
+    from services.receipt_service import send_receipt
+
+    first = estate["payment"]
+    second = Payment(
+        landlord_id=first.landlord_id, tenant_id=first.tenant_id,
+        unit_id=first.unit_id, property_id=first.property_id,
+        amount=Decimal("7000"), payment_date=date(2026, 9, 5),
+        payment_ref=f"{first.payment_ref}-2", status=PaymentStatus.confirmed.value,
+    )
+    db_session.add(second)
+    db_session.flush()
+
+    send_receipt(first, ["email"], landlord_id=first.landlord_id)
+    send_receipt(second, ["email"], landlord_id=first.landlord_id)
+
+    assert len(emails) == 2
+
+
+def test_the_guard_does_not_suppress_the_other_channels(db_session, estate, emails):
+    """
+    Only email is de-duplicated. An in-app notification lands in a list the
+    tenant already sees, and suppressing it would lose the record of a resend.
+    """
+    from services.receipt_service import send_receipt
+
+    payment = estate["payment"]
+    landlord_id = estate["landlord"].id
+
+    send_receipt(payment, ["email", "in_app"], landlord_id=landlord_id)
+    sent, _ = send_receipt(payment, ["email", "in_app"], landlord_id=landlord_id)
+
+    assert "in_app" in sent
+    assert "email" not in sent
+
+
+# ---------------------------------------------------------------------------
+# Once, and only once
+# ---------------------------------------------------------------------------
+# A receipt is a statement of fact about one event. Several callers could each
+# decide one was due — recording a payment, co-pilot auto-allocation, M-Pesa
+# reconciliation, the "send receipt" button — and two GET *download* endpoints
+# emailed a fresh copy on every fetch. Nothing recorded that a receipt had
+# already gone out, so a single payment produced a burst of identical emails,
+# some of them triggered by link scanners rather than by a person.
+
+def test_the_receipt_email_is_sent_only_once(db_session, estate):
+    payment = estate["payment"]
+    assert payment.receipt_emailed_at is None
+
+    first, _ = receipt_service.send_receipt(payment, ["email"])
+    assert first == ["email"]
+    assert payment.receipt_emailed_at is not None
+
+    second, skipped = receipt_service.send_receipt(payment, ["email"])
+    assert second == []
+    assert any("already emailed" in reason for reason in skipped)
+
+
+def test_every_caller_shares_the_same_guard(db_session, estate):
+    """
+    The point is not that one function is idempotent — it is that the separate
+    paths cannot each send their own copy.
+    """
+    payment = estate["payment"]
+    estate["automation"].auto_receipt_enabled = True
+    estate["automation"].auto_receipt_email = True
+    db.session.flush()
+
+    sent_first = automation_service.on_payment_auto_allocated(
+        estate["landlord"], payment, estate["tenant"])
+    assert "email" in sent_first
+
+    # A second, independent path now finds the stamp and declines.
+    sent_again, skipped = receipt_service.send_receipt(payment, ["email"])
+    assert sent_again == []
+    assert skipped
+
+
+def test_a_human_resend_is_still_allowed(db_session, estate):
+    """
+    Pressing "send receipt" means send another copy — that IS the intent, and
+    the guard must not turn a deliberate action into a silent no-op.
+    """
+    payment = estate["payment"]
+    receipt_service.send_receipt(payment, ["email"])
+    first_stamp = payment.receipt_emailed_at
+
+    sent, _ = receipt_service.send_receipt(payment, ["email"], force_email=True)
+
+    assert sent == ["email"]
+    assert payment.receipt_emailed_at >= first_stamp
+
+
+def test_the_guard_does_not_suppress_other_channels(db_session, estate):
+    """
+    Only email is de-duplicated. An in-app notice lands in a list the tenant can
+    already see, and suppressing it because an email went out weeks ago would
+    hide the record of a NEW delivery attempt.
+    """
+    payment = estate["payment"]
+    receipt_service.send_receipt(payment, ["email"])
+
+    sent, _ = receipt_service.send_receipt(payment, ["email", "in_app"])
+
+    assert "email" not in sent
+    assert "in_app" in sent
+
+
+def test_downloading_a_receipt_does_not_email_one(app, db_session, estate):
+    """
+    The self-amplifying half of the bug: the tenant portal download and the
+    public SMS link both emailed a copy on every fetch, so opening your own
+    receipt sent you another — and a mail scanner PREFETCHING the public link
+    sent one with nobody involved at all.
+    """
+    import inspect
+
+    from routes import payment_routes, tenant_portal_routes
+
+    for module in (payment_routes, tenant_portal_routes):
+        source = inspect.getsource(module)
+        assert "send_receipt_email" not in source, (
+            f"{module.__name__} still emails a receipt from a download path"
+        )

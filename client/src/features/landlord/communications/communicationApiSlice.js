@@ -15,6 +15,14 @@ export const communicationApiSlice = apiSlice.injectEndpoints({
     quoteCommunication: builder.mutation({
       query: (body) => ({ url: "/communications/quote", method: "POST", body }),
     }),
+    // Credit balance + sender identity, gated on `messages` rather than
+    // `settings`. The settings endpoint carries the provider API key, so the
+    // people who actually send messages could not read their own balance from
+    // it — see the route's docstring.
+    getSmsBalance: builder.query({
+      query: () => "/communications/sms-balance",
+      providesTags: ["Communication"],
+    }),
     resendCommunication: builder.mutation({
       query: (id) => ({ url: `/communications/${id}/resend`, method: "POST" }),
       invalidatesTags: ["Communication"],
@@ -52,6 +60,7 @@ export const {
   useGetCommunicationsQuery,
   useSendCommunicationMutation,
   useQuoteCommunicationMutation,
+  useGetSmsBalanceQuery,
   useResendCommunicationMutation,
   useGetMessageTemplatesQuery,
   useGetMessageVariablesQuery,

@@ -28,9 +28,18 @@ import mistune
 from extensions import db
 from utils import ApiError
 
-# Every role that can see help content. Affiliates have their own portal and no
-# help library, so they are deliberately absent.
-VALID_ROLES = ("tenant", "landlord", "property_manager", "team_member", "caretaker")
+# Every audience label an article can be addressed to. Affiliates have their own
+# portal and no help library, so they are deliberately absent.
+#
+# The last four are team-member PRESETS, not user roles — a caretaker and an
+# accountant both sign in as `team_member`. They are audience labels because
+# "how to record a meter reading" is written for caretakers and is noise for an
+# accountant. effective_roles() is what maps a signed-in team member onto their
+# preset label; without it these would address nobody.
+VALID_ROLES = (
+    "tenant", "landlord", "property_manager", "team_member",
+    "caretaker", "accountant", "secretary", "owner",
+)
 
 # Tutorial pages are read on Kenyan mobile data, so an uploaded screenshot is
 # downscaled and recompressed rather than served at whatever size it arrived.
@@ -105,18 +114,78 @@ def audience_of(article) -> list[str] | None:
     return None
 
 
-def visible_to(role: str | None, roles: list[str] | None) -> bool:
-    """None / empty audience means everyone."""
+def reachability(article) -> dict:
+    """
+    Whether *article* actually reaches a reader, and why not when it doesn't.
+
+    Publishing an article inside a category that is still a draft hides it
+    completely — `published_categories()` never returns the shelf, so the
+    article on it cannot be found either. From the CMS that looks identical to
+    a successful publish, which is precisely how content gets written, marked
+    published, and then reaches nobody. The admin list renders this so the gap
+    is visible at the point the mistake is made rather than discovered later.
+    """
+    if not article.is_published:
+        return {"is_reachable": False, "blocked_reason": "article_draft",
+                "blocked_hint": "This article is a draft. Publish it to make it visible."}
+
+    category = article.category
+    if category is None or not category.is_published:
+        name = category.name if category is not None else "its category"
+        return {"is_reachable": False, "blocked_reason": "category_draft",
+                "blocked_hint": (f"Published, but nobody can see it: the category "
+                                 f"“{name}” is still a draft. Publish the category too.")}
+
+    return {"is_reachable": True, "blocked_reason": None, "blocked_hint": None}
+
+
+def effective_roles(role: str | None, preset: str | None = None) -> frozenset[str]:
+    """
+    Every audience label *role* matches — which is not always just itself.
+
+    Two mismatches used to make published content unreachable:
+
+      1. "caretaker" is an audience the admin CMS offers, but it is NOT a user
+         role: a caretaker signs in as `team_member` carrying preset
+         "caretaker". Matching on the JWT role alone meant an article aimed at
+         caretakers was visible to literally nobody. A team member therefore
+         matches their preset's label as well as "team_member".
+
+      2. A system_admin matched no audience at all, so the person who WRITES
+         the content could not see their own published article anywhere except
+         the untargeted ones — the reported "I published it and it appeared to
+         no one". An admin matches every audience, so the reader view doubles
+         as a preview of what everyone else gets.
+    """
+    if role == "system_admin":
+        return frozenset(VALID_ROLES)
+    if not role:
+        return frozenset()
+    labels = {role}
+    if role == "team_member" and preset:
+        labels.add(preset)
+    return frozenset(labels)
+
+
+def visible_to(role, roles: list[str] | None) -> bool:
+    """
+    Does this reader match *roles*? None / empty audience means everyone.
+
+    *role* is either a single role string or an already-resolved set of labels
+    from effective_roles() — callers that only have a bare role (tests, admin
+    tooling) keep working unchanged.
+    """
     if not roles:
         return True
-    return role in roles
+    reader = role if isinstance(role, (set, frozenset)) else effective_roles(role)
+    return bool(reader & set(roles))
 
 
 # ---------------------------------------------------------------------------
 # Reads for the user side — published only, role-filtered in the query
 # ---------------------------------------------------------------------------
 
-def published_categories(role: str | None) -> list[dict]:
+def published_categories(role) -> list[dict]:
     from models import TutorialArticle, TutorialCategory
 
     categories = (
@@ -147,7 +216,7 @@ def published_categories(role: str | None) -> list[dict]:
     return out
 
 
-def published_article(slug: str, role: str | None) -> dict:
+def published_article(slug: str, role) -> dict:
     from models import TutorialArticle
 
     article = (

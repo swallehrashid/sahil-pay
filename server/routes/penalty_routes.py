@@ -37,6 +37,7 @@ from decorators import (
 )
 from utils import success, ApiError, accessible_property_ids
 from services import penalty_service as penalties
+from services.report_access import require_report
 from services.audit_service import record_audit
 
 penalty_bp = Blueprint("penalties", __name__, url_prefix="/api")
@@ -104,7 +105,7 @@ def _property_or_404(landlord_id: int, property_id: int) -> Property:
 @penalty_bp.route("/properties/<int:property_id>/penalty-policy", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "view")
+@require_permission("penalties", "view")
 def get_penalty_policy(property_id: int):
     """This property's penalty rules, or the off-by-default shape when unset."""
     landlord_id = get_current_landlord_id()
@@ -128,11 +129,15 @@ def get_penalty_policy(property_id: int):
 @penalty_bp.route("/properties/<int:property_id>/penalty-policy", methods=["PUT"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("penalties", "edit")
 def put_penalty_policy(property_id: int):
     """
-    Create or replace the rules. Switching automatic fines on for a block is a
-    property-level decision, hence `properties` edit rather than `invoices`.
+    Create or replace the rules.
+
+    Gated on `penalties` edit. It was previously `properties` edit, which meant
+    anyone trusted to rename a block or fix its address could also change what
+    its tenants get fined — two very different levels of trust sharing one
+    checkbox.
     """
     landlord_id = get_current_landlord_id()
     prop = _property_or_404(landlord_id, property_id)
@@ -177,7 +182,7 @@ def put_penalty_policy(property_id: int):
 @penalty_bp.route("/penalties/preview", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "view")
+@require_permission("penalties", "view")
 def preview_penalties():
     """
     Who would be charged if the run happened on ?date= (default today), without
@@ -195,7 +200,7 @@ def preview_penalties():
 @penalty_bp.route("/penalties/run", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "edit")
+@require_permission("penalties", "edit")
 def run_penalties():
     """Apply now rather than waiting for the nightly job."""
     landlord_id = get_current_landlord_id()
@@ -217,7 +222,7 @@ def run_penalties():
 @penalty_bp.route("/penalties/charge", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "edit")
+@require_permission("penalties", "edit")
 def charge_one():
     """
     Raise a single penalty by hand — a second notice, or a block that has no
@@ -274,7 +279,8 @@ def charge_one():
 @penalty_bp.route("/reports/penalties", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("reports", "view")
+@require_permission("penalties", "view")
+@require_report("penalties")
 def penalties_report():
     """
     Every penalty raised, filterable the way the other money reports are.

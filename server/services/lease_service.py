@@ -404,7 +404,30 @@ def attach_scan(tenant: Tenant, file, *, actor_user_id=None,
 
 
 def current_for_tenant(tenant_id: int) -> LeaseAgreement | None:
-    """The agreement that matters now: the newest settled one, else the newest."""
+    """
+    The agreement that matters to the TENANT right now, in priority order:
+
+      1. one waiting on them (sent, or rejected and needing correction);
+      2. else the newest settled one (approved / uploaded);
+      3. else the newest of anything.
+
+    Rule 1 is the fix for a renewal going unnoticed. This used to return the
+    newest SETTLED lease first, which meant that once a tenant had any approved
+    agreement, a newly sent one was invisible to them forever — the old one
+    always won. The portal showed last year's signed lease, the renewal sat in
+    `sent` indefinitely, and because the submit endpoint resolves the lease the
+    same way, the tenant could not have signed it even if they had known it
+    existed.
+
+    A DRAFT still never displaces a signed agreement: it is neither awaiting the
+    tenant nor settled, so it can only ever be reached by rule 3. That is
+    deliberate — a lease the landlord has not sent yet is not the tenant's
+    business, and showing it invites arguments about which version is binding.
+
+    NOTE: this is the tenant's "what do I do next" question, which is not the
+    same as "which lease may I download" — during a renewal those are two
+    different documents. Downloads use latest_downloadable_for_tenant().
+    """
     leases = (
         db.session.query(LeaseAgreement)
         .filter_by(tenant_id=tenant_id)
@@ -412,6 +435,28 @@ def current_for_tenant(tenant_id: int) -> LeaseAgreement | None:
         .all()
     )
     for lease in leases:
+        if lease.awaiting_tenant:
+            return lease
+    for lease in leases:
         if lease.status in DOWNLOADABLE_LEASE_STATUSES:
             return lease
     return leases[0] if leases else None
+
+
+def latest_downloadable_for_tenant(tenant_id: int) -> LeaseAgreement | None:
+    """
+    The newest lease the tenant may actually download — approved or uploaded.
+
+    Separate from current_for_tenant() because during a renewal the two diverge:
+    the lease that matters is the unsigned one they must act on, but the lease
+    they can still download is last year's signed agreement. Resolving downloads
+    through current_for_tenant() would take that copy away the moment a renewal
+    was sent, which is exactly when someone is most likely to want it.
+    """
+    return (
+        db.session.query(LeaseAgreement)
+        .filter(LeaseAgreement.tenant_id == tenant_id,
+                LeaseAgreement.status.in_(DOWNLOADABLE_LEASE_STATUSES))
+        .order_by(LeaseAgreement.created_at.desc())
+        .first()
+    )

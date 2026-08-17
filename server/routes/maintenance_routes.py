@@ -18,7 +18,7 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
 from models import (
-    MaintenanceRequest, Expense, MaintenanceStatus,
+    MaintenanceRequest, MaintenanceComment, Expense, MaintenanceStatus,
     ExpenseStatus, ExpenseCategory,
 )
 from decorators import (
@@ -323,3 +323,93 @@ def _get_or_404(landlord_id: int, request_id: int) -> MaintenanceRequest:
     if not r:
         abort(404, description="Maintenance request not found.")
     return r
+
+# ---------------------------------------------------------------------------
+# Comments — the running conversation about a job
+# ---------------------------------------------------------------------------
+# A status says where a job is; it cannot say "plumber booked for Tuesday" or
+# "tenant not home, rebooked". Without a place for those they live in WhatsApp
+# and are gone the moment the person holding them is on leave.
+
+@maintenance_bp.route("/<int:request_id>/comments", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("maintenance", "view")
+def list_comments(request_id):
+    """Every note on a request, internal ones included — this is the office view."""
+    landlord_id = get_current_landlord_id()
+    req = _get_or_404(landlord_id, request_id)
+    return jsonify({
+        "comments": [c.to_dict() for c in req.comments],
+    }), 200
+
+
+@maintenance_bp.route("/<int:request_id>/comments", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("maintenance", "edit")
+def add_comment(request_id):
+    """
+    Add a note. Body: { body, is_internal? }
+
+    `is_internal` defaults to FALSE — the common case is telling the tenant what
+    is happening, and a default of "internal" would quietly hide updates from
+    the one person waiting for them. Marking a note internal is the deliberate
+    act, not the other way round.
+    """
+    landlord_id = get_current_landlord_id()
+    req = _get_or_404(landlord_id, request_id)
+
+    data = request.get_json(silent=True) or {}
+    body = (data.get("body") or "").strip()
+    if not body:
+        return jsonify({"error": "A comment cannot be empty."}), 400
+
+    from models import User
+
+    user_id = int(get_jwt_identity())
+    user = db.session.get(User, user_id)
+    name = None
+    if user:
+        tm = user.team_member_profile
+        if tm:
+            name = f"{tm.first_name or ''} {tm.last_name or ''}".strip() or tm.username
+        else:
+            name = getattr(user.landlord_profile, "company_name", None) or user.email
+
+    comment = MaintenanceComment(
+        request_id     = req.id,
+        author_user_id = user_id,
+        author_role    = user.role if user else "team_member",
+        author_name    = name,
+        body           = body,
+        is_internal    = bool(data.get("is_internal", False)),
+    )
+    db.session.add(comment)
+    db.session.flush()
+
+    # Tell the tenant only about notes meant for them.
+    if not comment.is_internal and req.tenant and req.tenant.user_id:
+        from services.notification_service import notify
+        notify(
+            recipient_user_id=req.tenant.user_id,
+            category="maintenance_update",
+            title="Update on your maintenance request",
+            body=f"{req.summary}: {body[:120]}",
+            landlord_id=landlord_id,
+            link="/portal/maintenance",
+            entity_type="maintenance",
+            entity_id=req.id,
+        )
+
+    record_audit(
+        actor_user_id=user_id,
+        landlord_id=landlord_id,
+        action="comment_maintenance_request",
+        entity_type="maintenance",
+        entity_id=req.id,
+        description=(f"Comment added to maintenance request #{req.id}"
+                     f"{' (internal)' if comment.is_internal else ''}."),
+    )
+    db.session.commit()
+    return jsonify(comment.to_dict()), 201

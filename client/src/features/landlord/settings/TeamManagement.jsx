@@ -50,7 +50,13 @@ export default function TeamManagement() {
       // create/update only persist base fields — permissions and property scope
       // are separate endpoints by design (server/routes/team_routes.py).
       const permissionsPayload = Object.entries(permissions ?? {}).map(([module, p]) => ({
-        module, can_view: p.can_view, can_edit: p.can_edit,
+        module,
+        can_view: p.can_view,
+        can_edit: p.can_edit,
+        // Which reports, for the reports row. undefined would be dropped from
+        // the JSON body and read server-side as "every report", so send the
+        // value explicitly — null and [] mean different things here.
+        allowed_reports: p.allowed_reports ?? null,
       }));
       if (memberId && permissionsPayload.length) {
         await updatePermissions({ id: memberId, permissions: permissionsPayload }).unwrap();
@@ -121,7 +127,16 @@ export default function TeamManagement() {
                   // row.permissions is the array shape [{module, can_view, can_edit}],
                   // but PermissionMatrix/TeamMemberForm expect an object keyed by module.
                   const permissions = Object.fromEntries(
-                    (row.permissions ?? []).map((p) => [p.module, { can_view: p.can_view, can_edit: p.can_edit }])
+                    (row.permissions ?? []).map((p) => [
+                      p.module,
+                      {
+                        can_view: p.can_view,
+                        can_edit: p.can_edit,
+                        // Carried through so re-saving a member does not quietly
+                        // widen a narrowed report grant back to "all".
+                        allowed_reports: p.allowed_reports ?? null,
+                      },
+                    ])
                   );
                   const property_ids = Array.isArray(row.property_access) ? row.property_access : [];
                   setActive({ ...row, permissions, property_ids });

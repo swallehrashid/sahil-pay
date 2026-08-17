@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Copy, ImagePlus, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Copy, ImagePlus, RefreshCw, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -32,12 +32,19 @@ import {
 // Mobile-first: editor and preview stack vertically on a phone and only go
 // side-by-side from lg up, where there's genuinely room for two columns.
 
+// Audience labels, mirroring services/tutorial_service.VALID_ROLES. The last
+// four are team-member PRESETS, not sign-in roles — everyone in that group logs
+// in as a team member, and the server maps them onto their preset label. Leaving
+// every box unticked means "everyone".
 const ROLES = [
   ["tenant", "Tenants"],
   ["landlord", "Landlords"],
   ["property_manager", "Property managers"],
-  ["team_member", "Team members"],
-  ["caretaker", "Caretakers"],
+  ["team_member", "Team members (all)"],
+  ["caretaker", "— Caretakers"],
+  ["accountant", "— Accountants"],
+  ["secretary", "— Secretaries"],
+  ["owner", "— Owners"],
 ];
 
 export default function AdminHelpArticleEditor() {
@@ -175,6 +182,17 @@ export default function AdminHelpArticleEditor() {
         title={form.title || "Untitled"}
         subtitle={article.updated_by ? `Last updated by ${article.updated_by}` : undefined}
       />
+
+      {/* A published article inside a draft category reaches nobody, and the
+          "Published" badge alone reads as success. Say so here, where the
+          publish button is, instead of letting it be discovered by a reader
+          who never sees the page. */}
+      {article.is_published && article.is_reachable === false && (
+        <div className="glass flex items-start gap-3 border-l-4 border-amber-400/70 p-4 text-sm text-white/80">
+          <AlertTriangle size={18} className="mt-0.5 flex-shrink-0 text-amber-400" />
+          <span>{article.blocked_hint}</span>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Badge color={form.is_published ? "third" : "white"}>

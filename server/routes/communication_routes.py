@@ -101,6 +101,62 @@ def list_logs():
 
 
 # ---------------------------------------------------------------------------
+# GET /api/communications/sms-balance
+# ---------------------------------------------------------------------------
+@comms_bp.route("/sms-balance", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("messages", "view")
+def sms_balance():
+    """
+    The remaining SMS credits and the sender this account sends as.
+
+    Deliberately separate from GET /api/settings/sms-provider, which carries the
+    landlord's own provider API key and is therefore gated on the `settings`
+    module. The Communications page only ever needed the BALANCE, so gating it
+    behind `settings` meant the people who actually send the messages — a
+    secretary holding `messages` — could not see how many credits were left, and
+    found out by a send failing. Worse, `settings` is not a grantable module at
+    all (it is absent from models.PermissionModule), so no team member could
+    ever have been given it.
+
+    Everything returned here is operational, not secret: a credit count, the
+    sender ID that appears on the tenant's handset, and the per-SMS price. The
+    API key is not included and must never be added to this payload.
+    ---
+    tags: [Communications]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: SMS credit balance and sender identity.}
+    """
+    from services.sms_billing import load_rates, DEFAULT_PLATFORM_SENDER
+
+    landlord_id = get_current_landlord_id()
+    landlord    = db.session.get(Landlord, landlord_id)
+    settings    = landlord.landlord_settings if landlord else None
+
+    # Sender mode and price are resolved EXACTLY as GET /api/settings/sms-provider
+    # does, so the two screens can never quote different numbers for one account.
+    has_own_sender = bool(getattr(settings, "sms_sender_id", None)
+                          and getattr(settings, "sms_api_key", None))
+    rates = load_rates()
+    balance = landlord.sms_balance if landlord else 0
+    threshold = getattr(settings, "low_sms_balance_threshold", 50) or 50
+
+    return jsonify({
+        "sms_balance":   balance,
+        "sms_enabled":   bool(getattr(settings, "sms_enabled", True)),
+        "sender_id":     getattr(settings, "sms_sender_id", None) or DEFAULT_PLATFORM_SENDER,
+        "sender_mode":   "custom" if has_own_sender else "default",
+        "price_per_sms": float(rates["custom_price"] if has_own_sender else rates["default_price"]),
+        "currency":      getattr(landlord, "currency", "KES") or "KES",
+        "low_balance":   balance <= threshold,
+        "low_balance_threshold": threshold,
+    }), 200
+
+
+# ---------------------------------------------------------------------------
 # POST /api/communications/quote  — pre-send SMS cost calculator
 # ---------------------------------------------------------------------------
 @comms_bp.route("/quote", methods=["POST"])

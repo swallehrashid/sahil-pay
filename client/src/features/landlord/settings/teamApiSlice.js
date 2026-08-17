@@ -3,6 +3,11 @@ import { apiSlice } from "@/store/apiSlice";
 // §4.20 — mirrors server/routes/team_routes.py (the landlord's admin side of team members).
 export const teamApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    // The reports that can be granted individually. Served by the backend so
+    // this list cannot drift from what the report routes actually gate.
+    getReportCatalogue: builder.query({
+      query: () => "/team/report-catalogue",
+    }),
     getTeamMembers: builder.query({
       query: (params) => ({ url: "/team", params }),
       providesTags: ["TeamMember"],
@@ -42,6 +47,7 @@ export const teamApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  useGetReportCatalogueQuery,
   useGetTeamMembersQuery,
   useGetTeamPresetsQuery,
   useGetTeamMemberQuery,

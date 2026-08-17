@@ -21,6 +21,7 @@ import {
   GraduationCap,
   Landmark,
   FileSpreadsheet,
+  UploadCloud,
 } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import { TEAM_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
@@ -28,10 +29,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useGetEtimsScopeQuery } from "@/features/landlord/etims/etimsApiSlice";
 
-// Items without a `module` key are ungated (dashboard/notifications). Every other
-// item names the permission module that governs it; buildVisibleNav hides a link
-// entirely when the team member lacks view access to that module — matching the
-// backend's @require_permission on the same routes.
+// Items without a `module` key are ungated (dashboard, and the two help links,
+// which the server already filters by role). Every other item names the
+// permission module that governs it; buildVisibleNav hides a link entirely when
+// the team member lacks view access to that module — matching the backend's
+// @require_permission on the same routes.
+//
+// Leases, Penalties and Notifications previously borrowed `tenants`, `reports`
+// and nothing at all respectively, so the nav disagreed with what the backend
+// would actually allow. They now name their own modules.
 const NAV_ITEMS = [
   { to: TEAM_ROUTES.dashboard, label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, end: true },
   { to: TEAM_ROUTES.invoices, label: "Invoices", icon: <Receipt className="h-4 w-4" />, module: "invoices" },
@@ -41,14 +47,17 @@ const NAV_ITEMS = [
   { to: TEAM_ROUTES.properties, label: "Properties", icon: <Building2 className="h-4 w-4" />, module: "properties" },
   { to: TEAM_ROUTES.units, label: "Units", icon: <DoorOpen className="h-4 w-4" />, module: "units" },
   { to: TEAM_ROUTES.utilities, label: "Utilities", icon: <Gauge className="h-4 w-4" />, module: "utilities" },
+  // Gated on `tenants` — the widest thing an import can create. Each entity is
+  // additionally checked server-side against its own module.
+  { to: TEAM_ROUTES.imports, label: "Bulk import", icon: <UploadCloud className="h-4 w-4" />, module: "tenants" },
   { to: TEAM_ROUTES.maintenance, label: "Maintenance", icon: <Wrench className="h-4 w-4" />, module: "maintenance" },
   { to: TEAM_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" />, module: "groups" },
-  { to: TEAM_ROUTES.leases, label: "Leases", icon: <FileText className="h-4 w-4" />, module: "tenants" },
+  { to: TEAM_ROUTES.leases, label: "Leases", icon: <FileText className="h-4 w-4" />, module: "leases" },
   { to: TEAM_ROUTES.reportsStatements, label: "Reports", icon: <BarChart3 className="h-4 w-4" />, module: "reports" },
-  { to: TEAM_ROUTES.reportsPenalties, label: "Penalties", icon: <AlertTriangle className="h-4 w-4" />, module: "reports" },
+  { to: TEAM_ROUTES.reportsPenalties, label: "Penalties", icon: <AlertTriangle className="h-4 w-4" />, module: "penalties" },
   { to: TEAM_ROUTES.communications, label: "Communications", icon: <MessageSquare className="h-4 w-4" />, module: "messages" },
   { to: TEAM_ROUTES.messages, label: "Tenant Messages", icon: <MessagesSquare className="h-4 w-4" />, module: "messages" },
-  { to: TEAM_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" /> },
+  { to: TEAM_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" />, module: "notifications" },
   // Step-by-step product tours, filtered to the modules this member holds.
   { to: TEAM_ROUTES.tutorials, label: "Help & Tutorials", icon: <GraduationCap className="h-4 w-4" /> },
   // The admin-authored help library. Ungated — the server already filters

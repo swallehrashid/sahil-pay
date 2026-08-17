@@ -26,7 +26,12 @@ import { useEffect } from "react";
 
 const SITE_URL = "https://sahilpay.co.ke";
 const SITE_NAME = "Sahil Pay";
-const DEFAULT_IMAGE = `${SITE_URL}/favicon.svg`;
+// A real 1200x630 PNG, NOT the SVG favicon. WhatsApp, Facebook, LinkedIn and
+// X do not render SVG in a link preview — pointing og:image at favicon.svg
+// means every shared link appears with no image at all, which in this market
+// (where the product spreads by WhatsApp) is the difference between a link
+// that looks like a business and one that looks like spam.
+const DEFAULT_IMAGE = `${SITE_URL}/og-image.png`;
 
 /** Create-or-update a <meta> tag, keyed by name or property. */
 function setMeta(attr, key, content) {

@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Check, FileText, Play } from "lucide-react";
-import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Badge from "@/components/ui/Badge";
@@ -121,10 +120,12 @@ export default function PayoutsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Owner payouts"
-        subtitle="What each owner is owed, after commission and any withheld tax."
-      />
+      {/* No PageHeader here — PayoutsLayout owns the title for both tabs. */}
+      <p className="text-sm text-white/50">
+        What each owner is owed for the period, after commission and any
+        withheld tax. Generating a run records the payouts; you still send the
+        money yourself and mark them paid.
+      </p>
 
       <div className="glass space-y-3 p-4 sm:space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
