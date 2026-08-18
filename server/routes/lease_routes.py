@@ -119,7 +119,7 @@ def _send_file_from_url(url: str, download_name: str):
 @lease_bp.route("/leases", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("leases", "view")
 def list_leases():
     """Every agreement on the account, newest first. Filters: ?status= &tenant_id="""
     landlord_id = get_current_landlord_id()
@@ -159,7 +159,7 @@ def list_leases():
 @lease_bp.route("/tenants/<int:tenant_id>/leases", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("leases", "view")
 def tenant_leases(tenant_id: int):
     landlord_id = get_current_landlord_id()
     tenant = _tenant_or_404(landlord_id, tenant_id)
@@ -175,7 +175,7 @@ def tenant_leases(tenant_id: int):
 @lease_bp.route("/tenants/<int:tenant_id>/leases", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "edit")
+@require_permission("leases", "edit")
 def create_lease(tenant_id: int):
     """Prepare an agreement. Body: { template_id?, send? }"""
     landlord_id = get_current_landlord_id()
@@ -200,7 +200,7 @@ def create_lease(tenant_id: int):
 @lease_bp.route("/leases/<int:lease_id>", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("leases", "view")
 def lease_detail(lease_id: int):
     """Full detail INCLUDING the signature's provenance — staff only."""
     landlord_id = get_current_landlord_id()
@@ -211,7 +211,7 @@ def lease_detail(lease_id: int):
 @lease_bp.route("/leases/<int:lease_id>/send", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "edit")
+@require_permission("leases", "edit")
 def send_lease(lease_id: int):
     landlord_id = get_current_landlord_id()
     lease = _lease_or_404(landlord_id, lease_id)
@@ -226,7 +226,7 @@ def send_lease(lease_id: int):
 @lease_bp.route("/leases/<int:lease_id>/approve", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "edit")
+@require_permission("leases", "edit")
 def approve_lease(lease_id: int):
     landlord_id = get_current_landlord_id()
     lease = _lease_or_404(landlord_id, lease_id)
@@ -247,7 +247,7 @@ def approve_lease(lease_id: int):
 @lease_bp.route("/leases/<int:lease_id>/reject", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "edit")
+@require_permission("leases", "edit")
 def reject_lease(lease_id: int):
     """Body: { reason }. The reason is required — see the service."""
     landlord_id = get_current_landlord_id()
@@ -269,7 +269,7 @@ def reject_lease(lease_id: int):
 @lease_bp.route("/tenants/<int:tenant_id>/leases/upload", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "edit")
+@require_permission("leases", "edit")
 def upload_lease(tenant_id: int):
     """
     Record a lease signed on paper — one PDF, or a photo of the signed pages.
@@ -296,7 +296,7 @@ def upload_lease(tenant_id: int):
 @lease_bp.route("/leases/<int:lease_id>/download", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("tenants", "view")
+@require_permission("leases", "view")
 def download_lease(lease_id: int):
     landlord_id = get_current_landlord_id()
     lease = _lease_or_404(landlord_id, lease_id)
@@ -412,10 +412,18 @@ def portal_submit_lease():
 @lease_bp.route("/portal/lease/download", methods=["GET"])
 @jwt_required()
 def portal_download_lease():
-    """The tenant's own copy, once it is settled."""
+    """
+    The tenant's own copy, once it is settled.
+
+    Resolved by latest_downloadable_for_tenant(), NOT current_for_tenant(): when
+    a renewal has been sent, the lease that "matters now" is the unsigned one,
+    but the copy they can still download is the signed agreement they already
+    have. Going through current_for_tenant() would withdraw that copy the moment
+    a renewal went out.
+    """
     tenant = _portal_tenant()
-    lease = leases.current_for_tenant(tenant.id)
-    if lease is None or lease.status not in DOWNLOADABLE_LEASE_STATUSES:
+    lease = leases.latest_downloadable_for_tenant(tenant.id)
+    if lease is None:
         raise ApiError("Your lease is not available to download yet.", status=409)
     if not lease.document_url:
         raise ApiError("Your lease file is missing. Please contact your landlord.",

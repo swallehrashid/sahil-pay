@@ -4,7 +4,7 @@ import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
 import Textarea from "@/components/ui/Textarea";
 import { toast } from "@/components/ui/Toast";
-import { useGetSmsProviderQuery } from "../settings/smsProviderApiSlice";
+import { useGetSmsBalanceQuery } from "./communicationApiSlice";
 import { useSendTenantReminderMutation } from "../tenants/tenantApiSlice";
 
 // #4 — before any reminder goes out, the landlord confirms WHICH channels to use
@@ -19,7 +19,9 @@ const CHANNELS = [
 
 export default function SendReminderModal({ tenant, onClose, defaultChannels }) {
   const isOpen = Boolean(tenant);
-  const { data: smsProvider } = useGetSmsProviderQuery(undefined, { skip: !isOpen });
+  // Balance comes from the communications endpoint so a team member holding
+  // `messages` can see it — the settings one is gated on `settings`.
+  const { data: smsProvider } = useGetSmsBalanceQuery(undefined, { skip: !isOpen });
   const [sendReminder, { isLoading }] = useSendTenantReminderMutation();
 
   const [channels, setChannels] = useState(defaultChannels ?? ["sms"]);

@@ -21,6 +21,8 @@ drift apart.
 
 from __future__ import annotations
 
+from services.report_access import OWNER_DEFAULT_REPORTS
+
 # Permission modules (models.PermissionModule) each preset grants.
 #   "edit" implies view (the app-level rule in TeamMemberPermission's docstring
 #   and set_permissions(): can_edit=True forces can_view=True).
@@ -43,8 +45,16 @@ PRESETS: dict[str, dict] = {
         "view": [
             "properties", "units", "tenants", "payments",
             "invoices", "reports", "expenses", "maintenance",
+            # Their own tenancy agreements and the notices they receive. NOT
+            # penalties: chasing a late fee is the managing agent's job, and an
+            # owner seeing it invites them to contact the tenant directly.
+            "leases", "notifications",
         ],
         "edit": [],
+        # `reports` on its own would hand an owner the payments report and the
+        # portfolio comparatives alongside their statement. Narrow it to the one
+        # report the login exists for; the landlord can tick more per member.
+        "reports": list(OWNER_DEFAULT_REPORTS),
     },
     "caretaker": {
         "label": "Caretaker",
@@ -54,7 +64,13 @@ PRESETS: dict[str, dict] = {
         ),
         "role": "editor",
         "scope": "specific",
-        "view": ["units", "tenants"],
+        # `properties` view is not optional decoration: the Utilities page asks
+        # which block a meter is in, so without it the property dropdown is
+        # empty and a reading cannot be recorded at all. Property SCOPE still
+        # limits them to their own blocks, so this reveals nothing extra.
+        # Notifications are view-only — a caretaker is told about a maintenance
+        # job, but does not broadcast to tenants.
+        "view": ["units", "tenants", "properties", "notifications"],
         "edit": ["utilities", "unit_utilities"],
     },
     "accountant": {
@@ -65,8 +81,11 @@ PRESETS: dict[str, dict] = {
         ),
         "role": "editor",
         "scope": "all",
-        "view": ["tenants", "properties", "units"],
-        "edit": ["payments", "invoices", "expenses", "reports"],
+        "view": ["tenants", "properties", "units", "leases"],
+        # Penalties are money owed, so they belong with the rest of the ledger
+        # this role already runs.
+        "edit": ["payments", "invoices", "expenses", "reports",
+                 "penalties", "notifications"],
     },
     "secretary": {
         "label": "Secretary",
@@ -77,7 +96,10 @@ PRESETS: dict[str, dict] = {
         "role": "editor",
         "scope": "all",
         "view": ["units", "properties"],
-        "edit": ["tenants", "messages", "maintenance"],
+        # The front office issues tenancy agreements and sends the notices, so
+        # both are edit here — this is the role the missing `notifications`
+        # module was blocking most visibly.
+        "edit": ["tenants", "messages", "maintenance", "leases", "notifications"],
     },
     "custom": {
         "label": "Custom",
@@ -100,6 +122,17 @@ def normalise_preset(value) -> str | None:
     return key if key in PRESETS else None
 
 
+def allowed_reports_for(preset: str) -> list[str] | None:
+    """
+    Which reports a preset grants, or None for "every report".
+
+    Only the owner preset narrows this today. Staff roles keep None, because an
+    accountant pulling a month-on-month is doing their job.
+    """
+    spec = PRESETS.get(preset) or {}
+    return spec.get("reports")
+
+
 def permission_rows_for(preset: str) -> list[dict]:
     """
     The [{module, can_view, can_edit}] a preset grants — the exact shape
@@ -116,6 +149,10 @@ def permission_rows_for(preset: str) -> list[dict]:
     for module in spec["edit"]:
         # edit implies view — mirrors set_permissions()'s own normalisation.
         rows[module] = {"module": module, "can_view": True, "can_edit": True}
+
+    # null on the reports row means every report; a preset may narrow it.
+    if "reports" in rows:
+        rows["reports"]["allowed_reports"] = spec.get("reports")
     return list(rows.values())
 
 
@@ -141,6 +178,7 @@ def apply_preset_permissions(team_member, preset: str) -> list:
             module=row["module"],
             can_view=row["can_view"],
             can_edit=row["can_edit"],
+            allowed_reports=row.get("allowed_reports"),
         )
         db.session.add(perm)
         created.append(perm)

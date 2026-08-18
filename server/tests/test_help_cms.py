@@ -376,3 +376,106 @@ def test_preferences_round_trip_per_user(client, db_session, readers):
 
 def test_preferences_require_a_token(client):
     assert client.get("/api/preferences").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Reachability — content that was published but reached nobody
+# ---------------------------------------------------------------------------
+# Three separate defects made published content invisible in production. Each
+# one looked like a successful publish from the CMS, which is why they survived:
+# nothing in the admin UI or the API distinguished "live" from "live and
+# unreachable". These pin all three shut.
+
+def test_caretaker_audience_reaches_a_caretaker_team_member():
+    """
+    A caretaker signs in as `team_member` carrying preset "caretaker" — there is
+    no `caretaker` user role. Matching the JWT role alone meant an article
+    addressed to Caretakers in the CMS was visible to nobody at all.
+    """
+    caretaker = tutorials.effective_roles("team_member", "caretaker")
+
+    assert "caretaker" in caretaker
+    assert "team_member" in caretaker
+    assert tutorials.visible_to(caretaker, ["caretaker"]) is True
+
+
+def test_a_different_preset_does_not_match_caretaker_content():
+    """The preset narrows the audience — it must not become a free pass."""
+    accountant = tutorials.effective_roles("team_member", "accountant")
+
+    assert tutorials.visible_to(accountant, ["caretaker"]) is False
+    assert tutorials.visible_to(accountant, ["accountant"]) is True
+    # ...but blanket team-member content still reaches them.
+    assert tutorials.visible_to(accountant, ["team_member"]) is True
+
+
+def test_admin_sees_every_audience_so_the_reader_view_is_a_preview(db_session):
+    """
+    The admin who WRITES the content matched no audience, so their own reader
+    view showed only untargeted articles — the reported "I published it and it
+    appeared to no one".
+    """
+    s = db_session
+    category = _category(s, visible_to_roles=None)
+    mine = {
+        _article(s, category, visible_to_roles=["landlord"]).slug,
+        _article(s, category, visible_to_roles=["tenant"]).slug,
+        _article(s, category, visible_to_roles=["caretaker"]).slug,
+    }
+
+    admin_roles = tutorials.effective_roles("system_admin")
+    for audience in (["landlord"], ["tenant"], ["caretaker"], ["property_manager"]):
+        assert tutorials.visible_to(admin_roles, audience) is True
+
+    # Scoped to this test's own shelf — the suite shares a database, so a
+    # global count would be a count of everything every other test left behind.
+    shelf = next(c for c in tutorials.published_categories(admin_roles)
+                 if c["id"] == category.id)
+    assert {a["slug"] for a in shelf["articles"]} == mine
+
+    # A landlord, by contrast, sees only the one addressed to them.
+    landlord_shelf = next(c for c in tutorials.published_categories(
+        tutorials.effective_roles("landlord")) if c["id"] == category.id)
+    assert len(landlord_shelf["articles"]) == 1
+
+
+def test_published_article_under_a_draft_category_is_flagged_unreachable(db_session):
+    """
+    Publishing the article but not its category hides it completely, and used
+    to be indistinguishable from a successful publish in the CMS.
+    """
+    s = db_session
+    category = _category(s, is_published=False)
+    article = _article(s, category, is_published=True)
+
+    state = tutorials.reachability(article)
+    assert state["is_reachable"] is False
+    assert state["blocked_reason"] == "category_draft"
+    assert "draft" in state["blocked_hint"].lower()
+
+    # ...and the reader side genuinely cannot see it, which is the point.
+    visible = tutorials.published_categories(tutorials.effective_roles("landlord"))
+    assert category.id not in {c["id"] for c in visible}
+
+
+def test_reachability_is_clean_once_both_are_published(db_session):
+    s = db_session
+    article = _article(db_session, _category(s, is_published=True), is_published=True)
+
+    state = tutorials.reachability(article)
+    assert state["is_reachable"] is True
+    assert state["blocked_reason"] is None
+
+
+def test_draft_article_reports_itself_as_the_blocker(db_session):
+    s = db_session
+    article = _article(s, _category(s, is_published=True), is_published=False)
+
+    assert tutorials.reachability(article)["blocked_reason"] == "article_draft"
+
+
+def test_bare_role_strings_still_work_for_existing_callers():
+    """visible_to() takes either a role string or a resolved label set."""
+    assert tutorials.visible_to("landlord", ["landlord"]) is True
+    assert tutorials.visible_to("tenant", ["landlord"]) is False
+    assert tutorials.visible_to("tenant", None) is True

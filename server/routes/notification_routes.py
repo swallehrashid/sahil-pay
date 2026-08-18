@@ -209,7 +209,16 @@ def send_notification():
       - landlord/property_manager: only 'user' (within their own tenants/
         team), 'property_tenants' (their own property), and 'all_tenants' /
         'all_team_members' (always scoped to themselves — target_id ignored).
+      - team_member holding `notifications` EDIT: the same audiences as their
+        landlord, always scoped to that landlord.
       - Everyone else: 403.
+
+    Team members were previously refused here by ROLE, whatever their
+    permission matrix said — so a secretary who could edit tenants, messages and
+    maintenance still could not send a notification, and the Notifications page
+    in their sidebar simply failed. Sending is a normal delegated office task,
+    so it is governed by the `notifications` module like everything else, and
+    every send is attributed to the individual in the audit record below.
     ---
     tags: [Notifications]
     security:
@@ -220,8 +229,18 @@ def send_notification():
       403: {description: Audience not permitted for this role.}
     """
     role = _current_role()
-    if role not in (UserRole.system_admin.value, UserRole.landlord.value, UserRole.property_manager.value):
-        abort(403, description="Only admins and landlords can send notifications.")
+    allowed_roles = (
+        UserRole.system_admin.value, UserRole.landlord.value,
+        UserRole.property_manager.value, UserRole.team_member.value,
+    )
+    if role not in allowed_roles:
+        abort(403, description="You do not have permission to send notifications.")
+
+    if role == UserRole.team_member.value:
+        # Raises ApiError(403) unless they hold notifications:edit.
+        from decorators import _check_permission
+        _check_permission("notifications", "edit")
+
     is_admin = role == UserRole.system_admin.value
 
     data         = request.get_json(silent=True) or {}
@@ -248,9 +267,13 @@ def send_notification():
     # own landlord_id column. Admin sends targeting other landlords resolve it
     # per-audience below; a landlord caller is always scoped to themselves.
     caller_landlord_id = None
+    allowed_properties = None
     if not is_admin:
-        from decorators import get_current_landlord_id
+        from decorators import accessible_property_ids, get_current_landlord_id
         caller_landlord_id = get_current_landlord_id()
+        # None for landlords/PMs and for members with property_access_all;
+        # a set of ids for a member restricted to named blocks.
+        allowed_properties = accessible_property_ids()
 
     # Tenants are addressed by TENANT id (they may have no User row); everyone
     # else is addressed by User id. We collect into the matching bucket so an
@@ -277,6 +300,11 @@ def send_notification():
         if landlord_id:
             query = query.filter(Tenant.landlord_id == landlord_id)
             scope_landlord_id = landlord_id
+        # "All tenants" means all the tenants THIS CALLER can see. For a member
+        # restricted to named blocks that is their blocks, not the whole account.
+        if allowed_properties is not None:
+            query = (query.join(Unit, Unit.id == Tenant.unit_id)
+                          .filter(Unit.property_id.in_(allowed_properties)))
         recipient_tenant_ids = [t for (t,) in query.all()]
 
     elif audience == "all_team_members":
@@ -295,6 +323,11 @@ def send_notification():
             return jsonify({"error": "Property not found."}), 404
         if not is_admin and prop.landlord_id != caller_landlord_id:
             abort(403, description="That property does not belong to your account.")
+        # Belonging to the right landlord is not enough for a team member who is
+        # restricted to named blocks: a caretaker for Block A must not be able to
+        # broadcast to Block B's tenants by passing its id.
+        if allowed_properties is not None and prop.id not in allowed_properties:
+            abort(403, description="You do not have access to that property.")
         recipient_tenant_ids = [
             t for (t,) in db.session.query(Tenant.id)
             .join(Unit, Unit.id == Tenant.unit_id)

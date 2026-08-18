@@ -15,6 +15,9 @@ export const ACCOUNT_TYPES = ["gated_community", "property_management", "landlor
 export const MPESA_TYPES = ["paybill", "till"];
 export const TEAM_MEMBER_ROLES = ["editor", "viewer"];
 
+// Mirrors models.PermissionModule. Adding one here without adding it there (or
+// vice versa) produces a checkbox that grants nothing, or an area of the product
+// nobody can be given access to.
 export const PERMISSION_MODULES = [
   "payments",
   "invoices",
@@ -28,7 +31,31 @@ export const PERMISSION_MODULES = [
   "maintenance",
   "reports",
   "groups",
+  "notifications",
+  "leases",
+  "penalties",
 ];
+
+// Plain-English labels + one line on what the grant actually means. The bare
+// module key ("unit_utilities") does not tell a landlord what they are handing
+// over, and this grid is the only place that decision gets made.
+export const PERMISSION_MODULE_LABELS = {
+  payments:       ["Payments", "Record and edit payments, send receipts."],
+  invoices:       ["Invoices", "Raise, edit and void invoices."],
+  utilities:      ["Utilities", "Record meter readings and utility charges."],
+  unit_utilities: ["Unit utilities", "Per-unit utility setup."],
+  tenants:        ["Tenants", "Tenant records and their details."],
+  units:          ["Units", "Units and their rent amounts."],
+  properties:     ["Properties", "Property records and settings."],
+  messages:       ["Communications", "Send SMS/email and see the credit balance."],
+  expenses:       ["Expenses", "Record property expenses."],
+  maintenance:    ["Maintenance", "Maintenance requests and their status."],
+  reports:        ["Reports", "Statements and reports (choose which below)."],
+  groups:         ["Property groups", "Group properties for reporting."],
+  notifications:  ["Notifications", "Receive in-app notices; edit also sends them."],
+  leases:         ["Leases", "Tenancy agreements — issue, approve, download."],
+  penalties:      ["Penalties", "Late-payment charges and penalty policy."],
+};
 
 export const MANAGER_SCOPE_TYPES = ["unit", "property", "group"];
 

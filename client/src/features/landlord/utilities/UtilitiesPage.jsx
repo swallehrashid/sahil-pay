@@ -51,7 +51,14 @@ export default function UtilitiesPage() {
       const body = { id: billReading.id, mode };
       if (billAmount) body.amount = Number(billAmount);
       const res = await addToInvoice(body).unwrap();
-      toast(res?.combined ? "Added to this month's invoice." : "New invoice created.", { type: "success" });
+      toast(
+        mode === "queue"
+          ? "Held for this unit's next invoice."
+          : res?.combined
+          ? "Added to this month's invoice."
+          : "New invoice created.",
+        { type: "success" }
+      );
       setBillReading(null);
       setBillAmount("");
     } catch (err) {
@@ -206,7 +213,20 @@ export default function UtilitiesPage() {
                 hint="Leave blank to bill consumption × the property's rate."
               />
             )}
+            {/* Three ways to bill a reading, because meters are read at the
+                END of a month and the bill goes out at the START of the next
+                one. On the 28th there is often no invoice to attach to, and
+                raising a one-line utility invoice sends the tenant a second,
+                unexpected bill — so "hold it" is a first-class option, not a
+                workaround. */}
+            <p className="text-xs leading-relaxed text-white/40">
+              Read the meter before the month closes? Hold it — the next invoice
+              for this unit picks it up automatically.
+            </p>
             <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-end">
+              <Button variant="ghost" onClick={() => bill("queue")} isLoading={isBilling}>
+                Hold for next invoice
+              </Button>
               <Button variant="ghost" onClick={() => bill("new")} isLoading={isBilling}>
                 Create new invoice
               </Button>

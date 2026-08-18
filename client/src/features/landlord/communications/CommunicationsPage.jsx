@@ -16,9 +16,8 @@ import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
 import MessageTemplates from "./MessageTemplates";
-import { useGetSmsProviderQuery } from "../settings/smsProviderApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommunicationMutation, useQuoteCommunicationMutation } from "./communicationApiSlice";
+import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommunicationMutation, useQuoteCommunicationMutation, useGetSmsBalanceQuery } from "./communicationApiSlice";
 import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { useGetTeamMembersQuery } from "../settings/teamApiSlice";
 import { MESSAGE_CHANNELS, MESSAGE_CHANNEL_LABELS, COMMUNICATION_STATUSES } from "@/utils/constants";
@@ -33,7 +32,11 @@ export default function CommunicationsPage() {
   const tenantIdFromQuery = searchParams.get("tenant_id");
   const composeFromQuery = searchParams.get("compose"); // #2 — pill deep-links "?compose=sms"
 
-  const { data: smsProvider } = useGetSmsProviderQuery();
+  // Read the balance from the COMMUNICATIONS endpoint, not the settings one.
+  // The settings payload carries the provider API key and is gated on the
+  // `settings` module, which no team member can hold — so a secretary who
+  // sends the messages could never see how many credits were left.
+  const { data: smsProvider } = useGetSmsBalanceQuery();
 
   const [tab, setTab] = useState("log");
   const [filters, setFilters] = useState({ status: "", message_type: "", date_from: "", date_to: "" });

@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, FileText, Send, Download, Pencil, Trash2, Layers, Settings2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import Tabs from "@/components/ui/Tabs";
+import InvoiceQueuePanel from "./InvoiceQueuePanel";
+import { useGetInvoiceQueueQuery } from "./invoiceQueueApiSlice";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -38,6 +41,12 @@ import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 export default function InvoicesPage() {
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
+
+  // Charges held for a later invoice. Surfaced as a tab with a count rather
+  // than a separate page: whoever is looking at invoices is the person who
+  // needs to know something is waiting to go on one.
+  const [tab, setTab] = useState("invoices");
+  const { data: queueData } = useGetInvoiceQueueQuery();
 
   const [filters, setFilters] = useState({ status: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
@@ -122,7 +131,7 @@ export default function InvoicesPage() {
     <div>
       <PageHeader
         title="Invoices"
-        subtitle="Every invoice you've sent, across every tenant"
+        subtitle="Every invoice you've sent, and anything waiting to go on one"
         actions={
           <>
             <Dropdown
@@ -166,6 +175,20 @@ export default function InvoicesPage() {
         }
       />
 
+      <Tabs
+        tabs={[
+          { key: "invoices", label: "Invoices" },
+          { key: "queue", label: "Waiting to be billed", count: queueData?.count || undefined },
+        ]}
+        activeKey={tab}
+        onChange={setTab}
+        className="mb-6"
+      />
+
+      {tab === "queue" && <InvoiceQueuePanel />}
+
+      {tab === "invoices" && (
+      <>
       {isLoading ? (
         <SkeletonStatCards count={2} />
       ) : (
@@ -216,6 +239,8 @@ export default function InvoicesPage() {
           <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
         </div>
       </div>
+      </>
+      )}
 
       <ChargeCategoryManager isOpen={isCategoriesOpen} onClose={() => setIsCategoriesOpen(false)} kind="invoice" />
 

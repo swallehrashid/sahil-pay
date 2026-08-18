@@ -37,6 +37,7 @@ from decorators import (
 )
 from utils import success, ApiError, accessible_property_ids
 from services import penalty_service as penalties
+from services.report_access import require_report
 from services.audit_service import record_audit
 
 penalty_bp = Blueprint("penalties", __name__, url_prefix="/api")
@@ -104,7 +105,7 @@ def _property_or_404(landlord_id: int, property_id: int) -> Property:
 @penalty_bp.route("/properties/<int:property_id>/penalty-policy", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "view")
+@require_permission("penalties", "view")
 def get_penalty_policy(property_id: int):
     """This property's penalty rules, or the off-by-default shape when unset."""
     landlord_id = get_current_landlord_id()
@@ -128,11 +129,15 @@ def get_penalty_policy(property_id: int):
 @penalty_bp.route("/properties/<int:property_id>/penalty-policy", methods=["PUT"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("properties", "edit")
+@require_permission("penalties", "edit")
 def put_penalty_policy(property_id: int):
     """
-    Create or replace the rules. Switching automatic fines on for a block is a
-    property-level decision, hence `properties` edit rather than `invoices`.
+    Create or replace the rules.
+
+    Gated on `penalties` edit. It was previously `properties` edit, which meant
+    anyone trusted to rename a block or fix its address could also change what
+    its tenants get fined — two very different levels of trust sharing one
+    checkbox.
     """
     landlord_id = get_current_landlord_id()
     prop = _property_or_404(landlord_id, property_id)
@@ -177,7 +182,7 @@ def put_penalty_policy(property_id: int):
 @penalty_bp.route("/penalties/preview", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "view")
+@require_permission("penalties", "view")
 def preview_penalties():
     """
     Who would be charged if the run happened on ?date= (default today), without
@@ -195,7 +200,7 @@ def preview_penalties():
 @penalty_bp.route("/penalties/run", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "edit")
+@require_permission("penalties", "edit")
 def run_penalties():
     """Apply now rather than waiting for the nightly job."""
     landlord_id = get_current_landlord_id()
@@ -217,7 +222,7 @@ def run_penalties():
 @penalty_bp.route("/penalties/charge", methods=["POST"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "edit")
+@require_permission("penalties", "edit")
 def charge_one():
     """
     Raise a single penalty by hand — a second notice, or a block that has no
@@ -274,7 +279,8 @@ def charge_one():
 @penalty_bp.route("/reports/penalties", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("reports", "view")
+@require_permission("penalties", "view")
+@require_report("penalties")
 def penalties_report():
     """
     Every penalty raised, filterable the way the other money reports are.
@@ -366,3 +372,137 @@ def _scope_summaries(summaries: list[dict]) -> list[dict]:
     if allowed is None:
         return summaries
     return [s for s in summaries if s.get("property_id") in allowed]
+
+
+# ---------------------------------------------------------------------------
+# Manual batch runs — "charge these people, now"
+# ---------------------------------------------------------------------------
+# The automatic engine above applies a standing POLICY. This is the other thing
+# a manager needs: a decision taken on the day, against a filtered list they can
+# see and edit before committing to it.
+
+@penalty_bp.route("/penalties/batch/candidates", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("penalties", "view")
+def batch_candidates():
+    """
+    Who would be charged, given the filters. Read-only.
+
+    Query:
+      ?property_ids=1,2      omit for every property in scope
+      &min_balance=5000      only tenants owing at least this
+      &max_balance=50000     ...and at most this
+      &min_days_overdue=10   measured from the OLDEST unpaid invoice
+    ---
+    tags: [Penalties]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Matching tenants with arrears and days overdue.}
+    """
+    from services import penalty_batch_service as batch
+
+    landlord_id = get_current_landlord_id()
+
+    def _ids(name):
+        raw = (request.args.get(name) or "").strip()
+        return [int(x) for x in raw.split(",") if x.strip().isdigit()] or None
+
+    rows = batch.candidates(
+        landlord_id,
+        property_ids=_ids("property_ids"),
+        min_balance=request.args.get("min_balance", type=float),
+        max_balance=request.args.get("max_balance", type=float),
+        min_days_overdue=request.args.get("min_days_overdue", type=int),
+        # The caller's own property scope. A block-scoped member must not be
+        # able to fine another block's tenants by passing its id.
+        allowed_property_ids=accessible_property_ids(),
+    )
+    return success({
+        "candidates": rows,
+        "total": len(rows),
+        "total_arrears": round(sum(r["arrears"] for r in rows), 2),
+    })
+
+
+@penalty_bp.route("/penalties/batch/run", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("penalties", "edit")
+def batch_run():
+    """
+    Charge the chosen tenants.
+
+    Body:
+      { tenant_ids: [int],          -- REQUIRED. The list the manager confirmed.
+        flat: number,               -- one or the other
+        percentage: number,         -- ...% of what each tenant owes
+        target: "new" | "existing", -- own invoice, or appended to their open one
+        note: str,
+        skip_already_charged: bool } -- default true
+
+    tenant_ids is required rather than re-running the filters server-side: the
+    manager confirmed a specific list on screen, and silently charging a
+    different set (because someone paid in the meantime) is not something they
+    can check afterwards.
+    ---
+    tags: [Penalties]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Per-tenant results.}
+      422: {description: Nothing selected, or no amount given.}
+    """
+    from models import Landlord
+    from services import penalty_batch_service as batch
+
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+
+    tenant_ids = data.get("tenant_ids") or []
+    if not isinstance(tenant_ids, list) or not tenant_ids:
+        raise ApiError("Choose at least one tenant to charge.", status=422,
+                       errors={"tenant_ids": "required"})
+
+    flat = data.get("flat")
+    percentage = data.get("percentage")
+    if flat in (None, "") and percentage in (None, ""):
+        raise ApiError("Set either a flat amount or a percentage.", status=422,
+                       errors={"amount": "required"})
+
+    target = data.get("target") or "new"
+    if target not in ("new", "existing"):
+        raise ApiError("target must be 'new' or 'existing'.", status=422)
+
+    # Property scope again at the point of WRITING, not only when listing: the
+    # ids arrive from the client and must not be trusted to be the ones we
+    # offered.
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        from models import Tenant, Unit
+        permitted = {
+            t for (t,) in db.session.query(Tenant.id)
+            .join(Unit, Unit.id == Tenant.unit_id)
+            .filter(Tenant.landlord_id == landlord_id,
+                    Unit.property_id.in_(allowed))
+        }
+        refused = [t for t in tenant_ids if t not in permitted]
+        if refused:
+            raise ApiError("Some of those tenants are outside the properties you "
+                           "have access to.", status=403,
+                           errors={"tenant_ids": refused})
+
+    result = batch.run(
+        db.session.get(Landlord, landlord_id),
+        [int(t) for t in tenant_ids],
+        flat=flat,
+        percentage=percentage,
+        target=target,
+        note=(data.get("note") or "").strip() or None,
+        skip_already_charged=data.get("skip_already_charged", True),
+        actor_user_id=_actor_id(),
+    )
+    return success(result, message=(
+        f"{len(result['charged'])} charged, {len(result['skipped'])} skipped."
+    ))

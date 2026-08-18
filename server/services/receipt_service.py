@@ -20,7 +20,7 @@ render_receipt_pdf(payment) -> bytes (branded PDF, same letterhead as reports)
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from html import escape
 
@@ -512,7 +512,8 @@ def sms_receipt_text(payment, receipt: dict | None = None) -> str:
     return " ".join(parts)
 
 
-def send_receipt(payment, channels, *, landlord_id: int | None = None) -> tuple[list, list]:
+def send_receipt(payment, channels, *, landlord_id: int | None = None,
+                 force_email: bool = False) -> tuple[list, list]:
     """
     Deliver a receipt for *payment* over *channels*.
 
@@ -521,6 +522,20 @@ def send_receipt(payment, channels, *, landlord_id: int | None = None) -> tuple[
     stop the in-app copy. Skipping is reported with a reason rather than
     swallowed, because "the tenant never got it" is the kind of thing a manager
     finds out about a week later from an angry phone call.
+
+    EMAIL IS SENT ONCE per payment. Several callers can each legitimately decide
+    a receipt is due — recording a payment, co-pilot auto-allocation, M-Pesa
+    reconciliation — and before `payment.receipt_emailed_at` existed they each
+    sent their own copy, because none of them could see what the others had
+    done. The stamp is that shared memory.
+
+    *force_email* overrides it for one case only: a human pressing "resend
+    receipt", where sending a second copy IS the intent. It is deliberately not
+    the default, so a new caller has to think about it.
+
+    The other channels are not de-duplicated. An SMS costs money and is capped
+    by the balance check; an in-app notification is idempotent in practice
+    because it lands in a list the tenant can already see.
 
     Does not commit — the caller owns the transaction.
     """
@@ -546,10 +561,16 @@ def send_receipt(payment, channels, *, landlord_id: int | None = None) -> tuple[
             if not tenant.email:
                 skipped.append("email (no email on file)")
                 continue
+            if payment.receipt_emailed_at and not force_email:
+                skipped.append("email (receipt already emailed for this payment)")
+                continue
             try:
                 pdf_bytes = render_receipt_pdf(payment)
                 send_receipt_email.delay(tenant.email, tenant.first_name,
                                          pdf_bytes, payment.payment_ref)
+                # Stamped before the caller commits, so a second call inside the
+                # same request sees it too.
+                payment.receipt_emailed_at = datetime.utcnow()
                 sent.append("email")
             except Exception as exc:              # never break the payment
                 logger.exception("Receipt email failed for payment %s", payment.id)

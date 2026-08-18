@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Mail, Lock, ShieldCheck } from "lucide-react";
+import { Mail, Lock, MailCheck, ShieldCheck } from "lucide-react";
 import AuthLayout from "@/components/layout/AuthLayout";
 import Input from "@/components/ui/Input";
 import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
-import { useLoginMutation } from "./authApiSlice";
+import { useLoginMutation, useResendVerificationMutation } from "./authApiSlice";
 import { useAuth } from "@/hooks/useAuth";
 import { AUTH_ROUTES } from "@/config/routePaths";
 import { roleHomePath } from "@/routes/roleRedirect";
@@ -26,6 +26,23 @@ export default function Login() {
   const [pending2fa, setPending2fa] = useState(null);
   const [code, setCode] = useState("");
   const [verifying, setVerifying] = useState(false);
+  // Right password, unconfirmed address — offer a fresh link rather than a
+  // refusal the person cannot act on.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendVerification, { isLoading: resending }] = useResendVerificationMutation();
+
+  const handleResend = async () => {
+    try {
+      await resendVerification({ email: form.email }).unwrap();
+    } catch {
+      // The endpoint answers the same way whether or not the address exists, so
+      // there is nothing here worth telling the user apart from the success note.
+    }
+    toast(
+      "If that address needs verifying, a new link is on its way. Check your inbox and spam folder.",
+      { type: "info" }
+    );
+  };
 
   /** Finish a 2FA sign-in: swap the pre-auth token + code for real tokens. */
   const completeTwoFactor = async (e) => {
@@ -102,6 +119,13 @@ export default function Login() {
       const redirectTo = location.state?.from?.pathname || roleHomePath(result.role);
       navigate(redirectTo, { replace: true });
     } catch (err) {
+      // The password was right but the address was never confirmed. A toast
+      // alone would be a dead end — the link is often long expired or was never
+      // received — so switch the form into a state that can send a fresh one.
+      if (err?.status === 403 && err?.data?.needs_verification) {
+        setNeedsVerification(true);
+        return;
+      }
       // Surface the ACTUAL failure instead of always blaming the credentials —
       // a network/CORS failure (status "FETCH_ERROR", no HTTP status) is a very
       // different problem from a genuine 401, and showing the same message for
@@ -161,21 +185,59 @@ export default function Login() {
     );
   }
 
+  // Same reasoning as the 2FA challenge above: replace the form rather than
+  // appending a banner to it, so there is one obvious next action.
+  if (needsVerification) {
+    return (
+      <AuthLayout
+        title="Confirm your email"
+        subtitle="Your password was correct — this address just needs verifying"
+      >
+        <div className="space-y-4">
+          <div className="flex justify-center py-2">
+            <MailCheck className="h-8 w-8 text-secondary" />
+          </div>
+          <p className="text-center text-sm leading-relaxed text-white/70">
+            We sent a verification link to{" "}
+            <span className="text-white">{form.email}</span>. Click it once and
+            you'll be able to sign in.
+          </p>
+          <Button className="w-full" onClick={handleResend} isLoading={resending}>
+            Send me a new link
+          </Button>
+          <button
+            type="button"
+            onClick={() => setNeedsVerification(false)}
+            className="w-full text-center text-xs text-white/40 transition-colors hover:text-white/70"
+          >
+            Back to sign-in
+          </button>
+        </div>
+      </AuthLayout>
+    );
+  }
+
   return (
     <AuthLayout title="Welcome back" subtitle="Log in to your Sahil Pay account">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label="Email"
+          name="email"
           type="email"
+          autoComplete="email"
           leftIcon={<Mail className="h-4 w-4" />}
           value={form.email}
           onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
           error={errors.email}
           required
         />
+        {/* autoComplete matters more than usual here: team members arrive with a
+            12-character system-generated temp password they are meant to paste. */}
         <Input
           label="Password"
+          name="password"
           type="password"
+          autoComplete="current-password"
           leftIcon={<Lock className="h-4 w-4" />}
           value={form.password}
           onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}

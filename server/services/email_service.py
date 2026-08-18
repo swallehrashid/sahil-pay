@@ -33,6 +33,21 @@ def _frontend_url() -> str:
     return current_app.config.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 
+def _absolute_url(url: str) -> str:
+    """
+    A link that works from inside an email client.
+
+    Storage hands back relative paths for locally-held files and absolute ones
+    for anything on a CDN, and only the caller knows which it has — so normalise
+    here rather than at every call site.
+    """
+    if not url:
+        return url
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return f"{_frontend_url()}/{url.lstrip('/')}"
+
+
 def _send_email(
     to_email: str,
     subject: str,
@@ -72,6 +87,28 @@ def _send_email(
         "from": {"email": sender, "name": sender_name},
         "subject": subject,
         "content": [{"type": "text/html", "value": html_body}],
+        # Send these EXPLICITLY rather than inheriting the SendGrid account
+        # default, which has click tracking on.
+        #
+        # Click tracking rewrites every href into a ct.sendgrid.net redirect.
+        # For marketing mail that is a fair trade; for this mail it is not.
+        # Everything sent from here is a one-shot credential: a verification
+        # link, a password reset, a team invitation, a receipt. If the tracking
+        # domain is not authenticated — or the redirect is stripped, flagged as
+        # a phishing pattern, or mangled by a mail client — the recipient is
+        # locked out of their account, and the analytics gained were worth
+        # nothing. The real destination is also what makes the link trustworthy:
+        # people check that a login link points at sahilpay.co.ke before
+        # clicking, and an opaque redirect defeats that.
+        #
+        # Open tracking is off for the same reason it is not needed: it injects
+        # a remote pixel into every receipt, which triggers "images blocked"
+        # banners on financial mail that should look plain and legitimate.
+        "tracking_settings": {
+            "click_tracking": {"enable": False, "enable_text": False},
+            "open_tracking": {"enable": False},
+            "subscription_tracking": {"enable": False},
+        },
     }
     if pdf_bytes:
         payload["attachments"] = [
@@ -185,15 +222,38 @@ def send_team_credentials_email(
     temp_password: str,
     first_name: str | None = None,
     company_name: str | None = None,
+    verification_token: str | None = None,
 ) -> None:
     """
     Celery task — emails a newly-created team member their login credentials
     (email, username, temporary password) plus how to log in and change it.
+
+    When *verification_token* is present the primary button VERIFIES the address
+    and then lands on sign-in, because the account cannot log in until it does.
+    Keeping it to a single button matters: two competing calls to action ("verify"
+    and "log in") is how people click the wrong one, hit a refusal on a brand
+    new account, and conclude the invitation is broken.
     """
     login_url = f"{_frontend_url()}/login"
     who = first_name or username
     by = f" by {T.escape(company_name)}" if company_name else ""
     subject = "Your Sahil Pay team account is ready"
+
+    if verification_token:
+        action_url = f"{_frontend_url()}/verify-email/{verification_token}?next=login"
+        action_label = "Verify my email & log in"
+        first_step = (
+            "Click <strong>Verify my email &amp; log in</strong> above. That confirms "
+            "this address and takes you to the sign-in page."
+        )
+    else:
+        action_url = login_url
+        action_label = "Log in to Sahil Pay"
+        first_step = (
+            "Click <strong>Log in to Sahil Pay</strong> above and sign in with the "
+            "email and temporary password."
+        )
+
     html = T.render_email(
         heading="Your team account is ready",
         intro=f"Hi {T.escape(who)}, a Sahil Pay team member account has been created for you{by}. "
@@ -204,10 +264,11 @@ def send_team_credentials_email(
                 ("Username", username),
                 ("Temp password", temp_password),
             ]),
-            T.button("Log in to Sahil Pay", login_url),
+            T.button(action_label, action_url),
             T.paragraph("<strong style='color:#fff;'>Please change your password right after your first login.</strong>"),
             T.steps([
-                "Click <strong>Log in to Sahil Pay</strong> above and sign in with the email and temporary password.",
+                first_step,
+                "Sign in with the email and temporary password above.",
                 "You'll be taken straight to <strong>Change password</strong> — enter the temporary password, then set a new private one (at least 8 characters).",
                 "From then on, log in with your email and your new password. Your username never changes.",
             ]),
@@ -309,7 +370,13 @@ def send_document_email(
     subject = f"Document from your landlord — {template_name}"
     blocks = []
     if file_url and not pdf_bytes:
-        blocks.append(T.button("View document", file_url))
+        # Absolute, always. Uploaded files are stored with RELATIVE urls
+        # ("/uploads/leases/1/a.pdf") because that is what the app needs, but an
+        # email has no base URL to resolve them against — a relative href in a
+        # mail client either does nothing or resolves against the WEBMAIL
+        # provider's own domain. Either way the recipient cannot open the
+        # document, which is indistinguishable from the app being broken.
+        blocks.append(T.button("View document", _absolute_url(file_url)))
     html = T.render_email(
         heading="A document from your landlord",
         intro=f"Hi {T.escape(first_name or 'there')}, your landlord has sent you a document: "

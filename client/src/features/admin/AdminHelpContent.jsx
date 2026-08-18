@@ -33,12 +33,17 @@ import {
 // up/down buttons rather than drag, because dragging a list item is close to
 // unusable on a touch screen and impossible with a keyboard.
 
+// Mirrors services/tutorial_service.VALID_ROLES — see AdminHelpArticleEditor for
+// why the indented four are presets rather than sign-in roles.
 const ROLES = [
   ["tenant", "Tenants"],
   ["landlord", "Landlords"],
   ["property_manager", "Property managers"],
-  ["team_member", "Team members"],
-  ["caretaker", "Caretakers"],
+  ["team_member", "Team members (all)"],
+  ["caretaker", "— Caretakers"],
+  ["accountant", "— Accountants"],
+  ["secretary", "— Secretaries"],
+  ["owner", "— Owners"],
 ];
 
 const BLANK = {
@@ -227,9 +232,18 @@ export default function AdminHelpContent() {
                     className="flex flex-col gap-1 rounded px-2 py-2 transition-colors hover:bg-white/5 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <span className="text-sm text-white/80">{article.title}</span>
-                    <Badge color={article.is_published ? "third" : "white"}>
-                      {article.is_published ? "Published" : "Draft"}
-                    </Badge>
+                    {/* "Published" on its own is misleading when the category is
+                        still a draft — the article is then invisible to every
+                        reader, and the CMS used to give no hint of that. */}
+                    {article.is_published && article.is_reachable === false ? (
+                      <span className="flex items-center gap-1.5" title={article.blocked_hint}>
+                        <Badge color="white">Published — not visible</Badge>
+                      </span>
+                    ) : (
+                      <Badge color={article.is_published ? "third" : "white"}>
+                        {article.is_published ? "Published" : "Draft"}
+                      </Badge>
+                    )}
                   </Link>
                 ))}
                 <Button type="button" variant="ghost" className="w-full sm:w-auto"

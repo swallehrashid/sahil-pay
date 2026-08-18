@@ -177,7 +177,10 @@ def list_articles():
         query = query.filter(TutorialArticle.category_id == int(category_id))
     articles = query.order_by(TutorialArticle.category_id.asc(),
                               TutorialArticle.sort_order.asc()).all()
-    return success([a.to_dict(include_body=False) for a in articles])
+    return success([
+        {**a.to_dict(include_body=False), **tutorials.reachability(a)}
+        for a in articles
+    ])
 
 
 @admin_tutorial_bp.route("/tutorial-articles/<int:article_id>", methods=["GET"])
@@ -190,6 +193,7 @@ def get_article(article_id: int):
         raise ApiError("Article not found.", status=404)
 
     data = article.to_dict()
+    data.update(tutorials.reachability(article))
     # Rendered by the SAME function the reader side uses, so the preview cannot
     # drift from what a landlord actually sees.
     data["body_html"] = tutorials.render_markdown(article.body_markdown)

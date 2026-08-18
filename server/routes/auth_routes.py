@@ -244,12 +244,18 @@ def login():
     if not user.is_active:
         return jsonify({"error": "This account has been deactivated. Contact support."}), 403
 
-    # Landlords / PMs / affiliates must confirm their email first (when enforcement
-    # is enabled). 403 + needs_verification lets the frontend offer a "resend
-    # verification" action.
+    # Every email-and-password role must confirm the address first (when
+    # enforcement is enabled). 403 + needs_verification lets the frontend offer
+    # a "resend verification" action.
+    #
+    # Tenants are deliberately absent: they sign in with a phone OTP, which
+    # already proves control of the number, and a large share have no email
+    # address on file at all — gating them here would lock out most of the
+    # tenant base to prove something their login already proves.
     if (
         current_app.config.get("ENFORCE_EMAIL_VERIFICATION")
-        and user.role in (UserRole.landlord.value, UserRole.property_manager.value, UserRole.affiliate.value)
+        and user.role in (UserRole.landlord.value, UserRole.property_manager.value,
+                          UserRole.affiliate.value, UserRole.team_member.value)
         and not user.is_verified
     ):
         return jsonify({
@@ -430,7 +436,10 @@ def forgot_password():
     user = User.query.filter_by(email=email).first()
     if user:
         reset_token = secrets.token_urlsafe(32)
-        user.verification_token = reset_token          # reuse column for reset token
+        # Its own column, NOT verification_token: sharing one meant a reset
+        # request silently killed a pending verification link (and vice versa),
+        # which locks the account out now that login requires verification.
+        user.password_reset_token = reset_token
         db.session.commit()
         send_password_reset_email.delay(email, reset_token)
 
@@ -502,13 +511,17 @@ def reset_password():
     if len(password) < 8:
         return jsonify({"error": "Password must be at least 8 characters."}), 400
 
-    user = User.query.filter_by(verification_token=token).first()
+    user = User.query.filter_by(password_reset_token=token).first()
     if not user:
         return jsonify({"error": "Reset token is invalid or has already been used."}), 400
 
     user.password_hash        = generate_password_hash(password)
-    user.verification_token   = None
+    user.password_reset_token = None
     user.must_change_password = False     # they've just set their own password
+    # Completing a reset proves control of the mailbox just as well as clicking
+    # a verification link does, so it satisfies the verification gate too —
+    # otherwise a user who reset their password would still be locked out.
+    user.is_verified          = True
     db.session.commit()
 
     record_audit(

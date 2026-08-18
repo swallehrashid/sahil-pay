@@ -23,6 +23,14 @@ export const maintenanceApiSlice = apiSlice.injectEndpoints({
       query: (id) => ({ url: `/maintenance/${id}`, method: "DELETE" }),
       invalidatesTags: ["Maintenance"],
     }),
+    getMaintenanceComments: builder.query({
+      query: (id) => `/maintenance/${id}/comments`,
+      providesTags: (result, error, id) => [{ type: "MaintenanceComment", id }],
+    }),
+    addMaintenanceComment: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/maintenance/${id}/comments`, method: "POST", body }),
+      invalidatesTags: (result, error, { id }) => [{ type: "MaintenanceComment", id }],
+    }),
     createExpenseFromMaintenance: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/maintenance/${id}/create-expense`, method: "POST", body }),
       invalidatesTags: ["Maintenance", "Expense"],
@@ -37,4 +45,6 @@ export const {
   useUpdateMaintenanceRequestMutation,
   useDeleteMaintenanceRequestMutation,
   useCreateExpenseFromMaintenanceMutation,
+  useGetMaintenanceCommentsQuery,
+  useAddMaintenanceCommentMutation,
 } = maintenanceApiSlice;

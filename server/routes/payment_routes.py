@@ -31,7 +31,6 @@ from decorators import (
 )
 from services.audit_service   import record_audit
 from services.pdf_service     import generate_receipt_pdf
-from services.email_service   import send_receipt_email
 from services.communication_service import dispatch_message
 from services.notification_service import notify
 from services.storage_service import upload_to_s3
@@ -725,7 +724,11 @@ def send_receipt(payment_id):
     # acknowledgement with no breakdown, no PDF and no link — a worse receipt
     # for no reason other than which route the money took.
     from services.receipt_service import send_receipt as deliver_receipt
-    sent, skipped = deliver_receipt(pay, channels, landlord_id=landlord_id)
+    # force_email: a person pressed "send receipt" on this specific payment, so
+    # sending another copy IS the intent — this is the one caller that may pass
+    # the once-per-payment guard. Automatic paths must not.
+    sent, skipped = deliver_receipt(pay, channels, landlord_id=landlord_id,
+                                    force_email=True)
 
     db.session.commit()   # persist any in-app notification rows
 
@@ -770,8 +773,15 @@ def download_receipt(payment_id):
 def public_receipt(token):
     """
     Public receipt download from the SMS link. The token is a signed, expiring
-    reference to a confirmed payment (no login). Streams the same detailed PDF
-    AND emails a copy to the tenant on file. Invalid/expired tokens 404.
+    reference to a confirmed payment (no login). Streams the detailed PDF.
+    Invalid/expired tokens 404.
+
+    This endpoint deliberately has NO side effects. It used to email a copy to
+    the tenant on every fetch, which is unsafe for a public GET: the URL is
+    texted to people, and link scanners and chat clients prefetch it to build a
+    preview. Each of those automated fetches mailed a real receipt to a real
+    person, so a single payment could generate a handful of copies without
+    anyone having clicked anything.
     """
     from services.receipt_service import verify_receipt_token, render_receipt_pdf
 
@@ -784,14 +794,6 @@ def public_receipt(token):
         return jsonify({"error": "Receipt not available."}), 404
 
     pdf_bytes = render_receipt_pdf(pay)
-
-    # Email a copy to the tenant on file (best effort).
-    tenant = pay.tenant
-    if tenant and tenant.email:
-        try:
-            send_receipt_email.delay(tenant.email, tenant.first_name, pdf_bytes, pay.payment_ref)
-        except Exception:
-            pass
 
     return Response(
         pdf_bytes,

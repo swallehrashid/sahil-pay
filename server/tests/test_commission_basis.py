@@ -211,7 +211,11 @@ def test_basis_resolution_prefers_request_then_saved_preference(estate):
 
     assert resolve_basis(landlord) == "rent_only", "saved preference should stick"
     assert resolve_basis(landlord, "all") == "all", "an explicit request wins"
-    assert normalise_basis("nonsense") == "all", "unknown values fall back safely"
+    # An unknown value falls back to the default basis, which is now
+    # "rent_only": on a property statement "gross" means rent collected, and
+    # folding utility and penalty income into it overstates what the block
+    # earned in rent. Deposits are excluded from every basis regardless.
+    assert normalise_basis("nonsense") == "rent_only", "unknown values fall back safely"
 
 
 def test_property_statement_shows_commission_and_rent_only_gross(estate):
@@ -249,3 +253,112 @@ def test_all_basis_preserves_legacy_totals(estate):
     labels = {row["label"]: row["value"] for row in summary.rows}
     assert labels["Total amount collected"] == 17000.0
     assert doc.meta["gross_basis"] == "all"
+
+
+# ---------------------------------------------------------------------------
+# The tenant TABLE, not just the summary
+# ---------------------------------------------------------------------------
+# The summary read `subcategory` and was right. The table classified by the
+# free-text line NAME, in an order that tested "rent" before "deposit" — so a
+# line called "Rent Deposit" was counted as RENT in the printed statement while
+# the summary underneath it correctly called the same money a held deposit.
+# "Water Deposit" and "Security Deposit" were mis-filed the same way.
+
+def _statement_rows(estate, basis="all"):
+    from services.report_generators import build_property_statement
+
+    doc = build_property_statement(
+        estate["landlord"], estate["property"].id,
+        estate["today"].isoformat(), estate["today"].isoformat(),
+        gross_basis=basis,
+    )
+    return next(s for s in doc.sections if s.key == "tenants")
+
+
+def test_a_deposit_never_lands_in_the_rent_column(estate):
+    """
+    The fixture's 15,000 deposit is a `rent_cat` line named "Security deposit".
+    It must be reported as a deposit, leaving ONLY the 10,000 current-month rent
+    charge in the rent column (the 5,000 arrears line is a carried-forward
+    re-presentation and is excluded from charges by design — see below).
+    """
+    totals = _statement_rows(estate).totals
+
+    assert totals["rent"] == Decimal("10000.00"), (
+        "rent charged must be the current-month charge alone — no deposit in it"
+    )
+    assert totals["deposit_invoice"] >= Decimal("15000.00"), "the deposit is reported separately"
+
+
+def test_the_deposit_is_not_hiding_in_any_income_column(estate):
+    """
+    The old name-first classifier sent "Security deposit" to the SECURITY column,
+    "Water Deposit" to WATER and "Rent Deposit" to RENT. Whichever wording an
+    account happens to use, held money must not appear as income anywhere.
+    """
+    totals = _statement_rows(estate).totals
+
+    for column in ("rent", "water", "security", "garbage", "service_charge",
+                   "penalties", "other_bills"):
+        assert totals[column] < Decimal("15000.00"), (
+            f"the 15,000 deposit leaked into the '{column}' column"
+        )
+
+
+def test_charged_and_collected_are_reported_as_different_measures(estate):
+    """
+    The table reports rent CHARGED (b/f excluded, so a rolled-over debt is not
+    counted as a new charge twice); the summary reports rent COLLECTED (current
+    + arrears, because collecting arrears is cash received now). They are
+    legitimately different numbers, so the report must not call both "Rent".
+    """
+    from services.report_generators import build_property_statement
+
+    doc = build_property_statement(
+        estate["landlord"], estate["property"].id,
+        estate["today"].isoformat(), estate["today"].isoformat(),
+        gross_basis="rent_only",
+    )
+    table = next(s for s in doc.sections if s.key == "tenants")
+    summary = next(s for s in doc.sections if s.key == "summary")
+    labels = {row["label"]: row["value"] for row in summary.rows}
+
+    rent_column = next(c for c in table.columns if c.key == "rent")
+    assert rent_column.label == "Rent charged", "the column must not be ambiguous"
+
+    gross_label = next(k for k in labels if k.startswith("Gross — rent collected"))
+    assert labels[gross_label] == 15000.0, "collected = current 10,000 + arrears 5,000"
+    assert float(table.totals["rent"]) == 10000.0, "charged = current 10,000"
+
+
+@pytest.mark.parametrize("name", ["Rent Deposit", "Water Deposit", "Security Deposit",
+                                  "rent deposit (refundable)", "Deposit"])
+def test_every_spelling_of_a_deposit_classifies_as_a_deposit(name):
+    """
+    Each of these previously matched an income keyword first. The subcategory is
+    the authority now, and the name fallback tests "deposit" before anything else.
+    """
+    from services.report_generators import _classify_line_item
+
+    class Line:
+        def __init__(self, item, subcategory):
+            self.item, self.subcategory = item, subcategory
+
+    assert _classify_line_item(Line(name, "deposit")) == "deposit"
+    # ...and with no subcategory at all (legacy rows), still a deposit.
+    assert _classify_line_item(Line(name, None)) == "deposit"
+
+
+def test_real_charges_still_classify_correctly():
+    """The fix must not send ordinary rent or water into the deposit bucket."""
+    from services.report_generators import _classify_line_item
+
+    class Line:
+        def __init__(self, item, subcategory):
+            self.item, self.subcategory = item, subcategory
+
+    assert _classify_line_item(Line("Rent — August 2026", "current")) == "rent"
+    assert _classify_line_item(Line("Rent b/f", "balance")) == "rent"
+    assert _classify_line_item(Line("Water — August", "current")) == "water"
+    assert _classify_line_item(Line("Security guard levy", "current")) == "security"
+    assert _classify_line_item(Line("Late payment penalty", "current")) == "penalties"

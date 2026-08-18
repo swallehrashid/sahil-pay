@@ -206,7 +206,15 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
         if amount > 0:
             current_lines.append((cat, amount))
 
-    if not per_category and not current_lines:
+    # Charges queued against this UNIT since the last run (a caretaker's
+    # end-of-month meter reading, typically). They are a reason to raise an
+    # invoice in their own right: a tenant whose only charge this month is water
+    # still has to be billed for the water.
+    from services import invoice_queue_service as queue
+
+    queued = queue.pending_for_unit(unit.id)
+
+    if not per_category and not current_lines and not queued:
         return "empty"
 
     cats_by_id = {c.id: c for c in ChargeCategory.query.filter_by(landlord_id=landlord.id).all()}
@@ -282,13 +290,20 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
     invoice.balance = total
     db.session.flush()
 
+    # Fold in anything queued for this unit. consume_into_invoice() updates the
+    # invoice header and the tenant balance itself, and marks each charge
+    # consumed with this invoice's id — so a re-run of the monthly billing
+    # cannot bill the same reading twice.
+    queued_total = queue.consume_into_invoice(invoice, queued, tenant=tenant)
+
     # Apply any held credit to the freshly-issued charges.
     apply_tenant_credit(tenant, landlord, ref_date=issue_dt)
 
     record_audit(actor_user_id, landlord.id, "run_monthly_billing", "invoice", invoice.id,
                  f"Monthly invoice {invoice.invoice_number} generated for "
                  f"{tenant.first_name} {tenant.last_name} "
-                 f"({len(per_category)} balance b/f, {len(current_lines)} current).")
+                 f"({len(per_category)} balance b/f, {len(current_lines)} current, "
+                 f"{len(queued)} queued).")
     return "created"
 
 

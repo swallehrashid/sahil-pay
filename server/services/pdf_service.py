@@ -10,6 +10,7 @@ stream, email, or upload them.
 
 from __future__ import annotations
 
+from datetime import date
 from html import escape
 
 from utils import render_pdf
@@ -323,7 +324,16 @@ def generate_affiliate_receipt_pdf(withdrawal) -> bytes:
 
 
 def generate_tenant_statement_pdf(tenant) -> bytes:
-    """Render a tenant's full running statement (invoices + payments, chronological) to PDF."""
+    """
+    Render a tenant's full running statement (invoices + payments,
+    chronological) to PDF.
+
+    Carries the landlord's identity block like every other document here. It
+    previously did not: the only name on a tenant's own statement was Sahil
+    Pay's, in the generated-by footer, which made the managing agent invisible
+    on the one document their tenant reads most often.
+    """
+    landlord = tenant.landlord
     entries = []
     for inv in tenant.invoices:
         entries.append((inv.issue_date, f"Invoice {inv.invoice_number} ({inv.invoice_type})", inv.total_amount, 0))
@@ -341,6 +351,13 @@ def generate_tenant_statement_pdf(tenant) -> bytes:
         )
 
     body = f"""
+    <div class="header">
+      <div>
+        <strong>{escape(landlord.company_name if landlord else '')}</strong><br/>
+        <span class="muted">{escape((landlord.company_address if landlord else '') or '')}</span>
+      </div>
+      <div class="muted">Statement<br/>Generated: {date.today()}</div>
+    </div>
     <p class="muted">Tenant: <strong>{escape(tenant.first_name)} {escape(tenant.last_name)}</strong> — Unit {escape(tenant.unit.name if tenant.unit else '')}</p>
     <table>
       <thead><tr><th>Date</th><th>Item</th><th>Due</th><th>Paid</th><th>Running balance</th></tr></thead>

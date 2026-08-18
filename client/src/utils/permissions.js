@@ -11,9 +11,18 @@ export function can(permissions, module, level = "view") {
 }
 
 // A hidden module must never render in nav at all — not merely disabled.
+//
+// `item.requires` lets a link demand EDIT rather than view. Most nav entries
+// open a list, so view is the right gate; a few open a screen whose only
+// purpose is to write — Bulk import creates properties, units and tenants
+// wholesale — and offering those to a view-only member is an invitation to a
+// 403. The backend gates them independently either way; this stops the link
+// appearing at all, which is the rule the rest of this nav already follows.
 export function buildVisibleNav(navItems, permissions) {
   if (!permissions) return navItems;
-  return navItems.filter((item) => !item.module || can(permissions, item.module, "view"));
+  return navItems.filter(
+    (item) => !item.module || can(permissions, item.module, item.requires || "view")
+  );
 }
 
 export default { can, buildVisibleNav };

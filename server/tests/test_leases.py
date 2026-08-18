@@ -121,6 +121,11 @@ def world(app, db_session):
     s.add(member)
     s.flush()
     s.add(TeamMemberPropertyAccess(team_member_id=member.id, property_id=props[0].id))
+    # Leases are gated on their OWN module now, not on `tenants` — the point of
+    # these tests is property scoping, so grant the module fully and let the
+    # scope be the only thing standing between this member and another block.
+    s.add(TeamMemberPermission(team_member_id=member.id, module="leases",
+                               can_view=True, can_edit=True))
     s.add(TeamMemberPermission(team_member_id=member.id, module="tenants",
                                can_view=True, can_edit=True))
     s.flush()
@@ -545,3 +550,77 @@ def test_the_body_is_snapshotted_so_later_edits_cannot_rewrite_it(db_session, wo
 
     assert "Original wording." in lease.body_html
     assert "Completely different" not in lease.body_html
+
+
+# ---------------------------------------------------------------------------
+# Which lease the tenant is actually shown
+# ---------------------------------------------------------------------------
+# current_for_tenant() used to answer "the newest SETTLED one, else the newest".
+# That is right for a draft and wrong for a renewal: once a tenant had any
+# approved agreement, a newly sent lease could never become the current one, so
+# the portal kept showing last year's signed copy and the renewal sat in `sent`
+# forever. The submit endpoint resolves the lease the same way, so the tenant
+# could not have signed it even if they had somehow known it was there.
+
+def test_a_sent_lease_becomes_current_even_with_a_signed_lease_on_file(db_session, world):
+    """The renewal case: this is what the tenant is being asked to act on."""
+    tenant = world["tenants"][0]
+    leases.attach_scan(tenant, io.BytesIO(b"%PDF-1.4 old"), filename="signed.pdf")
+
+    renewal = leases.create_for_tenant(tenant)
+    leases.send_to_tenant(renewal)
+
+    current = leases.current_for_tenant(tenant.id)
+    assert current.id == renewal.id
+    assert current.awaiting_tenant is True
+
+
+def test_a_rejected_lease_is_also_awaiting_the_tenant(db_session, world):
+    """A rejected lease needs correcting by the tenant, so it outranks a signed one."""
+    tenant = world["tenants"][0]
+    leases.attach_scan(tenant, io.BytesIO(b"%PDF-1.4 old"), filename="signed.pdf")
+
+    lease = leases.create_for_tenant(tenant)
+    leases.send_to_tenant(lease)
+    leases.submit(lease, signed_name="Ten Zero", field_values={},
+                  ip="1.1.1.1", user_agent="test")
+    leases.reject(lease, reason="Wrong ID number")
+
+    assert leases.current_for_tenant(tenant.id).id == lease.id
+
+
+def test_a_later_draft_still_does_not_displace_a_signed_lease(db_session, world):
+    """
+    The original rule, unchanged. A draft is neither awaiting the tenant nor
+    settled, so it must not surface — a lease the landlord has not sent is not
+    the tenant's business.
+    """
+    tenant = world["tenants"][0]
+    signed = leases.attach_scan(tenant, io.BytesIO(b"%PDF-1.4 x"), filename="a.pdf")
+    leases.create_for_tenant(tenant)          # newer DRAFT, never sent
+
+    assert leases.current_for_tenant(tenant.id).id == signed.id
+
+
+def test_a_renewal_does_not_withdraw_the_signed_copy_from_downloads(db_session, world):
+    """
+    During a renewal the lease that MATTERS and the lease you can DOWNLOAD are
+    different documents. Resolving downloads through current_for_tenant() would
+    take the signed copy away exactly when someone wants to check its terms.
+    """
+    tenant = world["tenants"][0]
+    signed = leases.attach_scan(tenant, io.BytesIO(b"%PDF-1.4 x"), filename="a.pdf")
+
+    renewal = leases.create_for_tenant(tenant)
+    leases.send_to_tenant(renewal)
+
+    assert leases.current_for_tenant(tenant.id).id == renewal.id
+    assert leases.latest_downloadable_for_tenant(tenant.id).id == signed.id
+
+
+def test_no_downloadable_lease_returns_none(db_session, world):
+    tenant = world["tenants"][0]
+    lease = leases.create_for_tenant(tenant)
+    leases.send_to_tenant(lease)
+
+    assert leases.latest_downloadable_for_tenant(tenant.id) is None
