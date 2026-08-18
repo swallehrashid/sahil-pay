@@ -61,9 +61,10 @@ const ReviewQueuePage = lazy(() => import("@/features/landlord/allocation/Review
 const PayoutsPage = lazy(() => import("@/features/landlord/allocation/PayoutsPage"));
 const PayoutsLayout = lazy(() => import("@/features/landlord/payouts/PayoutsLayout"));
 const BulkImportPage = lazy(() => import("@/features/landlord/imports/BulkImportPage"));
+const EtimsImportPage = lazy(() => import("@/features/landlord/etims/EtimsImportPage"));
 const AllocationSettings = lazy(() => import("@/features/landlord/settings/AllocationSettings"));
 const PenaltySettings = lazy(() => import("@/features/landlord/settings/PenaltySettings"));
-const PenaltiesReport = lazy(() => import("@/features/landlord/reports/PenaltiesReport"));
+const PenaltiesPage = lazy(() => import("@/features/landlord/penalties/PenaltiesPage"));
 const LeasesPage = lazy(() => import("@/features/landlord/leases/LeasesPage"));
 const TenantLease = lazy(() => import("@/features/tenant/TenantLease"));
 const ExpensesPage = lazy(() => import("@/features/landlord/expenses/ExpensesPage"));
@@ -340,7 +341,7 @@ export default function AppRoutes() {
             <Route path="groups" element={withSuspense(PropertyGroupsPage)} />
             <Route path="reports/statements" element={withSuspense(StatementsPage)} />
             <Route path="reports/insights" element={withSuspense(InsightsPage)} />
-            <Route path="reports/penalties" element={withSuspense(PenaltiesReport)} />
+            <Route path="reports/penalties" element={withSuspense(PenaltiesPage)} />
             <Route path="leases" element={withSuspense(LeasesPage)} />
             <Route path="communications" element={withSuspense(CommunicationsPage)} />
             <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
@@ -353,6 +354,7 @@ export default function AppRoutes() {
                 every endpoint behind them is scoped server-side regardless. */}
             <Route path="payments/review-queue" element={withSuspense(ReviewQueuePage)} />
             <Route path="etims-register" element={withSuspense(EtimsRegisterPage)} />
+            <Route path="etims-register/import" element={withSuspense(EtimsImportPage)} />
             <Route path="reports/kra-monthly" element={withSuspense(KraMonthlyReport)} />
 
             {/* Admin-authored help library (distinct from the product tour). */}
@@ -424,7 +426,7 @@ export default function AppRoutes() {
             <Route element={<ProtectedRoutes requiredPermission={{ module: "reports", level: "view" }} />}>
               <Route path="reports/statements" element={withSuspense(StatementsPage)} />
               <Route path="reports/insights" element={withSuspense(InsightsPage)} />
-              <Route path="reports/penalties" element={withSuspense(PenaltiesReport)} />
+              <Route path="reports/penalties" element={withSuspense(PenaltiesPage)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "messages", level: "view" }} />}>
               <Route path="communications" element={withSuspense(CommunicationsPage)} />
@@ -445,6 +447,7 @@ export default function AppRoutes() {
                 gets the same pages the landlord uses. */}
             <Route element={<ProtectedRoutes requiredPermission={{ module: "properties", level: "view" }} />}>
               <Route path="etims-register" element={withSuspense(EtimsRegisterPage)} />
+            <Route path="etims-register/import" element={withSuspense(EtimsImportPage)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "reports", level: "view" }} />}>
               <Route path="reports/kra-monthly" element={withSuspense(KraMonthlyReport)} />

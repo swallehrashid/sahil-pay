@@ -211,6 +211,22 @@ def render_pdf_bytes(lease: LeaseAgreement) -> bytes:
     """
     from utils import render_pdf
 
+    # A lease is the document produced in a dispute, and an unbranded one looks
+    # like a draft somebody typed. It carries the SAME letterhead as every
+    # report — the landlord's logo, company name and address, falling back to a
+    # muted Sahil Pay mark when they have not uploaded one — by calling the
+    # report builder's own helper rather than growing a second copy that drifts.
+    from services.report_builder import _letterhead_html, build_meta
+
+    landlord = lease.landlord
+    letterhead = _letterhead_html(build_meta(
+        landlord,
+        report_title="Tenancy Agreement",
+        subject=f"{lease.tenant.first_name} {lease.tenant.last_name}".strip()
+                if lease.tenant else None,
+        property_name=lease.property.name if lease.property else None,
+    ))
+
     signature = ""
     if lease.signed_name:
         signature = f"""
@@ -245,8 +261,13 @@ def render_pdf_bytes(lease: LeaseAgreement) -> bytes:
       .signature .name { font-size: 14pt; font-style: italic; margin: .3em 0; }
       .signature .meta { font-size: 9pt; color: #555; }
     """
-    html = (f"<!doctype html><html><head><meta charset='utf-8'><style>{style}</style>"
-            f"</head><body>{lease.body_html or ''}{signature}{approval}</body></html>")
+    # The report stylesheet carries the .letterhead rules; the lease-specific
+    # rules above are appended so both apply.
+    from services.report_builder import _REPORT_STYLE
+
+    html = (f"<!doctype html><html><head><meta charset='utf-8'>{_REPORT_STYLE}"
+            f"<style>{style}</style></head><body>{letterhead}"
+            f"{lease.body_html or ''}{signature}{approval}</body></html>")
     return render_pdf(html)
 
 

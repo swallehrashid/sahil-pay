@@ -896,5 +896,13 @@ def _write_opening_balance(landlord, tenant, amount) -> None:
         amount=amount,
         amount_paid=0,
     ))
-    tenant.balance = amount
+
+    # SIGN: tenants.balance is NEGATIVE when money is owed — see
+    # penalty_service.arrears_of(), which is the single interpreter of this
+    # convention and warns that getting it backwards "silently penalises the
+    # wrong people". Writing the arrears as a POSITIVE balance would file every
+    # imported debtor as being in credit: invisible to the arrears report, never
+    # chased, never penalised, and their statement showing the opposite of the
+    # truth.
+    tenant.balance = Decimal(str(tenant.balance or 0)) - amount
     db.session.flush()

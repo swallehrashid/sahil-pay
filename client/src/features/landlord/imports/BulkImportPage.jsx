@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Info, Save, Trash2, Upload,
 } from "lucide-react";
@@ -86,19 +86,30 @@ export default function BulkImportPage() {
   const [deleteMapping] = useDeleteImportMappingMutation();
 
   const saved = savedData?.mappings ?? [];
-  const spec = entities.find((e) => e.key === entity);
-  const fields = spec?.fields ?? [];
+  const spec = useMemo(
+    () => (catalogue?.entities ?? []).find((e) => e.key === entity),
+    [catalogue, entity]
+  );
+  // Memoised because `?? []` would hand back a fresh array every render, which
+  // makes every downstream useMemo depending on it recompute for nothing.
+  const fields = useMemo(() => spec?.fields ?? [], [spec]);
 
   // Switching entity restarts the wizard — a mapping for units means nothing
   // for tenants, and carrying one across silently maps the wrong columns.
-  useEffect(() => {
+  //
+  // Done in the change handler rather than an effect on `entity`: resetting
+  // from an effect renders the new tab once with the OLD tab's file and mapping
+  // still on screen before wiping them, which is exactly the moment somebody
+  // clicks "Read the file".
+  const switchEntity = (next) => {
+    setEntity(next);
     setStep(0);
     setFile(null);
     setParsed(null);
     setMapping({});
     setPreview(null);
     setResult(null);
-  }, [entity]);
+  };
 
   const missingRequired = useMemo(
     () => fields.filter((f) => f.required && !mapping[f.key]).map((f) => f.label),
@@ -164,7 +175,7 @@ export default function BulkImportPage() {
       <Tabs
         tabs={entities.map((e) => ({ key: e.key, label: e.label }))}
         activeKey={entity}
-        onChange={setEntity}
+        onChange={switchEntity}
         className="mb-5"
       />
 
@@ -369,7 +380,7 @@ export default function BulkImportPage() {
             <Button variant="ghost" onClick={() => setStep(0)}>Import another file</Button>
             {spec?.order < 3 && (
               <Button
-                onClick={() => setEntity(entities.find((e) => e.order === spec.order + 1)?.key)}
+                onClick={() => switchEntity(entities.find((e) => e.order === spec.order + 1)?.key)}
               >
                 Next: {entities.find((e) => e.order === spec.order + 1)?.label}
               </Button>

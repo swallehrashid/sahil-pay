@@ -73,6 +73,8 @@ const SHARED_MODULES = {
   // KRA / eTIMS. Both are rendered ONLY when /api/etims/scope reports at least
   // one enabled property — an account that never opted in has no such links.
   etimsRegister: "etims-register",
+  // Control numbers issued outside Sahil Pay, matched back on in bulk.
+  etimsImport: "etims-register/import",
   kraMonthly: "reports/kra-monthly",
   // The admin-authored help library (distinct from the first-run product tour
   // at /landlord/tutorials).

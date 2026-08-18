@@ -31,15 +31,31 @@ fs.writeFileSync(csv, [
   `Riverside Apartments,IMP${stamp}C,30000,DUPE-${stamp}`,
 ].join("\n"));
 
-await page.goto(`${WEB}/login`, { waitUntil: "domcontentloaded" });
-await page.locator('input[name="email"]').fill("landlord@sahilpay.test");
-await page.locator('input[name="password"]').fill("Landlord@123");
-await page.getByRole("button", { name: "Log in" }).click();
-await page.waitForURL(/\/landlord/, { timeout: 20000 });
+await signInWithRetry(page, WEB, "landlord@sahilpay.test", "Landlord@123");
 
 // Discoverability was the actual complaint: "I cannot find the bulk upload".
 const sidebar = await page.locator("aside").innerText();
 say(/Bulk import/.test(sidebar), "Bulk import is in the sidebar");
+
+// Login is capped at 5/minute per IP — correct in production, and easily hit
+// when several check scripts run back to back. Wait it out rather than
+// reporting the app broken.
+async function signInWithRetry(page, WEB, email, password) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.goto(`${WEB}/login`, { waitUntil: "domcontentloaded" });
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="password"]').fill(password);
+    await page.getByRole("button", { name: "Log in" }).click();
+    try {
+      await page.waitForURL(/\/(landlord|team)/, { timeout: 12000 });
+      return;
+    } catch {
+      if (attempt === 3) throw new Error(`could not sign in as ${email}`);
+      console.log(`        (sign-in did not land — waiting 25s)`);
+      await new Promise((r) => setTimeout(r, 25000));
+    }
+  }
+}
 
 await page.getByRole("link", { name: "Bulk import" }).click();
 await page.waitForTimeout(1500);

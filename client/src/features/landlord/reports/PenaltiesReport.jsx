@@ -22,7 +22,9 @@ const SOURCES = [
   { value: "manual", label: "Raised by hand" },
 ];
 
-export default function PenaltiesReport() {
+// `embedded` is set when this renders inside PenaltiesPage's tabs, which already
+// carries the page title — a second <h1> in a tab panel reads as a nested page.
+export default function PenaltiesReport({ embedded = false }) {
   const [filters, setFilters] = useState({
     start_date: "", end_date: "", property_id: "",
     source: "", min_amount: "", max_amount: "",
@@ -72,10 +74,12 @@ export default function PenaltiesReport() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Penalties"
-        subtitle="Late-payment charges raised across your properties"
-      />
+      {!embedded && (
+        <PageHeader
+          title="Penalties"
+          subtitle="Late-payment charges raised across your properties"
+        />
+      )}
 
       <div className="glass grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
         <Input label="From" type="date" value={filters.start_date} onChange={set("start_date")} />

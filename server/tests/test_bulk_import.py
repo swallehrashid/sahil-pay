@@ -485,7 +485,11 @@ def test_an_opening_balance_becomes_a_traceable_invoice(app, stocked):
                 bulk.suggest_mapping("tenants", parsed["headers"]))
 
     tenant = Tenant.query.filter_by(landlord_id=stocked.id).first()
-    assert tenant.balance == Decimal("12500")
+    # NEGATIVE when owed — penalty_service.arrears_of() is the one interpreter
+    # of this convention, and inverting it files a debtor as being in credit.
+    assert tenant.balance == Decimal("-12500")
+    from services.penalty_service import arrears_of
+    assert arrears_of(tenant) == Decimal("12500")
 
     invoice = Invoice.query.filter_by(landlord_id=stocked.id, tenant_id=tenant.id).first()
     assert invoice is not None

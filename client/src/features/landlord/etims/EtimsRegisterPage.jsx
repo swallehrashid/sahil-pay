@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Upload } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
+import { LANDLORD_ROUTES } from "@/config/routePaths";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Tabs from "@/components/ui/Tabs";
@@ -209,6 +212,15 @@ export default function EtimsRegisterPage() {
       <PageHeader
         title="eTIMS Register"
         subtitle="Record the eTIMS invoice numbers you issued at KRA against the payments they cover."
+        actions={
+          /* Typing four hundred of these by hand is a morning's work and a
+             morning's chance to put one on the wrong payment. */
+          <Link to={LANDLORD_ROUTES.etimsImport}>
+            <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />}>
+              Import from a file
+            </Button>
+          </Link>
+        }
       />
 
       <Tabs

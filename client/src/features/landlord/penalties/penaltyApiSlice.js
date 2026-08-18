@@ -47,6 +47,19 @@ export const penaltyApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["PenaltyReport", "Invoice", "Tenant", "Dashboard"],
     }),
 
+    // Manual batch runs — the counterpart to the automatic policy engine.
+    // Candidates is a QUERY (read-only, re-fetches as filters change); the run
+    // is a mutation that invalidates the ledger it just moved.
+    getPenaltyCandidates: builder.query({
+      query: (params) => ({ url: "/penalties/batch/candidates", params }),
+      transformResponse: (r) => r?.data ?? r,
+      providesTags: ["PenaltyReport"],
+    }),
+    runBatchPenalties: builder.mutation({
+      query: (body) => ({ url: "/penalties/batch/run", method: "POST", body }),
+      transformResponse: (r) => r?.data ?? r,
+      invalidatesTags: ["PenaltyReport", "Invoice", "Tenant", "Payment"],
+    }),
     getPenaltyReport: builder.query({
       query: (params = {}) => ({ url: "/reports/penalties", params }),
       transformResponse: unwrap,
@@ -56,6 +69,8 @@ export const penaltyApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  useGetPenaltyCandidatesQuery,
+  useRunBatchPenaltiesMutation,
   useGetPenaltyPolicyQuery,
   useSavePenaltyPolicyMutation,
   usePreviewPenaltiesQuery,

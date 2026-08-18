@@ -145,7 +145,8 @@ def wipe(landlord_id: int) -> None:
 # Build
 # ---------------------------------------------------------------------------
 
-def build(properties_count: int, units_per_property: int, months: int, caretakers: int) -> dict:
+def build(properties_count: int, units_per_property: int, months: int,
+          caretakers: int, office_staff: int = 0) -> dict:
     from extensions import db
     import models as m
     from utils import hash_password, gen_reference
@@ -305,6 +306,18 @@ def build(properties_count: int, units_per_property: int, months: int, caretaker
         if i % 50 == 0:
             db.session.flush()
     db.session.commit()
+
+    # Office staff. A managing agent is not only owners and caretakers: the
+    # people who actually touch money and tenants every day are accountants and
+    # secretaries, and they hold the widest permissions in the building. Leaving
+    # them out of a scale fixture means the permission matrix is never exercised
+    # at the level where a mistake is expensive.
+    for i in range(1, office_staff + 1):
+        preset = "accountant" if i % 2 else "secretary"
+        make_member(f"{preset}{i:03d}", preset, [p.id for p in properties], i)
+        if i % 10 == 0:
+            db.session.flush()
+    db.session.commit()
     _log(f"  … team members in {time.time()-t0:.1f}s")
 
     # ---- Billing + payments through the real engine ------------------------
@@ -390,7 +403,7 @@ def build(properties_count: int, units_per_property: int, months: int, caretaker
         "properties": len(properties),
         "units": len(units),
         "tenants": len(tenants),
-        "team_members": properties_count + caretakers,
+        "team_members": properties_count + caretakers + office_staff,
         "months": months,
     }
 
@@ -402,6 +415,8 @@ def main() -> None:
     parser.add_argument("--units", type=int, default=10, help="units per property")
     parser.add_argument("--months", type=int, default=4, help="months of billing history")
     parser.add_argument("--caretakers", type=int, default=200)
+    parser.add_argument("--office", type=int, default=20,
+                        help="accountants + secretaries with account-wide access")
     args = parser.parse_args()
 
     if (os.environ.get("APP_ENV") or "").lower() == "production":
@@ -434,7 +449,8 @@ def main() -> None:
             db.session.commit()
 
         t0 = time.time()
-        stats = build(args.properties, args.units, args.months, args.caretakers)
+        stats = build(args.properties, args.units, args.months, args.caretakers,
+                      office_staff=args.office)
         _log(f"DONE in {time.time()-t0:.1f}s — {stats}")
         _log(f"Sign in as: {SCALE_EMAIL} / ScaleTest123!")
         _log("Owner login example: owner001@scale.sahilpay.test / ScaleTest123!")

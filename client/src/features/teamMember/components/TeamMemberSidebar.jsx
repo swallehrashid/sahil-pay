@@ -47,9 +47,11 @@ const NAV_ITEMS = [
   { to: TEAM_ROUTES.properties, label: "Properties", icon: <Building2 className="h-4 w-4" />, module: "properties" },
   { to: TEAM_ROUTES.units, label: "Units", icon: <DoorOpen className="h-4 w-4" />, module: "units" },
   { to: TEAM_ROUTES.utilities, label: "Utilities", icon: <Gauge className="h-4 w-4" />, module: "utilities" },
-  // Gated on `tenants` — the widest thing an import can create. Each entity is
-  // additionally checked server-side against its own module.
-  { to: TEAM_ROUTES.imports, label: "Bulk import", icon: <UploadCloud className="h-4 w-4" />, module: "tenants" },
+  // Gated on `tenants` EDIT — the widest thing an import can create, and this
+  // screen exists only to write. A view-only member (an owner login) would
+  // otherwise see a link that 403s on use. Each entity is additionally checked
+  // server-side against its own module.
+  { to: TEAM_ROUTES.imports, label: "Bulk import", icon: <UploadCloud className="h-4 w-4" />, module: "tenants", requires: "edit" },
   { to: TEAM_ROUTES.maintenance, label: "Maintenance", icon: <Wrench className="h-4 w-4" />, module: "maintenance" },
   { to: TEAM_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" />, module: "groups" },
   { to: TEAM_ROUTES.leases, label: "Leases", icon: <FileText className="h-4 w-4" />, module: "leases" },

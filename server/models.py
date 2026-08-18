@@ -4406,6 +4406,86 @@ class TutorialImage(TimestampMixin, Base):
         }
 
 
+class QueuedCharge(TimestampMixin, Base):
+    """
+    A charge that is ready to bill but has no invoice to go on yet.
+
+    Meter readings are taken at the END of a month — the 27th to the 30th — and
+    the bill goes out on the 1st. At reading time there is nothing sensible to
+    attach the charge to: last month's invoice is closing, and next month's does
+    not exist. The options were to raise a one-line invoice per reading (a
+    second bill the tenant did not need) or to sit on the paper until the 1st
+    and re-key it. So a charge can instead be QUEUED, and the next invoice for
+    that unit picks it up.
+
+    ANCHORED TO THE UNIT, not the tenant. Water was used by the meter, not by
+    the person, and a tenant who moves out on the 30th should not carry a
+    reading taken against a unit they have left. `occupant_at_queue` records who
+    was there when it was queued, so a change of tenant is visible at the point
+    it is billed rather than discovered afterwards.
+
+    Consumed exactly once: `status` moves queued -> consumed with the invoice
+    that took it, which is what stops a re-run of the monthly billing billing
+    the same reading twice.
+    """
+    __tablename__ = "queued_charges"
+
+    STATUS_QUEUED = "queued"
+    STATUS_CONSUMED = "consumed"
+    STATUS_CANCELLED = "cancelled"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
+    unit_id     = Column(Integer, ForeignKey("units.id"),     nullable=False, index=True)
+    # Who was in the unit when this was queued — a snapshot, not a link that
+    # follows a move-out.
+    occupant_at_queue_id = Column(Integer, ForeignKey("tenants.id"), nullable=True)
+
+    category_id = Column(Integer, ForeignKey("charge_categories.id"), nullable=True)
+    subcategory = Column(String(10), nullable=True)      # enum SubCategory
+    item        = Column(String(120), nullable=False)
+    description = Column(Text, nullable=True)
+    amount      = Column(Numeric(12, 2), nullable=False)
+
+    # Where it came from, when it came from a meter reading.
+    utility_reading_id = Column(Integer, ForeignKey("utility_readings.id"),
+                                nullable=True, index=True)
+
+    status      = Column(String(12), default=STATUS_QUEUED, nullable=False, index=True)
+    consumed_by_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
+    consumed_at = Column(DateTime, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    unit     = relationship("Unit")
+    category = relationship("ChargeCategory")
+    occupant_at_queue = relationship("Tenant", foreign_keys=[occupant_at_queue_id])
+    consumed_by_invoice = relationship("Invoice", foreign_keys=[consumed_by_invoice_id])
+    utility_reading = relationship("UtilityReading", foreign_keys=[utility_reading_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+
+    def to_dict(self):
+        occupant = self.occupant_at_queue
+        return {
+            "id":            self.id,
+            "unit_id":       self.unit_id,
+            "unit_name":     self.unit.name if self.unit else None,
+            "category_id":   self.category_id,
+            "category_name": self.category.name if self.category else None,
+            "subcategory":   self.subcategory,
+            "item":          self.item,
+            "description":   self.description,
+            "amount":        float(self.amount or 0),
+            "status":        self.status,
+            "utility_reading_id": self.utility_reading_id,
+            "consumed_by_invoice_id": self.consumed_by_invoice_id,
+            "occupant_at_queue": (
+                f"{occupant.first_name} {occupant.last_name}".strip() if occupant else None
+            ),
+            "created_at":    _serialise(self.created_at),
+            "consumed_at":   _serialise(self.consumed_at),
+        }
+
+
 class ImportMapping(TimestampMixin, Base):
     """
     A saved column mapping for the bulk importer.

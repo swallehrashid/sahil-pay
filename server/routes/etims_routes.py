@@ -614,3 +614,95 @@ def set_tax_permissions(member_id: int):
     return success({"property_ids": [g.property_id for g in grants],
                     "grants": [g.to_dict() for g in grants]},
                    message="Tax compliance access saved.")
+
+
+# ---------------------------------------------------------------------------
+# Bulk import of control numbers issued outside this system
+# ---------------------------------------------------------------------------
+# Numbers typed into the KRA portal, or produced by an accountant's own tooling,
+# come back as a spreadsheet. Re-keying four hundred of them is a morning's work
+# and a morning's chance to put the right number on the wrong payment — which
+# misstates a sale to KRA, so the matcher never guesses.
+
+@etims_bp.route("/etims/import/catalogue", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+def etims_import_catalogue():
+    """The columns the importer understands."""
+    from services import etims_import_service as importer
+
+    return success({"fields": importer.catalogue()})
+
+
+@etims_bp.route("/etims/import/inspect", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "edit")
+def etims_import_inspect():
+    """Read the file and suggest a column mapping. Writes nothing."""
+    from services import bulk_import_service as bulk
+    from services import etims_import_service as importer
+
+    file = request.files.get("file")
+    if file is None or not (file.filename or "").strip():
+        raise ApiError("Choose a file to upload.", status=422, errors={"file": "required"})
+
+    parsed = bulk.parse_file(file, sheet=request.form.get("sheet"))
+    if parsed["errors"]:
+        raise ApiError(parsed["errors"][0], status=422, errors={"file": parsed["errors"]})
+
+    return success({
+        "headers": parsed["headers"],
+        "sheets": parsed["sheets"],
+        "rows": parsed["rows"],
+        "row_count": len(parsed["rows"]),
+        "suggested_mapping": importer.suggest_mapping(parsed["headers"]),
+    })
+
+
+@etims_bp.route("/etims/import/validate", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "edit")
+def etims_import_validate():
+    """
+    Show what each row WOULD do — matched, ambiguous, unmatched, or mismatched
+    on amount — without writing anything.
+    """
+    from services import etims_import_service as importer
+
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    return success(importer.validate(
+        landlord_id, data.get("rows") or [], data.get("mapping") or {},
+        data.get("options") or {}))
+
+
+@etims_bp.route("/etims/import/commit", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("payments", "edit")
+def etims_import_commit():
+    """
+    Apply the unambiguous matches, plus any ambiguity the reviewer resolved.
+
+    Body: { rows, mapping, options?, resolutions? }
+      resolutions — {line: payment_id}, the reviewer's explicit choice for rows
+                    the matcher refused to decide. Only ids that were actually
+                    offered for that row are accepted.
+    """
+    from services import etims_import_service as importer
+
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    result = importer.commit(
+        landlord_id, data.get("rows") or [], data.get("mapping") or {},
+        data.get("options") or {},
+        resolutions=data.get("resolutions") or {},
+        # Resolved HERE, where there is a request to resolve it from.
+        allowed_property_ids=etims.tax_property_ids(landlord_id),
+        actor_user_id=get_jwt_user().id,
+    )
+    return success(result, message=(
+        f"{len(result['applied'])} number(s) recorded, {len(result['failed'])} refused."
+    ))

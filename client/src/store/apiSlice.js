@@ -102,6 +102,7 @@ export const apiSlice = createApi({
     "Tenant",
     "TenantDocument",
     "Invoice",
+    "InvoiceQueue",
     "Payment",
     "BankStatement",
     "MpesaTransaction",
