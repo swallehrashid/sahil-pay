@@ -49,7 +49,8 @@ fi
 
 # ---------------------------------------------------------------------------
 for suite in verify-fixes _check-payouts _check-report-perms \
-             _check-bulk-import _check-batch-penalties _check-invoice-queue; do
+             _check-bulk-import _check-batch-penalties _check-invoice-queue \
+             _check-tenant-and-new-ui; do
   step "Browser: $suite"
   "$ROOT/server/dev-reset-ratelimit.sh" >/dev/null 2>&1
   node "scripts/$suite.mjs" 2>&1 | tail -3

@@ -41,6 +41,14 @@ export default function OtpInput({ length = 6, value = "", onChange }) {
           onChange={(e) => handleChange(index, e)}
           onKeyDown={(e) => handleKeyDown(index, e)}
           inputMode="numeric"
+          // one-time-code lets iOS and Android offer the code straight from the
+          // SMS notification. A tenant reading six digits off a lock screen and
+          // retyping them is the step where people give up on OTP sign-in.
+          // Only the first box carries it — repeating it on all six makes the
+          // suggestion fire per box.
+          autoComplete={index === 0 ? "one-time-code" : "off"}
+          name={index === 0 ? "code" : undefined}
+          aria-label={`Digit ${index + 1} of ${length}`}
           maxLength={1}
           className="glass-input h-12 w-11 text-center text-lg font-medium"
         />

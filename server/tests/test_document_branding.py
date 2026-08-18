@@ -228,3 +228,91 @@ def test_the_company_address_appears_when_set(app, estate, captured_html):
     leases.render_pdf_bytes(lease)
 
     assert "P.O. Box 123, Nairobi" in captured_html["html"]
+
+
+def test_an_owner_payout_advice_carries_the_letterhead(app, estate, captured_html, db_session):
+    """
+    An owner payout advice is read by the property's owner — somebody outside
+    the company — so it needs the managing agent's identity on it as much as a
+    statement does.
+    """
+    from models import OwnerPayout
+    from services.payout_pdf import render_payout_statement_pdf
+
+    payout = OwnerPayout(
+        landlord_id=estate["landlord"].id,
+        property_id=estate["property"].id,
+        amount=Decimal("80000"),
+        payout_date=date.today(),
+        method="mpesa",
+        reference=f"PO-{estate['n']}",
+    )
+    db_session.add(payout)
+    db_session.flush()
+
+    render_payout_statement_pdf(payout)
+
+    _assert_branded(captured_html.get("html", ""), estate["landlord"])
+
+
+def test_an_invoice_pdf_carries_the_company_name(app, estate, captured_html):
+    """The document a tenant is asked to pay against."""
+    from services.pdf_service import generate_invoice_pdf
+
+    generate_invoice_pdf(estate["invoice"])
+
+    html = captured_html.get("html", "")
+    assert html, "nothing was rendered"
+    assert estate["landlord"].company_name in html
+
+
+def test_a_tenant_statement_pdf_carries_the_company_name(app, estate, captured_html):
+    from services.pdf_service import generate_tenant_statement_pdf
+
+    generate_tenant_statement_pdf(estate["tenant"])
+
+    html = captured_html.get("html", "")
+    assert html, "nothing was rendered"
+    assert estate["landlord"].company_name in html
+
+
+def test_every_renderer_we_ship_is_covered_here(app):
+    """
+    A new document type added without a branding test would ship unbranded and
+    nobody would notice until an owner asked why their statement looked like a
+    draft. This fails when a renderer appears that this file does not exercise.
+    """
+    import inspect
+
+    from services import lease_service, payout_pdf, pdf_service, receipt_service
+
+    known = {
+        # module, function                              exercised above
+        (pdf_service, "generate_invoice_pdf"),
+        (pdf_service, "generate_receipt_pdf"),
+        (pdf_service, "generate_tenant_statement_pdf"),
+        (pdf_service, "generate_tenants_list_pdf"),
+        (pdf_service, "generate_tax_invoice_pdf"),
+        (pdf_service, "generate_affiliate_receipt_pdf"),
+        (receipt_service, "render_receipt_pdf"),
+        (receipt_service, "render_sample_receipt_pdf"),
+        (payout_pdf, "render_payout_statement_pdf"),
+        (lease_service, "render_pdf_bytes"),
+        # Persists what render_pdf_bytes produced; covered through it.
+        (lease_service, "store_pdf"),
+    }
+    known_names = {(m.__name__, f) for m, f in known}
+
+    found = set()
+    for module in (pdf_service, receipt_service, payout_pdf, lease_service):
+        for name, obj in inspect.getmembers(module, inspect.isfunction):
+            if obj.__module__ != module.__name__:
+                continue
+            if "pdf" in name and not name.startswith("_"):
+                found.add((module.__name__, name))
+
+    unknown = found - known_names
+    assert not unknown, (
+        f"New PDF renderer(s) with no branding coverage: {sorted(unknown)}. "
+        f"Add a test above, or add them to the known set once verified."
+    )

@@ -81,6 +81,11 @@ export default function TenantOtpLogin() {
         <form onSubmit={handleRequest} className="space-y-4">
           <Input
             label="Phone or email"
+            name="identifier"
+            // A tenant signs in from a phone. Without these the keyboard comes
+            // up as plain text and the browser cannot offer their own number.
+            type="tel"
+            autoComplete="tel username"
             leftIcon={<Phone className="h-4 w-4" />}
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
