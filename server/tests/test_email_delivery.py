@@ -127,3 +127,110 @@ def test_simulation_mode_still_suppresses_the_send(app):
                 assert es._send_email("a@example.test", "subject", "<p>body</p>") is False
         finally:
             app.config["COMMS_SIMULATION_MODE"] = previous
+
+
+# ---------------------------------------------------------------------------
+# The failure this actually caused in production
+# ---------------------------------------------------------------------------
+# A team member clicked "Log in to Sahil Pay" in their invitation and got:
+#
+#     url5446.sahilpay.co.ke
+#     DNS_PROBE_FINISHED_NXDOMAIN
+#
+# That hostname is not ours. SendGrid's click tracking had rewritten the link
+# onto a branded tracking subdomain (urlNNNN.<domain>) whose CNAME was never
+# created, so every link in every email resolved to nothing. The app was fine;
+# the links never reached it.
+#
+# Two things make this hard to catch by eye: the send succeeds as far as our
+# logs are concerned, and the rewritten host still ends in sahilpay.co.ke, so it
+# looks plausible in a screenshot.
+
+def test_sendgrid_is_told_not_to_rewrite_links(sent):
+    """
+    The per-message setting, which overrides whatever the account dashboard is
+    set to. Relying on the dashboard alone means one toggle by anyone with
+    access silently breaks every login link again.
+    """
+    es.send_team_credentials_email("newcolleague@example.test", "jdoe", "TempPw1!")
+
+    tracking = sent["payload"]["tracking_settings"]["click_tracking"]
+    assert tracking["enable"] is False
+    assert tracking["enable_text"] is False
+
+
+def test_an_invitation_link_points_at_our_own_domain(sent):
+    """
+    The exact regression: the href a team member clicks must be a real Sahil Pay
+    URL, not a tracking host that has to resolve separately.
+    """
+    import re
+
+    es.send_team_credentials_email("newcolleague@example.test", "jdoe", "TempPw1!",
+                                   verification_token="tok-123")
+
+    hrefs = re.findall(r'href="([^"]+)"', sent["payload"]["content"][0]["value"])
+    assert hrefs, "the invitation has no link at all"
+    for href in hrefs:
+        # urlNNNN.sahilpay.co.ke is the shape that broke.
+        assert not re.match(r"https?://url\d+\.", href), f"tracking-rewritten link: {href}"
+        assert "sendgrid.net" not in href
+        assert "ct.sendgrid" not in href
+    assert any("/verify-email/tok-123" in h for h in hrefs), \
+        "the invitation must link somewhere that actually signs the person in"
+
+
+def test_a_document_link_is_absolute(sent):
+    """
+    Uploaded files are stored with RELATIVE urls ("/uploads/leases/1/a.pdf"),
+    which is right for the app and useless in an email: a mail client has no
+    base URL, so the link either does nothing or resolves against the webmail
+    provider's own domain. Same visible symptom as the tracking rewrite, an
+    entirely different cause.
+    """
+    es.send_document_email("t@example.test", "Jane", "Tenancy Agreement",
+                           None, "/uploads/leases/1/agreement.pdf")
+
+    import re
+    hrefs = re.findall(r'href="([^"]+)"', sent["payload"]["content"][0]["value"])
+    assert hrefs, "the email offers no way to reach the document"
+    for href in hrefs:
+        assert href.startswith("http"), f"relative link in an email: {href}"
+
+
+def test_a_document_already_on_a_cdn_is_left_alone(sent):
+    """Cloud-stored files already carry an absolute URL; prefixing would break it."""
+    es.send_document_email("t@example.test", "Jane", "Lease", None,
+                           "https://res.cloudinary.com/acct/lease.pdf")
+
+    import re
+    hrefs = re.findall(r'href="([^"]+)"', sent["payload"]["content"][0]["value"])
+    assert "https://res.cloudinary.com/acct/lease.pdf" in hrefs
+
+
+def test_no_email_we_send_contains_a_relative_link(sent):
+    """
+    A sweep across every sender that puts a link in the body. Adding a new email
+    with a relative href is the easiest way to reintroduce exactly the failure a
+    team member hit, and it is invisible in review.
+    """
+    import re
+
+    senders = [
+        (es.send_verification_email, ("a@example.test", "tok")),
+        (es.send_password_reset_email, ("a@example.test", "tok")),
+        (es.send_team_activation_email, ("a@example.test", "tok", "jdoe")),
+        (es.send_team_credentials_email, ("a@example.test", "jdoe", "Tmp1234!")),
+    ]
+    for send, args in senders:
+        send(*args)
+        body = sent["payload"]["content"][0]["value"]
+        for href in re.findall(r'href="([^"]+)"', body):
+            if href.startswith("mailto:") or href.startswith("tel:") or href == "#":
+                continue
+            assert href.startswith("http"), (
+                f"{send.__name__} emits a relative link: {href}"
+            )
+            assert not re.match(r"https?://url\d+\.", href), (
+                f"{send.__name__} emits a tracking-rewritten link: {href}"
+            )

@@ -33,6 +33,21 @@ def _frontend_url() -> str:
     return current_app.config.get("FRONTEND_URL", "http://localhost:5173").rstrip("/")
 
 
+def _absolute_url(url: str) -> str:
+    """
+    A link that works from inside an email client.
+
+    Storage hands back relative paths for locally-held files and absolute ones
+    for anything on a CDN, and only the caller knows which it has — so normalise
+    here rather than at every call site.
+    """
+    if not url:
+        return url
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return f"{_frontend_url()}/{url.lstrip('/')}"
+
+
 def _send_email(
     to_email: str,
     subject: str,
@@ -355,7 +370,13 @@ def send_document_email(
     subject = f"Document from your landlord — {template_name}"
     blocks = []
     if file_url and not pdf_bytes:
-        blocks.append(T.button("View document", file_url))
+        # Absolute, always. Uploaded files are stored with RELATIVE urls
+        # ("/uploads/leases/1/a.pdf") because that is what the app needs, but an
+        # email has no base URL to resolve them against — a relative href in a
+        # mail client either does nothing or resolves against the WEBMAIL
+        # provider's own domain. Either way the recipient cannot open the
+        # document, which is indistinguishable from the app being broken.
+        blocks.append(T.button("View document", _absolute_url(file_url)))
     html = T.render_email(
         heading="A document from your landlord",
         intro=f"Hi {T.escape(first_name or 'there')}, your landlord has sent you a document: "
