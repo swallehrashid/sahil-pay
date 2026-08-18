@@ -169,17 +169,35 @@ def amount_for(policy, arrears: Decimal) -> Decimal:
 # Charging
 # ---------------------------------------------------------------------------
 
-def already_charged(tenant_id: int, year: int, month: int) -> bool:
-    """Has an AUTOMATIC penalty already been raised this month?"""
-    return (
+def charged_this_month(tenant_id: int, year: int, month: int,
+                       sources: tuple[str, ...] | None = None) -> bool:
+    """
+    Has a penalty been raised for this tenant in this month?
+
+    *sources* narrows it; None means any source. Two callers want two different
+    questions and both are right:
+
+      the nightly engine asks about AUTOMATIC charges only, because a manual
+        penalty is explicitly "on top of any automatic charge" and must not
+        suppress the policy;
+      a manual batch run asks about ANY charge, because the mistake it is
+        guarding against is somebody running the same batch twice.
+    """
+    query = (
         db.session.query(PenaltyCharge.id)
         .filter(PenaltyCharge.tenant_id == tenant_id,
                 PenaltyCharge.period_year == year,
-                PenaltyCharge.period_month == month,
-                PenaltyCharge.source == PenaltySource.auto.value)
-        .first()
-        is not None
+                PenaltyCharge.period_month == month)
     )
+    if sources:
+        query = query.filter(PenaltyCharge.source.in_(sources))
+    return query.first() is not None
+
+
+def already_charged(tenant_id: int, year: int, month: int) -> bool:
+    """Has an AUTOMATIC penalty already been raised this month?"""
+    return charged_this_month(tenant_id, year, month,
+                              sources=(PenaltySource.auto.value,))
 
 
 def _penalty_category_id(landlord_id: int) -> int | None:

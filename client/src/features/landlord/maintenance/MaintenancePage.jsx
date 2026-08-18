@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, AlertCircle, Loader2, Pencil, Trash2, Receipt } from "lucide-react";
+import { Plus, AlertCircle, Loader2, Pencil, Trash2, Receipt, Eye, Paperclip } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -12,6 +12,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
 import MaintenanceForm from "./MaintenanceForm";
 import CreateExpenseFromMaintenance from "./CreateExpenseFromMaintenance";
+import MaintenanceDetail from "./MaintenanceDetail";
 import {
   useGetMaintenanceRequestsQuery,
   useCreateMaintenanceRequestMutation,
@@ -35,6 +36,8 @@ export default function MaintenancePage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [expenseTarget, setExpenseTarget] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
+  // The request being read in full — photo, description, status controls.
+  const [viewing, setViewing] = useState(null);
 
   const requests = toRows(data);
   const properties = toRows(propertiesData);
@@ -72,7 +75,21 @@ export default function MaintenancePage() {
   };
 
   const columns = [
-    { key: "summary", header: "Summary" },
+    {
+      key: "summary",
+      header: "Summary",
+      render: (row) => (
+        <button
+          onClick={() => setViewing(row)}
+          className="flex items-center gap-1.5 text-left text-secondary hover:underline"
+        >
+          {row.summary}
+          {/* A paperclip on the row means "there is a photo to look at" —
+              otherwise the only way to find out is to open every request. */}
+          {row.image_url && <Paperclip className="h-3.5 w-3.5 flex-shrink-0 text-white/40" />}
+        </button>
+      ),
+    },
     { key: "property", header: "Property", render: (row) => row.property_name },
     { key: "unit", header: "Unit", render: (row) => row.unit_name },
     { key: "category", header: "Category" },
@@ -128,6 +145,11 @@ export default function MaintenancePage() {
             <Dropdown
               items={[
                 {
+                  label: "View details",
+                  icon: <Eye className="h-4 w-4" />,
+                  onClick: () => setViewing(row),
+                },
+                {
                   label: "Edit",
                   icon: <Pencil className="h-4 w-4" />,
                   onClick: () => {
@@ -141,6 +163,13 @@ export default function MaintenancePage() {
           )}
         />
       </div>
+
+      {viewing && (
+        <MaintenanceDetail
+          request={requests.find((r) => r.id === viewing.id) || viewing}
+          onClose={() => setViewing(null)}
+        />
+      )}
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={active ? "Edit request" : "Add maintenance request"}>
         <MaintenanceForm

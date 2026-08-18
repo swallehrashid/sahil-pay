@@ -82,9 +82,42 @@ def _in_range(d, start, end) -> bool:
     return True
 
 
-def _classify_line_item(item_name: str | None) -> str:
-    """Bucket a free-text invoice line-item name into a report column."""
+def _classify_line_item(line_item) -> str:
+    """
+    Bucket an invoice line item into a report column.
+
+    Accepts an InvoiceLineItem (preferred) or a bare name string.
+
+    SUBCATEGORY WINS over the name, because the name is free text and the
+    subcategory is the structured fact. This used to match on the name alone,
+    in an order that put "rent" before "deposit" — so a line called
+    "Rent Deposit" was reported as RENT. Held money is not income, and it was
+    landing in the income column of every property statement. The same trap
+    caught "Water Deposit" (→ water) and "Security Deposit" (→ security); only
+    a line named exactly "Deposit" happened to classify correctly.
+
+    That is also why the statement's own summary disagreed with its table: the
+    summary reads subcategory via commission_service.collections_breakdown()
+    and was right all along, while the table read the name and was not.
+
+    The name is still used when a line carries no subcategory (older rows, and
+    free-text lines a landlord typed), but "deposit" is now tested FIRST so the
+    fallback cannot reintroduce the same bug.
+    """
+    if line_item is None or isinstance(line_item, str):
+        subcategory, item_name = None, line_item
+    else:
+        subcategory = getattr(line_item, "subcategory", None)
+        item_name = getattr(line_item, "item", None)
+
+    if (subcategory or "").strip().lower() == _DEPOSIT_SUB:
+        return "deposit"
+
     n = (item_name or "").lower()
+    # Deposit first: every other keyword below can also appear in a deposit's
+    # name ("rent deposit", "water deposit", "security deposit").
+    if "deposit" in n:
+        return "deposit"
     if "rent" in n:
         return "rent"
     if "water" in n:
@@ -97,8 +130,6 @@ def _classify_line_item(item_name: str | None) -> str:
         return "security"
     if "penalt" in n or "late" in n or "fine" in n:
         return "penalties"
-    if "deposit" in n:
-        return "deposit"
     if "electric" in n or "power" in n:
         return "electricity"
     return "other"
@@ -275,7 +306,12 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
         Column("phone", "Phone", TEXT),
         Column("balance_cf", "Balance c/f", MONEY),
         Column("advance", "Advance", MONEY),
-        Column("rent", "Rent", MONEY),
+        # "Rent charged", not "Rent": the summary below reports rent COLLECTED
+        # (current + arrears), and this column reports what was CHARGED in the
+        # period with carried-forward lines excluded. Both figures are correct
+        # and they are routinely different, so naming them both "rent" on one
+        # page reads as a discrepancy in the report rather than as two measures.
+        Column("rent", "Rent charged", MONEY),
         Column("water", "Water", MONEY),
         Column("penalties", "Penalties", MONEY),
         Column("garbage", "Garbage", MONEY),
@@ -326,7 +362,7 @@ def build_property_statement(landlord, property_id: int, start_date: str | None,
             for li in (inv.line_items or []):
                 if li.subcategory == _BALANCE_SUB:
                     continue
-                cats[_classify_line_item(li.item)] += li.amount or ZERO
+                cats[_classify_line_item(li)] += li.amount or ZERO
             if not inv.line_items:
                 cats["rent"] += inv.total_amount or ZERO
             amount_due += _invoice_charge(inv)
@@ -819,7 +855,7 @@ def _window_metrics(invoices, payments, expenses, units, histories, start, end, 
             for li in (inv.line_items or []):
                 if li.subcategory == _BALANCE_SUB:
                     continue
-                cats[_classify_line_item(li.item)] += li.amount or ZERO
+                cats[_classify_line_item(li)] += li.amount or ZERO
             if not inv.line_items:
                 cats["rent"] += inv.total_amount or ZERO
             total_bills += _invoice_charge(inv)

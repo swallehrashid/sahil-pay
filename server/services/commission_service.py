@@ -39,7 +39,7 @@ GROSS_BASIS_RENT_ONLY = "rent_only"
 VALID_GROSS_BASES = (GROSS_BASIS_ALL, GROSS_BASIS_RENT_ONLY)
 
 
-def normalise_basis(value, default: str = GROSS_BASIS_ALL) -> str:
+def normalise_basis(value, default: str = GROSS_BASIS_RENT_ONLY) -> str:
     """The gross basis for a request — an unknown value falls back to *default*."""
     key = (str(value or "").strip().lower()) or default
     return key if key in VALID_GROSS_BASES else default
@@ -48,7 +48,8 @@ def normalise_basis(value, default: str = GROSS_BASIS_ALL) -> str:
 def resolve_basis(landlord, requested=None) -> str:
     """
     The basis to use: an explicit request wins, otherwise the landlord's saved
-    preference, otherwise "all".
+    preference, otherwise "rent_only" — see LandlordSettings.report_gross_basis
+    for why rent is the default meaning of "gross" on a property statement.
     """
     if requested:
         return normalise_basis(requested)

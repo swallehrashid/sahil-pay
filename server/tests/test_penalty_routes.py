@@ -86,7 +86,11 @@ def world(app, db_session):
     s.add(member)
     s.flush()
     s.add(TeamMemberPropertyAccess(team_member_id=member.id, property_id=props[0].id))
-    for module in ("invoices", "properties", "reports"):
+    # `penalties` is its own module now — a late fee is not an invoice, and
+    # setting a block's penalty POLICY is no longer something anyone who can
+    # rename the block can do. These tests are about property scoping, so grant
+    # the module and let scope be the only restriction under test.
+    for module in ("invoices", "properties", "reports", "penalties"):
         s.add(TeamMemberPermission(team_member_id=member.id, module=module,
                                    can_view=True, can_edit=True))
     s.flush()

@@ -450,10 +450,15 @@ def bulk_generate_utility_invoices():
 def add_reading_to_invoice(reading_id):
     """
     Bill a single utility reading by adding it as a line item to an invoice.
-    Body: { mode: "current" | "new", amount? }
+    Body: { mode: "current" | "new" | "queue", amount? }
       - "current": append to the tenant's open/partial invoice for the reading month
                    (creates one if none exists yet).
       - "new":     always raise a fresh invoice for just this reading.
+      - "queue":   hold it for the unit's NEXT invoice. This is the one that fits
+                   how meters are actually read: on the 28th there is no invoice
+                   to attach to, and raising a one-line utility bill sends the
+                   tenant a second, unexpected invoice. Queued charges are folded
+                   into the next monthly run automatically.
     Amount defaults to consumption × the property's rate (water/electricity);
     pass `amount` to override (needed for garbage/security, which have no rate).
     ---
@@ -506,6 +511,32 @@ def add_reading_to_invoice(reading_id):
         return jsonify({"error": "Computed amount is zero — set a consumption/rate or pass an amount."}), 400
 
     description = f"{reading.reading_month} — {reading.previous_reading or 0} to {reading.current_reading}"
+
+    # Queued: nothing is billed today. The next invoice this unit gets — the
+    # monthly run, or a manual invoice that opts in — picks it up.
+    if mode == "queue":
+        from services import invoice_queue_service as queue
+
+        cat = reading.category
+        sub = reading.subcategory or "current"
+        label = (cat.subcategory_display().get(sub, cat.name) if cat
+                 else (reading.utility_item or "Utility").capitalize())
+        charge = queue.queue_charge(
+            landlord_id, reading.unit,
+            item=label,
+            amount=amount,
+            category_id=reading.category_id,
+            subcategory=sub,
+            description=f"{reading.reading_month} — "
+                        f"{reading.previous_reading or 0} to {reading.current_reading}",
+            utility_reading_id=reading.id,
+            actor_user_id=int(get_jwt_identity()),
+        )
+        db.session.commit()
+        return jsonify({
+            "message": "Held for this unit's next invoice.",
+            "queued_charge": charge.to_dict() if charge else None,
+        }), 201
 
     # Try to append to the tenant's open invoice for that month.
     target = None

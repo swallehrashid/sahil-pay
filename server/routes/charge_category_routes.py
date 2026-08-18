@@ -39,13 +39,19 @@ def _validate_metered_autobill(is_metered: bool, auto_bill: bool):
 @charge_category_bp.route("/", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
-@require_permission("invoices", "view")
 def list_categories():
     """List the landlord's charge categories. ?kind=utility|invoice&include_inactive="""
     landlord_id = get_current_landlord_id()
     kind = request.args.get("kind")
-    # View permission depends on which page is asking; default to the stricter of both
-    # when unspecified (a plain list needs at least one of the two view rights).
+    # Which permission applies depends on WHICH catalogue is being asked for, so
+    # the check is here rather than in a decorator.
+    #
+    # There used to be a @require_permission("invoices", "view") above as well,
+    # which ran first and refused before this line could apply the kind-specific
+    # rule — making the rule dead code. The visible effect was that a caretaker,
+    # whose whole job is meter readings, got an empty Water/Electricity dropdown
+    # on the Utilities page and so could not record a reading at all: the
+    # backend allowed the write, but the form could not be filled in.
     _check_permission(_module_for(kind) if kind in _KINDS else "invoices", "view")
 
     # Never show an empty catalogue — lazily seed the protected defaults.

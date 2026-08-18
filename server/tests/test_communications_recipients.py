@@ -298,3 +298,87 @@ def test_send_requires_authentication(client, world):
     res = client.post("/api/communications/send",
                       json={"channel": "in_app", "tenant_ids": [1], "content": "x"})
     assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# The SMS credit balance
+# ---------------------------------------------------------------------------
+# The balance used to be readable only from GET /api/settings/sms-provider,
+# which is gated on the `settings` module because it carries the landlord's
+# provider API key. `settings` is not in models.PermissionModule at all, so NO
+# team member could ever hold it — meaning the very people who send the
+# messages could not see how many credits were left, and discovered the account
+# was empty when a send failed.
+#
+# The balance now has its own endpoint gated on `messages`. The credential
+# endpoint is unchanged and still refuses them.
+
+def test_a_team_member_who_sends_messages_can_read_the_balance(client, world):
+    response = client.get("/api/communications/sms-balance",
+                          headers=_auth(world["scoped_token"]))
+
+    assert response.status_code == 200
+    assert response.get_json()["sms_balance"] == 500
+
+
+def test_the_balance_endpoint_never_exposes_the_provider_api_key(client, world):
+    """
+    The reason the balance was gated behind `settings` in the first place. If a
+    key ever appears in this payload the permission split becomes a leak.
+    """
+    payload = client.get("/api/communications/sms-balance",
+                         headers=_auth(world["scoped_token"])).get_json()
+
+    serialised = str(payload).lower()
+    assert "api_key" not in serialised
+    assert "sms_api_key_masked" not in payload
+    assert "sms_api_key_set" not in payload
+
+
+def test_the_credential_endpoint_still_refuses_a_team_member(client, world):
+    """Splitting the balance out must not have loosened the credentials route."""
+    response = client.get("/api/settings/sms-provider",
+                          headers=_auth(world["scoped_token"]))
+
+    assert response.status_code == 403
+
+
+def test_the_landlord_reads_the_same_balance(client, world):
+    response = client.get("/api/communications/sms-balance",
+                          headers=_auth(world["landlord_token"]))
+
+    assert response.status_code == 200
+    assert response.get_json()["sms_balance"] == 500
+
+
+def test_a_member_without_the_messages_module_is_refused(client, world, db_session):
+    """
+    The gate is `messages`, not "any team member" — an accountant with no
+    messaging role has no business reading the comms balance.
+    """
+    from flask_jwt_extended import create_access_token
+
+    member = world["other_member"]
+    TeamMemberPermission.query.filter_by(team_member_id=member.id,
+                                         module="messages").delete()
+    db_session.flush()
+
+    token = create_access_token(
+        identity=str(member.user_id),
+        additional_claims={"role": "team_member",
+                           "landlord_id": world["landlord"].id,
+                           "team_member_id": member.id})
+
+    assert client.get("/api/communications/sms-balance",
+                      headers=_auth(token)).status_code == 403
+
+
+def test_the_balance_reports_the_low_credit_warning(client, world, db_session):
+    world["landlord"].sms_balance = 10
+    db_session.flush()
+
+    payload = client.get("/api/communications/sms-balance",
+                         headers=_auth(world["scoped_token"])).get_json()
+
+    assert payload["sms_balance"] == 10
+    assert payload["low_balance"] is True

@@ -12,6 +12,7 @@ No report data is stored in the DB — generated on demand.
 from flask import Blueprint, request, jsonify, Response, g
 from flask_jwt_extended import jwt_required
 
+from services.report_access import require_report
 from decorators import (
     require_landlord_or_team, require_permission, get_current_landlord_id,
     scope_to_accessible_properties,
@@ -186,6 +187,7 @@ def _fmt_response(file_bytes, fmt: str, filename: str):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@require_report("payments")
 def payments_report():
     """
     Consolidated per-category / per-tenant payments report.
@@ -244,6 +246,7 @@ def line_item_rollover_trail(line_id):
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("tenant")
 def tenant_statement(tenant_id):
     """
     Tenant statement: transaction date, item, description, money due, money paid,
@@ -271,6 +274,7 @@ def tenant_statement(tenant_id):
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("property")
 def property_statement(property_id):
     """
     Property statement — 4 sections (tenants, expenses, occupancy, summary) with
@@ -297,6 +301,7 @@ def property_statement(property_id):
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("arrears")
 def arrears_report():
     """Tenants in arrears (unit, name, phone, arrears b/f, current bills, total, days).
     ?format=json|pdf|excel, ?property_id=, ?as_of_date=, ?columns="""
@@ -322,6 +327,7 @@ def arrears_report():
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("expenses")
 def expenses_report():
     """Expenses report (date, property, unit, category, description, amount).
     ?format=json|pdf|excel, ?property_id=, ?start_date=, ?end_date=, ?columns="""
@@ -348,6 +354,7 @@ def expenses_report():
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("mom")
 def mom_report():
     """Month-on-month comparative (occupancy, rent, water, bills, paid, %, expense
     per month) with per-metric graphs. ?format=json|pdf|excel, ?property_id=,
@@ -375,6 +382,7 @@ def mom_report():
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("yoy")
 def yoy_report():
     """Year-on-year comparative (same metrics as MoM, bucketed by year) with graphs.
     ?format=json|pdf|excel, ?property_id=, ?columns=, ?charts="""
@@ -400,6 +408,7 @@ def yoy_report():
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("grouping")
 def grouping_report(group_id):
     """Property-grouping report — every property in the group compared across the
     comparative metrics, with a group total. ?format=json|pdf|excel, ?start_date=,
@@ -423,6 +432,7 @@ def grouping_report(group_id):
 @require_landlord_or_team()
 @require_permission("reports", "view")
 @scope_to_accessible_properties
+@require_report("deleted")
 def deleted_tenants_report():
     """Archived (soft-deleted) tenants — unit, name, phone, move-in/out, deleted-on,
     balance, deposits, notes. ?format=json|pdf|excel, ?property_id=, ?columns="""
