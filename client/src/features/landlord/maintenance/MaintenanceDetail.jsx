@@ -57,7 +57,7 @@ export default function MaintenanceDetail({ request, onClose }) {
 
   const setStatus = async (status) => {
     try {
-      await updateRequest({ id: request.id, status }).unwrap();
+      await updateRequest({ id: request.id, body: { status } }).unwrap();
       toast(`Marked ${status.replace("_", " ")}.`, { type: "success" });
     } catch {
       toast("Could not update the status.", { type: "error" });

@@ -50,16 +50,22 @@ logger = logging.getLogger(__name__)
 
 # The only moves allowed. Anything absent here is refused, whatever the caller
 # believes the current state to be.
+# `superseded` is reachable from every un-signed state: issuing a newer
+# agreement retires the old one wherever it had got to. It is never reachable
+# from `submitted` or `approved` — a signature, once given, is not swept aside
+# by someone pressing Prepare again.
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    LeaseStatus.draft.value:     {LeaseStatus.sent.value},
-    LeaseStatus.sent.value:      {LeaseStatus.submitted.value, LeaseStatus.draft.value},
+    LeaseStatus.draft.value:     {LeaseStatus.sent.value, LeaseStatus.superseded.value},
+    LeaseStatus.sent.value:      {LeaseStatus.submitted.value, LeaseStatus.draft.value,
+                                  LeaseStatus.superseded.value},
     LeaseStatus.submitted.value: {LeaseStatus.approved.value, LeaseStatus.rejected.value},
     # A rejected lease goes back to the tenant, who resubmits it.
-    LeaseStatus.rejected.value:  {LeaseStatus.submitted.value},
+    LeaseStatus.rejected.value:  {LeaseStatus.submitted.value, LeaseStatus.superseded.value},
     # Terminal. An approved lease is re-issued by creating a new agreement, so
     # the signed one is never quietly rewritten.
-    LeaseStatus.approved.value:  set(),
-    LeaseStatus.uploaded.value:  set(),
+    LeaseStatus.approved.value:   set(),
+    LeaseStatus.uploaded.value:   set(),
+    LeaseStatus.superseded.value: set(),
 }
 
 # Placeholders a template may use. Anything else is left alone rather than
@@ -324,9 +330,46 @@ def create_for_tenant(tenant: Tenant, *, template_id=None,
     return lease
 
 
+def supersede_outstanding(tenant_id: int, *, keep_id: int | None = None) -> int:
+    """
+    Retire every OTHER un-signed agreement on this tenancy. Returns how many.
+
+    Without this a tenancy accumulates agreements. "Prepare" looks like it did
+    nothing — the landlord is waiting on the tenant, not on the system — so it
+    gets pressed again, and each press leaves another lease sitting in `sent`
+    forever. current_for_tenant() then answers "what must I sign?" with
+    whichever of those is newest, which after an approval is a stale one: the
+    tenant signs an agreement, the landlord approves it, and the portal
+    immediately shows them a different unsigned lease and hides the download
+    for the one they just completed. That is the "the lease never reaches the
+    tenant" report, from both ends.
+
+    A signed lease is never touched. `submitted` and `approved` are outside
+    is_outstanding precisely so a second Prepare cannot discard a signature.
+    """
+    rows = (
+        db.session.query(LeaseAgreement)
+        .filter(LeaseAgreement.tenant_id == tenant_id)
+        .all()
+    )
+    retired = 0
+    for row in rows:
+        if row.id == keep_id or not row.is_outstanding:
+            continue
+        transition(row, LeaseStatus.superseded.value)
+        retired += 1
+    if retired:
+        db.session.flush()
+        logger.info("Superseded %s outstanding lease(s) for tenant %s.", retired, tenant_id)
+    return retired
+
+
 def send_to_tenant(lease: LeaseAgreement, *, actor_user_id=None) -> LeaseAgreement:
     transition(lease, LeaseStatus.sent.value, actor_user_id=actor_user_id)
     lease.sent_at = datetime.utcnow()
+    # This is now THE agreement for the tenancy; anything else still waiting on
+    # the tenant is a superseded draft and must stop competing with it.
+    supersede_outstanding(lease.tenant_id, keep_id=lease.id)
     db.session.flush()
     return lease
 
@@ -421,6 +464,9 @@ def attach_scan(tenant: Tenant, file, *, actor_user_id=None,
     )
     db.session.add(lease)
     db.session.flush()
+    # A lease signed on paper settles the tenancy, so an unsigned portal lease
+    # still sitting with the tenant is now asking them to sign it twice.
+    supersede_outstanding(tenant.id, keep_id=lease.id)
     return lease
 
 

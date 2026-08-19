@@ -10,6 +10,7 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Button from "@/components/ui/Button";
 import StatusBadge from "@/components/ui/StatusBadge";
 import { toast } from "@/components/ui/Toast";
+import { withFiles } from "@/utils/multipart";
 import MaintenanceForm from "./MaintenanceForm";
 import CreateExpenseFromMaintenance from "./CreateExpenseFromMaintenance";
 import MaintenanceDetail from "./MaintenanceDetail";
@@ -49,17 +50,21 @@ export default function MaintenancePage() {
   };
 
   const handleSubmit = async (values) => {
+    // The photo has to go as multipart. Sent inside a JSON body the File
+    // stringifies to {} and is dropped without a word, so the request saves
+    // fine and the picture is simply gone.
+    const body = withFiles(values, ["image"]);
     try {
       if (active?.id) {
-        await updateRequest({ id: active.id, ...values }).unwrap();
+        await updateRequest({ id: active.id, body }).unwrap();
         toast("Maintenance request updated.", { type: "success" });
       } else {
-        await createRequest(values).unwrap();
+        await createRequest(body).unwrap();
         toast("Maintenance request created.", { type: "success" });
       }
       setIsFormOpen(false);
-    } catch {
-      toast("Could not save the request.", { type: "error" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not save the request.", { type: "error" });
     }
   };
 

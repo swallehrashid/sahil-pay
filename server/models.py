@@ -2719,6 +2719,15 @@ class OwnerPayout(EtimsMixin, TimestampMixin, Base):
     period_end          = Column(Date, nullable=True)
     total_collected     = Column(Numeric(12, 2), nullable=True)
     rent_collected_base = Column(Numeric(12, 2), nullable=True)
+    # Which charge types were counted as "collected" on this run, and what
+    # commission was actually charged on. Both are decisions the operator makes
+    # per run, so they are recorded WITH the run: "why is this commission
+    # different from last month's?" has to be answerable from the row, not from
+    # whoever remembers which boxes they ticked. NULL on payouts generated
+    # before the picker existed, which read as "everything, commission on rent".
+    included_categories = Column(JSON, nullable=True)
+    commission_basis    = Column(String(10), nullable=True)   # rent | collected
+    commission_base     = Column(Numeric(12, 2), nullable=True)
     commission_amount   = Column(Numeric(12, 2), nullable=True)
     tax_amount          = Column(Numeric(12, 2), nullable=True)
     tax_withheld        = Column(Boolean, default=False, nullable=False, server_default="false")
@@ -2760,6 +2769,13 @@ class OwnerPayout(EtimsMixin, TimestampMixin, Base):
             "period_end":         _serialise(self.period_end),
             "total_collected":    _serialise(self.total_collected),
             "rent_collected_base": _serialise(self.rent_collected_base),
+            "included_categories": self.included_categories,
+            # A payout recorded before the picker existed counted everything and
+            # commissioned rent, so that is what it reports rather than null.
+            "commission_basis":   self.commission_basis or "rent",
+            "commission_base":    _serialise(
+                self.commission_base if self.commission_base is not None
+                else self.rent_collected_base),
             "commission_amount":  _serialise(self.commission_amount),
             "tax_amount":         _serialise(self.tax_amount),
             "tax_withheld":       self.tax_withheld,
@@ -3177,6 +3193,11 @@ class CommunicationLog(CreatedAtMixin, Base):
     uses_own_sender     = Column(Boolean, default=False, nullable=False)  # custom (own sender ID) vs default (shared pool)
     platform_cost       = Column(Numeric(8, 2), default=Decimal("0.00"), nullable=False)  # SahilPay's provider cost; 0 for custom
     status              = Column(String(15), nullable=True)     # enum CommunicationStatus
+    # Why a failed message failed, in words the sender can act on. A bare
+    # "Failed" in the log sent people to the SMS provider when the real cause
+    # was a blank phone number, an exhausted platform pool, or a sender ID the
+    # administrator had switched off — none of which the provider knows about.
+    failure_reason      = Column(String(255), nullable=True)
     provider_message_id = Column(String(80), nullable=True)     # FluxSMS / SendGrid id
     sent_at             = Column(DateTime, nullable=True)
 
@@ -3202,6 +3223,7 @@ class CommunicationLog(CreatedAtMixin, Base):
             "uses_own_sender":     self.uses_own_sender,
             "platform_cost":       _serialise(self.platform_cost),
             "status":              self.status,
+            "failure_reason":      self.failure_reason,
             "provider_message_id": self.provider_message_id,
             "sent_at":             _serialise(self.sent_at),
             "created_at":          _serialise(self.created_at),
@@ -4823,13 +4845,17 @@ class LeaseStatus(str, enum.Enum):
       draft     → sent → submitted → approved        (tenant signs in the portal)
                               ↘ rejected → submitted (returned to be corrected)
       uploaded                                       (signed on paper, scanned in)
+
+    Any un-actioned agreement is `superseded` the moment a newer one is issued
+    for the same tenancy, so the tenant is only ever asked to sign one thing.
     """
-    draft     = "draft"       # prepared, not yet sent to the tenant
-    sent      = "sent"        # with the tenant, awaiting their details + signature
-    submitted = "submitted"   # signed by the tenant, awaiting the landlord's review
-    rejected  = "rejected"    # returned to the tenant to correct and resubmit
-    approved  = "approved"    # countersigned; downloadable by both sides
-    uploaded  = "uploaded"    # signed on paper and scanned in; downloadable by both
+    draft      = "draft"       # prepared, not yet sent to the tenant
+    sent       = "sent"        # with the tenant, awaiting their details + signature
+    submitted  = "submitted"   # signed by the tenant, awaiting the landlord's review
+    rejected   = "rejected"    # returned to the tenant to correct and resubmit
+    approved   = "approved"    # countersigned; downloadable by both sides
+    uploaded   = "uploaded"    # signed on paper and scanned in; downloadable by both
+    superseded = "superseded"  # replaced by a newer agreement before it was signed
 
 
 class LeaseSource(str, enum.Enum):
@@ -4840,7 +4866,8 @@ class LeaseSource(str, enum.Enum):
 # The statuses where the tenant may see and download their own lease. A draft
 # or a lease still in review is deliberately not among them: showing a tenant a
 # document the landlord has not accepted invites arguments about which version
-# is binding.
+# is binding. `superseded` is likewise absent — it is a replaced draft, and
+# putting it in front of a tenant is precisely the confusion it exists to end.
 TENANT_VISIBLE_LEASE_STATUSES = (
     LeaseStatus.sent.value,
     LeaseStatus.submitted.value,
@@ -4924,6 +4951,18 @@ class LeaseAgreement(TimestampMixin, Base):
     @property
     def awaiting_tenant(self) -> bool:
         return self.status in (LeaseStatus.sent.value, LeaseStatus.rejected.value)
+
+    @property
+    def is_outstanding(self) -> bool:
+        """
+        Still in play, and therefore superseded when a newer lease is issued.
+
+        A draft counts: leaving one behind means the next "Prepare" produces a
+        second unsent agreement for the same tenancy and nobody can say which is
+        current.
+        """
+        return self.status in (LeaseStatus.draft.value, LeaseStatus.sent.value,
+                               LeaseStatus.rejected.value)
 
     # NOTE: `property` below shadows the built-in inside this class body, so the
     # two @property helpers MUST stay above it. Keeping the relationship named

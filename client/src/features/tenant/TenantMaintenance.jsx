@@ -13,6 +13,7 @@ import { useGetPortalMaintenanceRequestsQuery, useCreatePortalMaintenanceRequest
 import { MAINTENANCE_CATEGORIES } from "@/utils/constants";
 import { formatDate } from "@/utils/dateFormatter";
 import { isRequired } from "@/utils/validators";
+import { withFiles } from "@/utils/multipart";
 
 // §6.7 — open + list maintenance requests; visible to the landlord the moment they're created.
 export default function TenantMaintenance() {
@@ -35,13 +36,16 @@ export default function TenantMaintenance() {
     }
     setError("");
     try {
-      await createRequest({ ...form, image }).unwrap();
+      // Multipart when there is a photo. Posting the File inside a JSON body
+      // dropped it silently — the request reached the office with no image and
+      // neither side was told, which is why tenant photos "never arrived".
+      await createRequest(withFiles({ ...form, image }, ["image"])).unwrap();
       toast("Maintenance request submitted.", { type: "success" });
       setForm({ category: "plumbing", summary: "", description: "" });
       setImage(null);
       setIsFormOpen(false);
-    } catch {
-      toast("Could not submit your request.", { type: "error" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not submit your request.", { type: "error" });
     }
   };
 
@@ -50,6 +54,21 @@ export default function TenantMaintenance() {
     { key: "summary", header: "Summary" },
     { key: "category", header: "Category" },
     { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
+    // Their own proof that the photo arrived. Without it a tenant has no way to
+    // tell a picture that uploaded from one that vanished.
+    {
+      key: "image_url", header: "Photo",
+      render: (row) =>
+        row.image_url ? (
+          <a href={row.image_url} target="_blank" rel="noopener noreferrer"
+             className="text-secondary underline-offset-2 hover:underline">
+            <img src={row.image_url} alt={`Photo attached to: ${row.summary}`}
+                 className="h-10 w-10 rounded-lg object-cover" />
+          </a>
+        ) : (
+          <span className="text-white/30">—</span>
+        ),
+    },
   ];
 
   return (

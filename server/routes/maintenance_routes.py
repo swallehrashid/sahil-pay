@@ -191,15 +191,32 @@ def get_request(request_id):
 @require_landlord_or_team()
 @require_permission("maintenance", "edit")
 def update_request(request_id):
-    """Update a maintenance request (status, category, description, etc.)."""
+    """
+    Update a maintenance request (status, category, description, photo).
+
+    Accepts multipart/form-data as well as JSON, for the same reason the create
+    route does: a photo cannot travel in a JSON body, so a JSON-only update
+    meant the office could never attach or replace one after the fact.
+    """
     landlord_id = get_current_landlord_id()
     req         = _get_or_404(landlord_id, request_id)
-    data        = request.get_json(silent=True) or {}
     before      = req.to_dict()
+
+    if request.is_json:
+        data      = request.get_json(silent=True) or {}
+        image_url = None
+    else:
+        data      = request.form.to_dict()
+        image     = request.files.get("image")
+        image_url = upload_to_s3(image, folder=f"maintenance/{landlord_id}",
+                                 profile="image") if image else None
 
     for field in ["status", "category", "summary", "description", "image_url"]:
         if field in data:
             setattr(req, field, data[field])
+    # A newly uploaded file wins over any image_url in the same body.
+    if image_url:
+        req.image_url = image_url
 
     db.session.commit()
 
