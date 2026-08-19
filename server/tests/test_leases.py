@@ -624,3 +624,206 @@ def test_no_downloadable_lease_returns_none(db_session, world):
     leases.send_to_tenant(lease)
 
     assert leases.latest_downloadable_for_tenant(tenant.id) is None
+
+
+# ---------------------------------------------------------------------------
+# One agreement at a time
+# ---------------------------------------------------------------------------
+#
+# Preparing a lease looks, to a landlord, like it did nothing: the next move is
+# the tenant's, so the screen just says "With the tenant". The natural response
+# is to press Prepare again, and every press used to leave another agreement in
+# `sent` forever. current_for_tenant() answers "what must I sign?" with the
+# newest of those — so the moment anything was approved, the tenant was shown a
+# DIFFERENT unsigned lease and lost the download for the one they had just
+# completed. From the office that read as "the tenant never signed"; from the
+# tenant's phone, as "the lease never arrived".
+
+def test_sending_a_lease_retires_the_earlier_unsigned_ones(db_session, world):
+    tenant = world["tenants"][0]
+
+    first = leases.create_for_tenant(tenant)
+    leases.send_to_tenant(first)
+    second = leases.create_for_tenant(tenant)
+    leases.send_to_tenant(second)
+    db_session.flush()
+
+    assert first.status == LeaseStatus.superseded.value
+    assert second.status == LeaseStatus.sent.value
+    # And the tenant is asked for exactly one signature.
+    assert leases.current_for_tenant(tenant.id).id == second.id
+
+
+def test_an_untouched_draft_is_retired_too(db_session, world):
+    """
+    Otherwise the next Prepare produces a second unsent agreement for the same
+    tenancy and nobody can say which one is current.
+    """
+    tenant = world["tenants"][0]
+    stale_draft = leases.create_for_tenant(tenant)
+    replacement = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    db_session.flush()
+
+    assert stale_draft.status == LeaseStatus.superseded.value
+    assert replacement.status == LeaseStatus.sent.value
+
+
+def test_a_signed_lease_is_never_swept_aside_by_a_new_one(db_session, world):
+    """
+    A signature is evidence. Pressing Prepare again must not discard it — the
+    supersede rule stops at anything the tenant has actually signed.
+    """
+    tenant = world["tenants"][0]
+    signed = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    leases.submit(signed, signed_name="Ten Zero", field_values={},
+                  ip="41.90.1.1", user_agent="pytest")
+    db_session.flush()
+
+    leases.send_to_tenant(leases.create_for_tenant(tenant))
+    db_session.flush()
+
+    assert signed.status == LeaseStatus.submitted.value
+    assert signed.signed_name == "Ten Zero"
+
+
+def test_a_paper_lease_stops_the_tenant_being_asked_to_sign_twice(db_session, world):
+    tenant = world["tenants"][0]
+    waiting = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    db_session.flush()
+
+    leases.attach_scan(tenant, io.BytesIO(b"%PDF-1.4 signed on paper"),
+                       filename="signed.pdf")
+    db_session.flush()
+
+    assert waiting.status == LeaseStatus.superseded.value
+
+
+def test_a_superseded_lease_is_invisible_to_the_tenant(client, db_session, world):
+    """It is a replaced draft. Putting it in front of a tenant is precisely the
+    confusion superseding exists to end."""
+    tenant = world["tenants"][0]
+    old = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    new = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    db_session.commit()
+
+    assert old.status == LeaseStatus.superseded.value
+    response = client.get("/api/portal/lease", headers=_auth(world["tenant_tokens"][0]))
+    assert response.status_code == 200
+    assert response.get_json()["data"]["lease"]["id"] == new.id
+
+
+def test_after_approval_the_tenant_sees_the_lease_they_signed(client, db_session, world):
+    """
+    The exact reported failure, end to end: sign, get approved, and the portal
+    must show the approved agreement — not drag the tenant back to a stale one.
+    """
+    tenant = world["tenants"][0]
+    leases.send_to_tenant(leases.create_for_tenant(tenant))      # the zombie
+    current = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    leases.submit(current, signed_name="Ten Zero", field_values={},
+                  ip="41.90.1.1", user_agent="pytest")
+    leases.approve(current)
+    db_session.commit()
+
+    response = client.get("/api/portal/lease", headers=_auth(world["tenant_tokens"][0]))
+    body = response.get_json()["data"]
+    assert body["lease"]["id"] == current.id
+    assert body["lease"]["status"] == LeaseStatus.approved.value
+    assert body["lease"]["is_downloadable"] is True
+
+
+def test_the_portal_offers_the_signed_copy_while_a_renewal_is_waiting(client, db_session, world):
+    """
+    During a renewal the lease that MATTERS and the lease they may KEEP are two
+    different documents. Reporting downloadability off the current lease alone
+    hid the button for an agreement the download endpoint would happily serve.
+    """
+    tenant = world["tenants"][0]
+    signed = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    leases.submit(signed, signed_name="Ten Zero", field_values={},
+                  ip="41.90.1.1", user_agent="pytest")
+    leases.approve(signed)
+    renewal = leases.send_to_tenant(leases.create_for_tenant(tenant))
+    db_session.commit()
+
+    body = client.get("/api/portal/lease",
+                      headers=_auth(world["tenant_tokens"][0])).get_json()["data"]
+    # What they must act on is the renewal…
+    assert body["lease"]["id"] == renewal.id
+    assert body["lease"]["is_downloadable"] is False
+    # …and the copy they may still take is last year's signed agreement.
+    assert body["signed_copy"]["id"] == signed.id
+    assert body["signed_copy"]["status"] == LeaseStatus.approved.value
+
+    download = client.get("/api/portal/lease/download",
+                          headers=_auth(world["tenant_tokens"][0]))
+    assert download.status_code == 200
+
+
+def test_no_signed_copy_is_reported_when_there_is_none(client, db_session, world):
+    tenant = world["tenants"][0]
+    leases.send_to_tenant(leases.create_for_tenant(tenant))
+    db_session.commit()
+
+    body = client.get("/api/portal/lease",
+                      headers=_auth(world["tenant_tokens"][0])).get_json()["data"]
+    assert body["signed_copy"] is None
+
+
+# ---------------------------------------------------------------------------
+# Telling the tenant
+# ---------------------------------------------------------------------------
+
+def test_sending_a_lease_notifies_the_tenant(client, db_session, world):
+    """
+    Sending used to change a status and nothing else — no notification, no
+    bell. The agreement appeared on a portal page the tenant had no reason to
+    open, so from the office it looked sent and from the tenant's phone nothing
+    had happened. That is half of "the lease never reaches the tenant".
+    """
+    from models import Notification
+
+    tenant = world["tenants"][0]
+    lease = leases.create_for_tenant(tenant)
+    db_session.commit()
+
+    response = client.post(f"/api/leases/{lease.id}/send",
+                           headers=_auth(world["landlord_token"]))
+    assert response.status_code == 200
+
+    note = (db_session.query(Notification)
+            .filter_by(entity_type="lease", entity_id=lease.id)
+            .order_by(Notification.id.desc()).first())
+    assert note is not None, "the tenant was never told a lease had arrived"
+    assert note.recipient_user_id == tenant.user_id
+    assert "sign" in f"{note.title} {note.body}".lower()
+    assert note.link == "/portal/lease"
+
+
+def test_preparing_and_sending_in_one_step_also_notifies(client, db_session, world):
+    """The Prepare dialog sends by default, and that path must tell them too."""
+    from models import Notification
+
+    tenant = world["tenants"][0]
+    response = client.post(f"/api/tenants/{tenant.id}/leases",
+                           headers=_auth(world["landlord_token"]),
+                           json={"send": True})
+    assert response.status_code == 201
+    lease_id = response.get_json()["data"]["id"]
+
+    assert (db_session.query(Notification)
+            .filter_by(entity_type="lease", entity_id=lease_id).count()) == 1
+
+
+def test_preparing_a_draft_does_not_notify_anyone(client, db_session, world):
+    """A draft is not the tenant's business until it is sent."""
+    from models import Notification
+
+    tenant = world["tenants"][0]
+    response = client.post(f"/api/tenants/{tenant.id}/leases",
+                           headers=_auth(world["landlord_token"]),
+                           json={"send": False})
+    lease_id = response.get_json()["data"]["id"]
+
+    assert (db_session.query(Notification)
+            .filter_by(entity_type="lease", entity_id=lease_id).count()) == 0

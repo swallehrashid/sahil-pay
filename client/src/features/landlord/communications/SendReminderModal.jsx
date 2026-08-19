@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
 import Checkbox from "@/components/ui/Checkbox";
@@ -17,23 +17,37 @@ const CHANNELS = [
   { value: "whatsapp", label: "WhatsApp" },
 ];
 
+// The shell stays mounted while closed (`tenant` is null between openings);
+// the body is keyed on the tenant, so each opening gets its own fresh state.
+//
+// That keying replaces an effect that reset `channels` and `message` whenever
+// `tenant` changed. The effect's dependency list included `defaultChannels ??
+// ["sms"]`'s caller-side array, which is a new value on every parent render —
+// so it re-ran constantly, and any half-typed message was liable to be wiped
+// while the landlord was still writing it.
 export default function SendReminderModal({ tenant, onClose, defaultChannels }) {
-  const isOpen = Boolean(tenant);
+  return (
+    <Modal isOpen={Boolean(tenant)} onClose={onClose} title="Send balance reminder">
+      {tenant && (
+        <ReminderForm
+          key={tenant.id}
+          tenant={tenant}
+          onClose={onClose}
+          defaultChannels={defaultChannels}
+        />
+      )}
+    </Modal>
+  );
+}
+
+function ReminderForm({ tenant, onClose, defaultChannels }) {
   // Balance comes from the communications endpoint so a team member holding
   // `messages` can see it — the settings one is gated on `settings`.
-  const { data: smsProvider } = useGetSmsBalanceQuery(undefined, { skip: !isOpen });
+  const { data: smsProvider } = useGetSmsBalanceQuery();
   const [sendReminder, { isLoading }] = useSendTenantReminderMutation();
 
   const [channels, setChannels] = useState(defaultChannels ?? ["sms"]);
   const [message, setMessage] = useState("");
-
-  // Reset each time the modal opens for a new tenant.
-  useEffect(() => {
-    if (tenant) {
-      setChannels(defaultChannels ?? ["sms"]);
-      setMessage("");
-    }
-  }, [tenant, defaultChannels]);
 
   const toggle = (value) =>
     setChannels((prev) => (prev.includes(value) ? prev.filter((c) => c !== value) : [...prev, value]));
@@ -53,50 +67,46 @@ export default function SendReminderModal({ tenant, onClose, defaultChannels }) 
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Send balance reminder">
-      {tenant && (
-        <div className="space-y-4">
-          <p className="text-sm text-white/60">
-            To <span className="text-white/90">{tenant.first_name} {tenant.last_name}</span>. Choose how to send it.
-          </p>
+    <div className="space-y-4">
+      <p className="text-sm text-white/60">
+        To <span className="text-white/90">{tenant.first_name} {tenant.last_name}</span>. Choose how to send it.
+      </p>
 
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Channels</p>
-            <div className="flex flex-wrap gap-x-5 gap-y-2">
-              {CHANNELS.map((ch) => (
-                <Checkbox
-                  key={ch.value}
-                  name={`ch_${ch.value}`}
-                  label={ch.label}
-                  checked={channels.includes(ch.value)}
-                  onChange={() => toggle(ch.value)}
-                />
-              ))}
-            </div>
-            {channels.includes("sms") && smsProvider && (
-              <p className="mt-2 text-xs text-white/40">
-                SMS balance: {smsProvider.sms_balance ?? 0} credit(s) · cost depends on message length (words → credits)
-              </p>
-            )}
-          </div>
-
-          <Textarea
-            label="Message (optional)"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Leave blank to use the default balance-reminder message."
-          />
-
-          <div className="flex justify-end gap-3 pt-1">
-            <Button variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button onClick={send} isLoading={isLoading}>
-              Send reminder
-            </Button>
-          </div>
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Channels</p>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          {CHANNELS.map((ch) => (
+            <Checkbox
+              key={ch.value}
+              name={`ch_${ch.value}`}
+              label={ch.label}
+              checked={channels.includes(ch.value)}
+              onChange={() => toggle(ch.value)}
+            />
+          ))}
         </div>
-      )}
-    </Modal>
+        {channels.includes("sms") && smsProvider && (
+          <p className="mt-2 text-xs text-white/40">
+            SMS balance: {smsProvider.sms_balance ?? 0} credit(s) · cost depends on message length (words → credits)
+          </p>
+        )}
+      </div>
+
+      <Textarea
+        label="Message (optional)"
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        placeholder="Leave blank to use the default balance-reminder message."
+      />
+
+      <div className="flex justify-end gap-3 pt-1">
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button onClick={send} isLoading={isLoading}>
+          Send reminder
+        </Button>
+      </div>
+    </div>
   );
 }

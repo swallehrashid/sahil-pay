@@ -101,10 +101,15 @@ export const allocationApiSlice = apiSlice.injectEndpoints({
 
     // --- Payouts -----------------------------------------------------------
     previewPayouts: builder.query({
-      query: ({ period_start, period_end } = {}) => ({
+      // `include` is a comma-joined list of charge-type keys, omitted entirely
+      // until the operator has actually chosen — an empty string would read as
+      // "nothing", and rent is never nothing.
+      query: ({ period_start, period_end, include, commission_basis } = {}) => ({
         url: "/payouts/preview",
         params: { ...(period_start ? { period_start } : {}),
-                  ...(period_end ? { period_end } : {}) },
+                  ...(period_end ? { period_end } : {}),
+                  ...(include?.length ? { include: include.join(",") } : {}),
+                  ...(commission_basis ? { commission_basis } : {}) },
       }),
       transformResponse: unwrap,
       providesTags: ["Payout"],

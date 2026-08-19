@@ -56,11 +56,24 @@ def render_payout_statement_pdf(payout) -> bytes:
         for line in (payout.lines or [])
     )
 
-    breakdown = [
-        ("Total collected", payout.total_collected, False),
-        ("Rent collected (commission &amp; tax base)", payout.rent_collected_base, False),
-        ("Less: management commission", payout.commission_amount, True),
-    ]
+    # Say which base the commission was charged on. An owner comparing two
+    # statements at different rates deserves to see that the RULE did not
+    # change — the base did.
+    basis = (payout.commission_basis or "rent")
+    if basis == "collected":
+        commission_label = "Less: management commission (on total collected)"
+        base_rows = [
+            ("Total collected (commission base)", payout.total_collected, False),
+            ("Rent collected (tax base)", payout.rent_collected_base, False),
+        ]
+    else:
+        commission_label = "Less: management commission (on rent collected)"
+        base_rows = [
+            ("Total collected", payout.total_collected, False),
+            ("Rent collected (commission &amp; tax base)", payout.rent_collected_base, False),
+        ]
+
+    breakdown = [*base_rows, (commission_label, payout.commission_amount, True)]
     if payout.other_deductions and float(payout.other_deductions) > 0:
         breakdown.append(("Less: other deductions", payout.other_deductions, True))
 

@@ -1,9 +1,14 @@
-import { forwardRef } from "react";
+import { forwardRef, useId } from "react";
 import { Check } from "lucide-react";
 import clsx from "clsx";
 
 const Checkbox = forwardRef(function Checkbox({ label, className, id, ...props }, ref) {
-  const checkboxId = id || props.name;
+  // useId() so a caller that passes neither id nor name still gets a label
+  // bound to its input. Without it htmlFor and id were both undefined: the
+  // label toggled nothing when clicked, and announced nothing to a screen
+  // reader. Same fix Input already carries.
+  const generatedId = useId();
+  const checkboxId = id || props.name || generatedId;
   return (
     <label
       htmlFor={checkboxId}

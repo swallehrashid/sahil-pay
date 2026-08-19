@@ -36,6 +36,10 @@ const STATUS_TONE = {
   rejected:  { tone: "danger",  label: "Returned" },
   approved:  { tone: "success", label: "Approved" },
   uploaded:  { tone: "success", label: "Signed on paper" },
+  // Retired automatically when a newer agreement was issued for the same
+  // tenancy. Kept in the list rather than hidden: "why did that one never come
+  // back?" deserves an answer, and the answer is here.
+  superseded: { tone: "muted",  label: "Replaced" },
 };
 
 const STATUS_FILTERS = [
@@ -210,6 +214,11 @@ function PrepareLeaseModal({ isOpen, onClose, tenants }) {
           The agreement is built from your lease template in Settings → Documents.
           If you haven't written one, a complete standard Kenyan tenancy agreement
           is used.
+        </p>
+        <p className="text-sm text-white/50">
+          Sending this replaces any earlier agreement still waiting on this
+          tenant, so they are only ever asked to sign one. Anything they have
+          already signed is untouched.
         </p>
         <label className="flex cursor-pointer items-center gap-2 text-sm text-white/70">
           <input type="checkbox" checked={sendNow} className="h-4 w-4 accent-secondary"

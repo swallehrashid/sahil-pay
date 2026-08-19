@@ -480,14 +480,38 @@ def delete_commission_rule(rule_id: int):
 @require_landlord_or_team()
 @require_permission("payments", "view")
 def preview_payouts_route():
+    """
+    What each owner is owed for a period.
+
+    Query: ?period_start= &period_end=
+           &include=rent,deposit,cat:4   which charge types count as collected
+                                         (omit for all; rent is always in)
+           &commission_basis=rent|collected
+    """
     landlord = _landlord()
     today = date.today()
     start = _parse_date(request.args.get("period_start"), today.replace(day=1))
     end = _parse_date(request.args.get("period_end"), today)
+
+    # getlist first so include=a&include=b works as well as include=a,b.
+    raw_include = request.args.getlist("include") or None
+    if raw_include and len(raw_include) == 1:
+        raw_include = raw_include[0]
+    basis = payout_service.normalise_basis(request.args.get("commission_basis"))
+    include = payout_service.normalise_include(raw_include)
+
     return success({
         "period_start": start.isoformat(),
         "period_end": end.isoformat(),
-        "payouts": payout_service.preview_payouts(landlord.id, start, end),
+        # Everything that produced money in the window — the checklist the
+        # operator ticks. Independent of `include` on purpose: unticking a box
+        # must not make it disappear from the list you unticked it in.
+        "available_categories": payout_service.available_categories(
+            landlord.id, start, end),
+        "included_categories": sorted(include) if include is not None else None,
+        "commission_basis": basis,
+        "payouts": payout_service.preview_payouts(
+            landlord.id, start, end, include=include, commission_basis=basis),
     })
 
 
@@ -502,14 +526,24 @@ def generate_payouts_route():
     start = _parse_date(data.get("period_start"), today.replace(day=1))
     end = _parse_date(data.get("period_end"), today)
 
+    basis = payout_service.normalise_basis(data.get("commission_basis"))
+    include = payout_service.normalise_include(data.get("include_categories"))
+
     payouts = payout_service.generate_payouts(
         landlord.id, start, end,
         property_ids=data.get("property_ids"), created_by_user_id=_actor_id(),
+        include=include, commission_basis=basis,
     )
     db.session.commit()
+    # The audit line names both choices. A payout run is a money decision, and
+    # "generated 3 payouts" does not let anyone reconstruct which one was made.
+    included_text = ", ".join(sorted(include)) if include is not None else "every charge type"
     record_audit(actor_user_id=_actor_id(), landlord_id=landlord.id,
                  action="payouts_generate", entity_type="settings", entity_id=None,
-                 description=f"Generated {len(payouts)} payouts for {start}–{end}.")
+                 description=(f"Generated {len(payouts)} payouts for {start}–{end}; "
+                              f"collected = {included_text}; "
+                              f"commission charged on "
+                              f"{'the total collected' if basis == 'collected' else 'rent only'}."))
     return success([p.to_dict() for p in payouts],
                    message=f"Generated {len(payouts)} "
                            f"{'payout' if len(payouts) == 1 else 'payouts'}.")
