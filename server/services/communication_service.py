@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 _SMS_UNIT_CHARGE = Decimal("1.00")
 
 
+def _no_destination_reason(channel: str) -> str:
+    """Say WHICH detail is missing. "Failed" alone sends people looking at the
+    provider when the actual problem is a blank phone number on the tenancy."""
+    if channel == "email":
+        return "No email address is recorded for this recipient."
+    if channel == "in_app":
+        return "No Sahil Pay account is linked to this recipient."
+    return "No phone number is recorded for this recipient."
+
+
 def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
                      *, email_subject: str | None = None, email_html: str | None = None,
                      recipient_type: str = "tenant"):
@@ -87,6 +97,12 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
     sms_api_key = None
     provider_message_id = None
     blocked = None   # reason string when a send can't proceed
+    # Why a message failed, in words the sender can act on. Held separately
+    # from `blocked` because a send can also fail AFTER passing the gates — no
+    # phone number on the tenancy, a provider rejection — and every one of
+    # those used to surface as an unexplained "Failed" in the log while the
+    # sender was shown a green "Sent to 1 recipient".
+    failure_reason = None
     landlord = None
     cfg = None
     econ = None
@@ -131,9 +147,11 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
     if channel == "sms" and blocked:
         logger.warning("dispatch_message: SMS to tenant %s blocked — %s", tenant.id, blocked)
         status = "failed"
+        failure_reason = blocked
     elif channel not in ("sms", "email", "whatsapp", "in_app"):
         logger.warning("dispatch_message: unknown channel '%s'", channel)
         status = "failed"
+        failure_reason = f"'{channel}' is not a channel this system can send on."
     elif channel == "in_app":
         # Deliberately BEFORE the simulation branch. Simulation exists to avoid
         # calling an external provider and spending real money; an in-app
@@ -141,6 +159,8 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         # environment silently produced no notification at all.
         if not destination:
             status = "failed"          # no linked account to notify
+            failure_reason = ("No Sahil Pay account is linked to this recipient, "
+                              "so there is nowhere to deliver an in-app message.")
         else:
             from services.notification_service import notify
             notify(
@@ -156,12 +176,18 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         # deliver to, failed otherwise. Flip COMMS_SIMULATION_MODE off + add the
         # provider key to switch to real sending with no other change.
         status = "delivered" if destination else "failed"
+        if status == "failed":
+            failure_reason = _no_destination_reason(channel)
         logger.info("SIMULATED %s to tenant %s → %s (from %s, %s)", channel, tenant.id, status, sender_id or "-", destination or "no destination")
     elif not destination:
         status = "failed"
+        failure_reason = _no_destination_reason(channel)
     elif channel == "sms":
         provider_message_id = send_sms(tenant.phone, content, sender_id=sender_id, api_key=sms_api_key)
         status = "delivered" if provider_message_id else "failed"
+        if status == "failed":
+            failure_reason = ("The SMS provider did not accept the message. "
+                              "Check the sender ID is approved on the network.")
     elif channel == "email":
         # Every landlord→tenant email is Sahil-themed: use the caller's themed
         # HTML when given, else wrap the plain content in the branded shell.
@@ -179,11 +205,14 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
                 footer_note=f"Sent by {sender_name} via Sahil Pay.",
             )
         status = "delivered" if _send_email(tenant.email, subject, html_body) else "failed"
+        if status == "failed":
+            failure_reason = "The email provider rejected the message."
     elif channel == "whatsapp":
         # Real WhatsApp Business API not wired yet — nothing is delivered until
         # it is; simulation mode above is the working path for now.
         logger.info("WhatsApp [not implemented] to %s: %s", getattr(tenant, "phone", None), content)
         status = "failed"
+        failure_reason = "WhatsApp sending is not connected on this system yet."
 
     # Charge/decrement only AFTER the outcome is known, and only when the SMS
     # actually went out (or was simulated as delivered) — a failed send never
@@ -218,6 +247,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         uses_own_sender=uses_own,
         platform_cost=platform_cost,
         status=status,
+        failure_reason=failure_reason,
         provider_message_id=provider_message_id,
         sent_at=datetime.utcnow(),
     )

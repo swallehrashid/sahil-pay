@@ -684,3 +684,210 @@ def test_existing_accounts_keep_phone_mode(estate):
     unchanged; only new accounts default to unit_code.
     """
     assert estate["landlord"].allocation_method == AllocationMethod.phone.value
+
+
+# ===========================================================================
+# What counts as "Collected", and what commission is charged on
+# ===========================================================================
+#
+# "Collected" was every shilling that arrived, and commission was always rent.
+# Both are commercial decisions rather than arithmetic — a managing agent does
+# not necessarily remit a deposit or a water float they are holding — so the run
+# now takes an explicit set of charge types and an explicit commission base.
+# These tests pin the two rules that must never drift: rent is always in the
+# set, and the tax base stays on rent whatever commission was charged on.
+
+def _rent_and_deposit(estate, *, rent="100000", deposit="30000"):
+    """One invoice carrying rent and a deposit, both paid in full."""
+    landlord = estate["landlord"]
+    tenant = estate["single"]
+    n = _uniq()
+    invoice = Invoice(
+        invoice_number=f"INV-{n}", landlord_id=landlord.id, tenant_id=tenant.id,
+        unit_id=tenant.unit_id, property_id=tenant.unit.property_id,
+        invoice_type=InvoiceType.monthly.value, issue_date=date.today(),
+        status=InvoiceStatus.open.value,
+        total_amount=Decimal(rent) + Decimal(deposit),
+        amount_paid=Decimal("0"), balance=Decimal(rent) + Decimal(deposit),
+    )
+    db.session.add(invoice)
+    db.session.flush()
+
+    rent_cat = rent_category_id(landlord.id)
+
+    def line(item, amount, subcategory):
+        li = InvoiceLineItem(invoice_id=invoice.id, item=item, quantity=1,
+                             unit_price=Decimal(amount), amount=Decimal(amount),
+                             category_id=rent_cat, subcategory=subcategory)
+        db.session.add(li)
+        db.session.flush()
+        return li
+
+    rent_line = line("Rent", rent, "current")
+    deposit_line = line("Deposit", deposit, "deposit")
+
+    payment = Payment(
+        payment_ref=f"PMT-{n}", landlord_id=landlord.id, tenant_id=tenant.id,
+        unit_id=tenant.unit_id, property_id=tenant.unit.property_id,
+        amount=Decimal(rent) + Decimal(deposit), payment_date=date.today(),
+        status=PaymentStatus.confirmed.value, source=PaymentSource.mpesa.value,
+    )
+    db.session.add(payment)
+    db.session.flush()
+    for li, amount in ((rent_line, rent), (deposit_line, deposit)):
+        db.session.add(PaymentAllocation(
+            payment_id=payment.id, invoice_id=invoice.id, line_item_id=li.id,
+            amount_allocated=Decimal(amount), method="auto"))
+    db.session.commit()
+
+
+def _ten_percent(estate):
+    db.session.add(CommissionRule(
+        landlord_id=estate["landlord"].id,
+        scope_type=CommissionScopeType.landlord.value, scope_id=None,
+        rate_type=CommissionRateType.percentage.value, rate_value=Decimal("10")))
+    db.session.flush()
+
+
+def _window():
+    today = date.today()
+    return today - timedelta(days=1), today + timedelta(days=1)
+
+
+def _preview(estate, **kwargs):
+    start, end = _window()
+    previews = payout_service.preview_payouts(
+        estate["landlord"].id, start, end, **kwargs)
+    return next(p for p in previews if p["owner_id"] == estate["owner"].id)
+
+
+def test_15_the_period_offers_only_the_charge_types_that_produced_money(estate):
+    _rent_and_deposit(estate)
+    start, end = _window()
+    rows = payout_service.available_categories(estate["landlord"].id, start, end)
+    by_key = {r["key"]: r for r in rows}
+
+    assert by_key["rent"]["amount"] == Decimal("100000.00")
+    assert by_key["deposit"]["amount"] == Decimal("30000.00")
+    # Rent is offered as required and listed first — it cannot be unticked, and
+    # burying it would make the total on screen unaccountable.
+    assert by_key["rent"]["required"] is True
+    assert rows[0]["key"] == "rent"
+    assert by_key["deposit"]["required"] is False
+
+
+def test_16_unticking_a_charge_type_takes_it_out_of_collected(estate):
+    _ten_percent(estate)
+    _rent_and_deposit(estate)
+
+    everything = _preview(estate)
+    assert everything["total_collected"] == Decimal("130000.00")
+
+    rent_only = _preview(estate, include=["rent"])
+    assert rent_only["total_collected"] == Decimal("100000.00")
+    assert rent_only["included_categories"] == ["rent"]
+    # The deposit left Collected, so it leaves the owner's net too — it is the
+    # agent who is still holding it.
+    assert rent_only["net_payable"] == Decimal("90000.00")
+
+
+def test_17_rent_is_forced_into_the_set_however_it_is_asked_for(estate):
+    _rent_and_deposit(estate)
+
+    # An empty set, a set that names only the deposit, and a caller that tries
+    # to drop rent explicitly all still include rent. A payout with no rent in
+    # it is not a payout.
+    assert payout_service.normalise_include([]) == {"rent"}
+    assert payout_service.normalise_include(["deposit"]) == {"deposit", "rent"}
+    assert payout_service.normalise_include("deposit") == {"deposit", "rent"}
+    # None means "everything", which is what a client written before the picker
+    # existed sends.
+    assert payout_service.normalise_include(None) is None
+
+    deposit_only = _preview(estate, include=["deposit"])
+    assert deposit_only["total_collected"] == Decimal("130000.00")
+
+
+def test_18_commission_basis_switches_the_base_but_never_the_tax_base(estate):
+    _ten_percent(estate)
+    _rent_and_deposit(estate)
+
+    on_rent = _preview(estate, commission_basis="rent")
+    assert on_rent["commission_basis"] == "rent"
+    assert on_rent["commission_base"] == Decimal("100000.00")
+    assert on_rent["commission_amount"] == Decimal("10000.00")
+
+    on_total = _preview(estate, commission_basis="collected")
+    assert on_total["commission_basis"] == "collected"
+    assert on_total["commission_base"] == Decimal("130000.00")
+    assert on_total["commission_amount"] == Decimal("13000.00")
+
+    # MRI is a tax on RENTAL INCOME. Charging commission on the deposit is a
+    # commercial choice; taxing it is not one anybody may make.
+    assert on_rent["tax_amount"] == on_total["tax_amount"] == Decimal("7500.00")
+    assert on_total["rent_collected_base"] == Decimal("100000.00")
+
+
+def test_19_the_commission_base_is_only_what_was_ticked(estate):
+    """On the "collected" basis, an unticked charge type is not commissioned."""
+    _ten_percent(estate)
+    _rent_and_deposit(estate)
+
+    preview = _preview(estate, include=["rent"], commission_basis="collected")
+    assert preview["commission_base"] == Decimal("100000.00")
+    assert preview["commission_amount"] == Decimal("10000.00")
+
+
+def test_20_an_unrecognised_basis_falls_back_to_rent(estate):
+    """The conservative base, never the expensive one, when in doubt."""
+    for junk in ("", None, "gross", "TOTAL", "everything"):
+        assert payout_service.normalise_basis(junk) == "rent"
+    assert payout_service.normalise_basis("COLLECTED") == "collected"
+
+
+def test_21_a_generated_payout_records_the_choices_that_produced_it(estate):
+    """Six months later, "why is this commission different?" is answerable."""
+    _ten_percent(estate)
+    _rent_and_deposit(estate)
+
+    start, end = _window()
+    created = payout_service.generate_payouts(
+        estate["landlord"].id, start, end,
+        include=["rent", "deposit"], commission_basis="collected")
+    db.session.commit()
+
+    payout = next(p for p in created if p.owner_id == estate["owner"].id)
+    assert payout.commission_basis == "collected"
+    assert payout.commission_base == Decimal("130000.00")
+    assert payout.commission_amount == Decimal("13000.00")
+    assert sorted(payout.included_categories) == ["deposit", "rent"]
+
+    # And it reads back the same way through the API serialiser.
+    # to_dict() serialises money as strings, as every other endpoint does.
+    data = payout.to_dict()
+    assert data["commission_basis"] == "collected"
+    assert data["commission_base"] == "130000.00"
+
+
+def test_22_a_payout_from_before_the_picker_still_reads_as_the_old_rule(estate):
+    """
+    NULL means "generated under the old behaviour", not "unknown". The old
+    behaviour was: everything collected, commission on rent — so that is what
+    such a row reports, and its statement renders exactly as it always did.
+    """
+    _ten_percent(estate)
+    _rent_and_deposit(estate)
+
+    start, end = _window()
+    created = payout_service.generate_payouts(estate["landlord"].id, start, end)
+    db.session.commit()
+    payout = next(p for p in created if p.owner_id == estate["owner"].id)
+
+    payout.commission_basis = None
+    payout.commission_base = None
+    payout.included_categories = None
+    db.session.flush()
+
+    data = payout.to_dict()
+    assert data["commission_basis"] == "rent"
+    assert data["commission_base"] == data["rent_collected_base"]

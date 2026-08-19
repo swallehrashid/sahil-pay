@@ -44,6 +44,10 @@ from services.audit_service import record_audit
 lease_bp = Blueprint("leases", __name__, url_prefix="/api")
 
 
+def _serialise_dt(value):
+    return value.isoformat() if value is not None else None
+
+
 def _actor_id():
     try:
         return int(get_jwt_identity())
@@ -194,6 +198,12 @@ def create_lease(tenant_id: int):
         + (" and sent to them." if body.get("send") else "."),
     )
     db.session.commit()
+
+    if body.get("send"):
+        _notify_tenant(lease, "Your tenancy agreement is ready to sign",
+                       "Your landlord has sent you a tenancy agreement. Open it in your "
+                   "portal to read it through and sign.")
+        db.session.commit()
     return success(lease.to_dict(include_body=True), status=201)
 
 
@@ -219,6 +229,15 @@ def send_lease(lease_id: int):
 
     record_audit(_actor_id(), landlord_id, "send_lease", "lease", lease.id,
                  "Lease sent to the tenant to sign.")
+    db.session.commit()
+
+    # TELL THEM. Sending used to change a status and nothing else: no
+    # notification, no bell, nothing on the dashboard — the agreement simply
+    # appeared on a portal page the tenant had no reason to open. From the
+    # office it looked sent; from the tenant's phone nothing had happened.
+    _notify_tenant(lease, "Your tenancy agreement is ready to sign",
+                   "Your landlord has sent you a tenancy agreement. Open it in your "
+                   "portal to read it through and sign.")
     db.session.commit()
     return success(lease.to_dict(), message="Sent to the tenant.")
 
@@ -306,7 +325,13 @@ def download_lease(lease_id: int):
 
 
 def _notify_tenant(lease, title: str, body: str) -> None:
-    """Tell the tenant their lease moved. Never breaks the request if it fails."""
+    """
+    Tell the tenant their lease moved. Never breaks the request if it fails —
+    a notification that cannot be written must not undo a lease that was sent.
+
+    A tenant with no linked user account (OTP-only) has no bell to ring, so
+    nothing is sent; they still see the agreement when they open the portal.
+    """
     from services.notification_service import notify
 
     tenant = lease.tenant
@@ -352,13 +377,32 @@ def portal_lease():
     binding.
     """
     tenant = _portal_tenant()
+
+    # The copy they may keep, resolved SEPARATELY from the one they must act
+    # on. During a renewal those are two different documents: the lease that
+    # matters is the unsigned one, but the lease they can still download is
+    # last year's signed agreement. Reporting is_downloadable off the current
+    # lease alone withdrew that copy the moment a renewal went out — the
+    # download endpoint would happily have served it, but the portal stopped
+    # offering the button.
+    settled = leases.latest_downloadable_for_tenant(tenant.id)
+    signed = None
+    if settled is not None:
+        signed = {
+            "id":         settled.id,
+            "status":     settled.status,
+            "signed_name": settled.signed_name,
+            "signed_at":  _serialise_dt(settled.signed_at),
+            "reviewed_at": _serialise_dt(settled.reviewed_at),
+        }
+
     lease = leases.current_for_tenant(tenant.id)
     if lease is None or lease.status not in TENANT_VISIBLE_LEASE_STATUSES:
-        return success({"lease": None})
+        return success({"lease": None, "signed_copy": signed})
 
     data = lease.to_dict(include_body=True)
     data["can_sign"] = lease.awaiting_tenant
-    return success({"lease": data})
+    return success({"lease": data, "signed_copy": signed})
 
 
 @lease_bp.route("/portal/lease/submit", methods=["POST"])

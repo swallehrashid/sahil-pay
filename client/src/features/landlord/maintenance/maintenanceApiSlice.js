@@ -16,7 +16,10 @@ export const maintenanceApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["Maintenance"],
     }),
     updateMaintenanceRequest: builder.mutation({
-      query: ({ id, ...body }) => ({ url: `/maintenance/${id}`, method: "PUT", body }),
+      // `body` is passed whole (it may be FormData carrying a replacement
+      // photo), so spreading it into the mutation arg would flatten a
+      // FormData into nothing.
+      query: ({ id, body }) => ({ url: `/maintenance/${id}`, method: "PUT", body }),
       invalidatesTags: (result, error, { id }) => [{ type: "Maintenance", id }, "Maintenance"],
     }),
     deleteMaintenanceRequest: builder.mutation({

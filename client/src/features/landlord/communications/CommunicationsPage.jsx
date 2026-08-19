@@ -83,18 +83,32 @@ export default function CommunicationsPage() {
         channel: compose.message_type,
         content: compose.content,
       }).unwrap();
-      const counts = result?.recipients;
+      // Report what actually happened, not how many were attempted. This used
+      // to say "Sent to 1 recipient(s)" in green over a log row that read
+      // Failed — the SMS pool was empty and nothing in the interface said so.
+      const failed = result?.failed ?? 0;
+      const delivered = result?.delivered ?? 0;
+      const reasons = result?.failure_reasons ?? [];
+
+      if (!failed) {
+        toast(`Sent to ${delivered} recipient(s).`, { type: "success" });
+        setIsComposeOpen(false);
+        setCompose({ audience: "tenants", tenant_ids: [], team_member_ids: [],
+                     message_type: "sms", content: "" });
+        return;
+      }
+
+      // Something failed: keep the compose box open so the message is not lost,
+      // and say why. A partial success is still a warning — the recipients who
+      // missed out are the reason anyone opened this screen.
       toast(
-        counts
-          ? `Sent to ${counts.tenants + counts.team_members} recipient(s).`
-          : "Message sent.",
-        { type: "success" },
+        delivered
+          ? `Sent to ${delivered}, but ${failed} failed. ${reasons[0] ?? ""}`.trim()
+          : `Nothing was sent. ${reasons[0] ?? "The messages could not be delivered."}`,
+        { type: "error" },
       );
-      setIsComposeOpen(false);
-      setCompose({ audience: "tenants", tenant_ids: [], team_member_ids: [],
-                   message_type: "sms", content: "" });
-    } catch {
-      toast("Could not send the message.", { type: "error" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not send the message.", { type: "error" });
     }
   };
 
@@ -104,7 +118,19 @@ export default function CommunicationsPage() {
     { key: "recipient", header: "Recipient", render: (row) => row.tenant_name ?? row.team_member_name ?? "—" },
     { key: "scope", header: "Property / Unit", render: (row) => `${row.property_name ?? ""} ${row.unit_name ?? ""}`.trim() || "—" },
     { key: "charge", header: "SMS charge", render: (row) => row.sms_charge ?? 0 },
-    { key: "status", header: "Status", render: (row) => <StatusBadge status={row.status} /> },
+    { key: "status", header: "Status",
+      render: (row) => (
+        <div>
+          <StatusBadge status={row.status} />
+          {/* Why, not just that. Every failure here has a different person who
+              can fix it — an administrator, the landlord, or the office. */}
+          {row.failure_reason && (
+            <p className="mt-1 max-w-[22rem] text-[11px] leading-snug text-white/45">
+              {row.failure_reason}
+            </p>
+          )}
+        </div>
+      ) },
   ];
 
   return (

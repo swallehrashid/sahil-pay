@@ -350,6 +350,24 @@ def send_message():
 
     log_ids = []
     recipients_sent = 0
+    delivered = 0
+    failures: list[dict] = []
+
+    def _record(log, name):
+        """Count the outcome. A dispatched message is not a delivered one, and
+        reporting only the count sent is how a run in which every single message
+        was blocked still produced a green success toast."""
+        nonlocal delivered
+        log_ids.append(log.id if log else None)
+        if log is not None and log.status == "delivered":
+            delivered += 1
+        else:
+            failures.append({
+                "recipient": name,
+                "reason": (getattr(log, "failure_reason", None)
+                           or "The message could not be sent."),
+            })
+
     for i, tenant in enumerate(tenants):
         # Substitute every universal variable ({tenant_name}, {unit}, {balance},
         # {payment_method}, …) for this specific tenant + landlord.
@@ -361,7 +379,7 @@ def send_message():
             channel=channel,
             content=personalized,
         )
-        log_ids.append(log.id if log else None)
+        _record(log, f"{tenant.first_name} {tenant.last_name}".strip())
         # NB: the SMS balance is decremented inside dispatch_message() (the single
         # chokepoint). Decrementing again here would double-charge every SMS.
 
@@ -381,17 +399,34 @@ def send_message():
             content=content,
             recipient_type="team_member",
         )
-        log_ids.append(log.id if log else None)
+        _record(log, f"{member.first_name} {member.last_name}".strip())
         if channel == MessageChannel.sms.value and not simulate and i < len(team_members) - 1:
             time.sleep(0.75)
         recipients_sent += 1
 
     db.session.commit()
 
+    # Distinct reasons, not one line per recipient: a run of 200 messages
+    # blocked by an empty pool should say that once.
+    reasons = []
+    for failure in failures:
+        if failure["reason"] not in reasons:
+            reasons.append(failure["reason"])
+
+    if delivered:
+        message = f"{delivered} of {recipients_sent} message(s) sent via {channel}."
+    else:
+        message = f"No messages were sent via {channel}."
+
     return jsonify({
-        "message":  f"{recipients_sent} message(s) dispatched via {channel}.",
+        "message":  message,
         "log_ids":  log_ids,
         "recipients": {"tenants": len(tenants), "team_members": len(team_members)},
+        "delivered": delivered,
+        "failed":    len(failures),
+        # Named, so the sender can see WHICH tenant needs a phone number.
+        "failures":  failures[:50],
+        "failure_reasons": reasons,
         "sms_balance_remaining": landlord.sms_balance,
     }), 200
 

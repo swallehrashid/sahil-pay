@@ -28,6 +28,15 @@ export default function TenantLease() {
   const [agreed, setAgreed] = useState(false);
 
   const lease = data?.lease ?? null;
+  // The settled agreement they may keep a copy of. Tracked apart from `lease`
+  // because during a renewal they are two different documents — the one to
+  // sign, and the one already signed — and conflating them took the download
+  // away at exactly the moment somebody wanted it.
+  const signedCopy = data?.signed_copy ?? null;
+
+  const downloadCopy = () =>
+    downloadFile("/portal/lease/download", { filename: "tenancy-agreement.pdf" })
+      .catch(() => toast("Could not fetch your copy. Please try again.", { type: "error" }));
 
   const sign = async (e) => {
     e.preventDefault();
@@ -45,11 +54,33 @@ export default function TenantLease() {
   if (!lease) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Tenancy agreement" />
-        <EmptyState
-          title="No agreement yet"
-          description="When your landlord sends you a tenancy agreement, it will appear here for you to read and sign."
+        <PageHeader
+          title="Tenancy agreement"
+          actions={
+            signedCopy ? (
+              <Button leftIcon={<Download className="h-4 w-4" />} onClick={downloadCopy}>
+                Download my copy
+              </Button>
+            ) : null
+          }
         />
+        {signedCopy ? (
+          <div className="glass flex items-start gap-3 border-l-2 border-emerald-400/60 p-4">
+            <CheckCircle2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-300" />
+            <div>
+              <p className="text-sm text-white">Your signed agreement is on file.</p>
+              <p className="mt-1 text-xs text-white/50">
+                There is nothing waiting for your signature. You can download your
+                copy any time.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            title="No agreement yet"
+            description="When your landlord sends you a tenancy agreement, it will appear here for you to read and sign."
+          />
+        )}
       </div>
     );
   }
@@ -60,10 +91,11 @@ export default function TenantLease() {
         title="Tenancy agreement"
         subtitle="Read it through, then sign at the bottom"
         actions={
-          lease.is_downloadable ? (
-            <Button leftIcon={<Download className="h-4 w-4" />}
-                    onClick={() => downloadFile("/portal/lease/download",
-                                                { filename: "tenancy-agreement.pdf" })}>
+          /* Offered whenever a SETTLED agreement exists, not only when the one
+             on screen happens to be it — otherwise a renewal arriving hides the
+             copy of the lease they already signed. */
+          lease.is_downloadable || signedCopy ? (
+            <Button leftIcon={<Download className="h-4 w-4" />} onClick={downloadCopy}>
               Download my copy
             </Button>
           ) : null
@@ -99,6 +131,19 @@ export default function TenantLease() {
             <p className="text-sm text-white">Signed — with your landlord for review.</p>
             <p className="mt-1 text-xs text-white/50">
               You'll be able to download your copy once they approve it.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {lease.awaiting_tenant && signedCopy && (
+        <div className="glass flex items-start gap-3 border-l-2 border-white/20 p-4">
+          <FileText className="mt-0.5 h-5 w-5 flex-shrink-0 text-white/60" />
+          <div>
+            <p className="text-sm text-white">This is a new agreement to sign.</p>
+            <p className="mt-1 text-xs text-white/50">
+              Your previously signed agreement is unaffected — you can still
+              download it above until this one is approved.
             </p>
           </div>
         </div>
