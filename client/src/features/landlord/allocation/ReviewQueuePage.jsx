@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AlertCircle, Check, Undo2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
@@ -42,17 +42,23 @@ const REASON_COPY = {
 
 function SplitEditor({ payment, onClose }) {
   const [allocate, { isLoading }] = useAllocatePaymentMutation();
-  const [rows, setRows] = useState([]);
 
-  useEffect(() => {
-    // Seed from the server's arrears-first suggestion. It is a starting point,
-    // never a commitment — the manager edits freely before saving.
-    setRows((payment.suggested_split ?? []).map((row) => ({
+  // Seeded from the server's arrears-first suggestion at mount. It is a
+  // starting point, never a commitment — the manager edits freely before
+  // saving.
+  //
+  // A lazy initialiser rather than an effect that re-seeds on every change of
+  // `payment`. That effect fired a second render on open, and — worse — would
+  // have discarded a half-finished split the moment the query refetched and
+  // handed back a new object for the same payment. The caller keys this
+  // component on the payment id, so a DIFFERENT payment remounts it and gets
+  // its own fresh suggestion.
+  const [rows, setRows] = useState(() =>
+    (payment.suggested_split ?? []).map((row) => ({
       tenant_id: row.tenant_id,
       unit_name: row.unit_name,
       amount: row.amount,
     })));
-  }, [payment]);
 
   const total = rows.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const paymentAmount = Number(payment.amount || 0);
@@ -239,7 +245,11 @@ export default function ReviewQueuePage() {
         </>
       )}
 
-      {active && <SplitEditor payment={active} onClose={() => setActive(null)} />}
+      {/* Keyed on the payment: choosing a different one gets a fresh editor
+          with its own suggestion, rather than the previous payment's rows. */}
+      {active && (
+        <SplitEditor key={active.id} payment={active} onClose={() => setActive(null)} />
+      )}
     </div>
   );
 }

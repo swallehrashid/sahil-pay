@@ -382,3 +382,102 @@ def test_the_balance_reports_the_low_credit_warning(client, world, db_session):
 
     assert payload["sms_balance"] == 10
     assert payload["low_balance"] is True
+
+
+# ---------------------------------------------------------------------------
+# Saying WHY a message failed
+# ---------------------------------------------------------------------------
+#
+# A blocked send was recorded as status='failed' with no reason, and the
+# endpoint still answered "1 message(s) dispatched" — so the screen showed a
+# green "Sent to 1 recipient" over a log full of red Failed rows and nothing
+# anywhere said the platform SMS pool was empty. Every cause below is fixable,
+# and each by a different person, so each has to be named.
+
+def test_a_blocked_send_records_the_reason_and_does_not_claim_success(client, world):
+    """The exact reported case: the shared SMS pool is exhausted."""
+    from models import SmsPricingConfig
+
+    cfg = SmsPricingConfig.get_singleton()
+    before = cfg.pool_balance
+    cfg.pool_balance = 0
+    db.session.flush()
+    try:
+        response = client.post(
+            "/api/communications/send", headers=_auth(world["landlord_token"]),
+            json={"channel": "sms", "tenant_ids": [world["tenants"][0].id],
+                  "content": "Your rent is due."},
+        )
+        assert response.status_code == 200
+        body = response.get_json()
+
+        assert body["delivered"] == 0
+        assert body["failed"] == 1
+        assert "No messages were sent" in body["message"]
+        assert "pool is exhausted" in body["failure_reasons"][0]
+        # Named, so the sender can see WHICH recipient missed out.
+        assert body["failures"][0]["recipient"].startswith("Ten0")
+
+        log = _logs_for(world["landlord"].id)[-1]
+        assert log.status == "failed"
+        assert "pool is exhausted" in log.failure_reason
+    finally:
+        cfg.pool_balance = before
+        db.session.flush()
+
+
+def test_a_missing_destination_is_reported_as_such(client, db_session, world):
+    """
+    Not a bare "Failed" — an OTP-only tenant has no linked account, so an
+    in-app message has nowhere to land. The office needs to know it is their
+    record that is incomplete, not the provider that is down.
+    """
+    tenant = world["tenants"][0]
+    tenant.user_id = None
+    db_session.flush()
+
+    response = client.post(
+        "/api/communications/send", headers=_auth(world["landlord_token"]),
+        json={"channel": "in_app", "tenant_ids": [tenant.id], "content": "Hello."},
+    )
+    body = response.get_json()
+    assert body["failed"] == 1
+    assert "No Sahil Pay account is linked" in body["failure_reasons"][0]
+
+
+def test_a_successful_send_reports_delivered_and_no_reason(client, world):
+    response = client.post(
+        "/api/communications/send", headers=_auth(world["landlord_token"]),
+        json={"channel": "in_app", "tenant_ids": [world["tenants"][0].id],
+              "content": "Your statement is ready."},
+    )
+    body = response.get_json()
+    assert body["delivered"] == 1
+    assert body["failed"] == 0
+    assert body["failure_reasons"] == []
+    assert _logs_for(world["landlord"].id)[-1].failure_reason is None
+
+
+def test_one_reason_is_reported_once_however_many_recipients_hit_it(client, world):
+    """A run of 200 messages blocked by an empty pool says so once, not 200
+    times."""
+    from models import SmsPricingConfig
+
+    cfg = SmsPricingConfig.get_singleton()
+    before = cfg.pool_balance
+    cfg.pool_balance = 0
+    db.session.flush()
+    try:
+        response = client.post(
+            "/api/communications/send", headers=_auth(world["landlord_token"]),
+            json={"channel": "sms",
+                  "tenant_ids": [t.id for t in world["tenants"]],
+                  "content": "Rent reminder."},
+        )
+        body = response.get_json()
+        assert body["failed"] == 2
+        assert len(body["failure_reasons"]) == 1
+        assert len(body["failures"]) == 2
+    finally:
+        cfg.pool_balance = before
+        db.session.flush()

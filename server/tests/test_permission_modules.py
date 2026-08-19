@@ -772,3 +772,100 @@ def test_the_catalogue_covers_every_gated_report(app):
     assert keys == set(report_access.REPORT_KEYS)
     # The ones the landlord specifically asked to control separately.
     assert {"property", "payments", "arrears", "penalties"} <= keys
+
+
+# ---------------------------------------------------------------------------
+# The photo actually reaching the office
+# ---------------------------------------------------------------------------
+#
+# The portal posted the form as JSON with the File in it. JSON.stringify turns a
+# File into {}, so the photo was dropped in the browser before the request left:
+# the API saw a JSON body, took the `request.is_json` branch, and stored
+# image_url=None. Nothing errored on either side — the tenant was told
+# "submitted", and the office opened a text-only request. These tests pin the
+# server half of that contract: multipart carries a photo, JSON does not, and
+# the office can attach one afterwards.
+
+def test_a_tenants_photo_survives_a_multipart_submission(client, app, db_session, world):
+    from io import BytesIO
+
+    from flask_jwt_extended import create_access_token
+    from models import MaintenanceRequest
+
+    tenant = world["tenants"][0]
+    with app.app_context():
+        token = create_access_token(
+            identity=str(tenant.user_id),
+            additional_claims={"role": "tenant", "tenant_id": tenant.id,
+                               "landlord_id": world["landlord"].id})
+
+    response = client.post(
+        "/api/portal/maintenance",
+        headers={"Authorization": f"Bearer {token}"},
+        data={"summary": "Leaking tap", "category": "plumbing",
+              "description": "Water under the sink.",
+              "image": (BytesIO(b"\x89PNG\r\n\x1a\n" + b"0" * 64), "leak.png")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 201
+    created = db_session.get(MaintenanceRequest,
+                             response.get_json()["request"]["id"])
+    assert created.image_url, "the tenant's photo did not reach the office"
+    assert response.get_json()["request"]["image_url"] == created.image_url
+
+
+def test_a_json_submission_simply_has_no_photo(client, app, db_session, world):
+    """The other half of the contract: a JSON body is a request without a
+    picture, not a request whose picture went missing."""
+    from flask_jwt_extended import create_access_token
+    from models import MaintenanceRequest
+
+    tenant = world["tenants"][0]
+    with app.app_context():
+        token = create_access_token(
+            identity=str(tenant.user_id),
+            additional_claims={"role": "tenant", "tenant_id": tenant.id,
+                               "landlord_id": world["landlord"].id})
+
+    response = client.post("/api/portal/maintenance",
+                           headers={"Authorization": f"Bearer {token}"},
+                           json={"summary": "No picture", "category": "other"})
+    assert response.status_code == 201
+    created = db_session.get(MaintenanceRequest,
+                             response.get_json()["request"]["id"])
+    assert created.image_url is None
+
+
+def test_the_office_can_attach_a_photo_after_the_fact(client, app, db_session, world):
+    """
+    The update route was JSON-only, so a photo could never be added or replaced
+    once the request existed — a caretaker who took a picture on site had
+    nowhere to put it.
+    """
+    from io import BytesIO
+
+    from models import MaintenanceRequest
+
+    tenant = world["tenants"][0]
+    request_row = MaintenanceRequest(
+        landlord_id=world["landlord"].id, property_id=tenant.unit.property_id,
+        unit_id=tenant.unit_id, tenant_id=tenant.id,
+        summary="Cracked window", status="open",
+    )
+    db_session.add(request_row)
+    db_session.flush()
+
+    _, headers = _member(app, world, {"maintenance": (True, True)})
+    response = client.put(
+        f"/api/maintenance/{request_row.id}",
+        headers=headers,
+        data={"status": "in_progress",
+              "image": (BytesIO(b"\x89PNG\r\n\x1a\n" + b"0" * 64), "window.png")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(request_row)
+    assert request_row.image_url, "the photo did not attach on update"
+    assert request_row.status == "in_progress"

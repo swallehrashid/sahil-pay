@@ -1,11 +1,15 @@
-import { forwardRef } from "react";
+import { forwardRef, useId } from "react";
 import clsx from "clsx";
 
 const Textarea = forwardRef(function Textarea(
   { label, error, hint, className, id, rows = 4, required, ...props },
   ref
 ) {
-  const textareaId = id || props.name;
+  // See Checkbox/Input: without useId() a caller that passes neither id nor
+  // name got htmlFor={undefined} and id={undefined}, so the label was attached
+  // to nothing at all.
+  const generatedId = useId();
+  const textareaId = id || props.name || generatedId;
   return (
     <div className="w-full">
       {label && (
