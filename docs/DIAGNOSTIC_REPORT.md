@@ -1,5 +1,8 @@
 # SahilPay — Pre-Deployment Diagnostic Report
 
+> **Email provider changed (2026-09-09).** SendGrid was replaced by **Resend**. Wherever this document says `SENDGRID_API_KEY`, read `RESEND_API_KEY`. See **EMAIL_RESEND_SETUP.md** — it is the current source of truth for email, including the Cloudflare User-Agent trap that silently fails every send if missed.
+
+
 **Date:** 2026-07-16 · **Branch:** `backend-set-up` · **Prepared for:** Swalleh
 
 > You asked me to run a full diagnostic, simulate 5 months across all portals,

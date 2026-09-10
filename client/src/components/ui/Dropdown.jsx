@@ -1,10 +1,15 @@
-import { cloneElement, isValidElement, useCallback, useEffect, useRef, useState } from "react";
+import { cloneElement, isValidElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { MoreVertical } from "lucide-react";
+import { MoreVertical, Search } from "lucide-react";
 import clsx from "clsx";
 
 const MENU_WIDTH = 208; // w-52
 const EST_ITEM_HEIGHT = 40;
+// Row-action menus are mostly three or four items, where a search box is pure
+// noise. They are not always: the property-scoping and assignment menus are
+// built from real data and run long. Filter once the list is past a screenful
+// of choices, which is also the point at which the menu starts scrolling.
+const SEARCH_THRESHOLD = 8;
 
 // Generic row-action menu. items: [{ label, icon, onClick, danger, disabled }]
 // This is how every table's row actions (landlord, team member, admin, tenant) render.
@@ -17,13 +22,25 @@ const EST_ITEM_HEIGHT = 40;
 // a clipping box. Rendering the menu into a portal, positioned with `fixed`
 // coordinates taken from the trigger button's own bounding rect, escapes that
 // clipping container entirely so the menu always paints above the table.
-export default function Dropdown({ items = [], trigger, align = "right" }) {
+export default function Dropdown({ items = [], trigger, align = "right", searchable }) {
   const [isOpen, setIsOpen] = useState(false);
   const [coords, setCoords] = useState(null);
+  const [query, setQuery] = useState("");
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
+  const searchRef = useRef(null);
 
-  const close = useCallback(() => setIsOpen(false), []);
+  const showSearch = searchable ?? items.length >= SEARCH_THRESHOLD;
+  const visibleItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((i) => String(i.label ?? "").toLowerCase().includes(q));
+  }, [items, query]);
+
+  const close = useCallback(() => {
+    setIsOpen(false);
+    setQuery("");
+  }, []);
 
   const place = useCallback(() => {
     const btn = buttonRef.current;
@@ -31,7 +48,7 @@ export default function Dropdown({ items = [], trigger, align = "right" }) {
     const rect = btn.getBoundingClientRect();
     const GAP = 8;
     const MARGIN = 8; // keep the menu at least this far from every viewport edge
-    const fullHeight = items.length * EST_ITEM_HEIGHT + 12;
+    const fullHeight = items.length * EST_ITEM_HEIGHT + 12 + (showSearch ? 40 : 0);
     const spaceBelow = window.innerHeight - rect.bottom - GAP - MARGIN;
     const spaceAbove = rect.top - GAP - MARGIN;
     // Prefer opening downward; flip up only when there's clearly more room above.
@@ -49,11 +66,12 @@ export default function Dropdown({ items = [], trigger, align = "right" }) {
     left = Math.max(MARGIN, Math.min(left, window.innerWidth - MENU_WIDTH - MARGIN));
 
     setCoords({ top, left, maxHeight });
-  }, [align, items.length]);
+  }, [align, items.length, showSearch]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
     place();
+    if (showSearch) requestAnimationFrame(() => searchRef.current?.focus());
 
     function handleClickOutside(e) {
       if (buttonRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return;
@@ -124,9 +142,27 @@ export default function Dropdown({ items = [], trigger, align = "right" }) {
             ref={menuRef}
             role="menu"
             style={{ position: "fixed", top: coords.top, left: coords.left, width: MENU_WIDTH, maxHeight: coords.maxHeight }}
-            className="glass-dark z-50 origin-top animate-scale-in overflow-y-auto overscroll-contain p-1.5"
+            className="glass-dark z-50 flex origin-top animate-scale-in flex-col overflow-hidden p-1.5"
           >
-            {items.map((item, index) => (
+            {showSearch && (
+              <div className="relative mb-1.5 flex-shrink-0">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  role="searchbox"
+                  aria-label="Search actions"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Escape" && close()}
+                  placeholder="Search…"
+                  className="w-full rounded-lg bg-white/5 py-1.5 pl-8 pr-2 text-sm text-white placeholder-white/30 outline-none ring-1 ring-white/10 focus:ring-secondary/50"
+                />
+              </div>
+            )}
+
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {visibleItems.map((item, index) => (
               <button
                 key={item.label ?? index}
                 type="button"
@@ -146,6 +182,10 @@ export default function Dropdown({ items = [], trigger, align = "right" }) {
                 {item.label}
               </button>
             ))}
+            {!visibleItems.length && (
+              <p className="px-3 py-3 text-center text-xs text-white/40">Nothing matches that.</p>
+            )}
+            </div>
           </div>,
           document.body
         )}

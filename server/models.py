@@ -3862,6 +3862,15 @@ class LandlordSettings(TimestampMixin, Base):
     # every landlord who never touches it keeps exactly the receipt they have.
     receipt_layout_json = Column(Text, nullable=True)
 
+    # Document theme (services/receipt_theme.py): the two colours every receipt,
+    # statement and report this landlord issues is drawn in. Stored as palette
+    # hex values. NULL means the Sahil Pay default, so an account that never
+    # opens the screen renders exactly as it does today.
+    #   primary   — headings, company name, table header text, signature rule
+    #   secondary — rules, the line above a total, the emphasis on amount paid
+    theme_primary   = Column(String(7), nullable=True)
+    theme_secondary = Column(String(7), nullable=True)
+
     # Co-Pilot SMS forwarder (COPILOT_PLATFORM_SPEC.md §2.6). Enabling is the
     # landlord's consent step; auto_allocate picks confirmed+allocated vs
     # pending-review for every payment the pipeline creates; admin_locked is a
@@ -3907,6 +3916,11 @@ class LandlordSettings(TimestampMixin, Base):
             "sms_api_key_set":           bool(self.sms_api_key),
             "sms_api_key_masked":        api_key_display,
             "report_gross_basis":        self.report_gross_basis or "rent_only",
+            # NULL stays NULL rather than being defaulted here: the client needs
+            # to tell "never chosen" from "chose the brand colour" so the picker
+            # can show nothing selected instead of a false selection.
+            "theme_primary":             self.theme_primary,
+            "theme_secondary":           self.theme_secondary,
             "copilot_enabled":           self.copilot_enabled,
             "copilot_auto_allocate":     self.copilot_auto_allocate,
             "copilot_consented_at":      _serialise(self.copilot_consented_at),

@@ -37,6 +37,53 @@ settings_bp = Blueprint("settings", __name__, url_prefix="/api/settings")
 
 
 # ---------------------------------------------------------------------------
+# Reading a body that may be JSON or multipart
+# ---------------------------------------------------------------------------
+# A form that carries a file MUST be sent as multipart — a File has no JSON
+# representation, and JSON-encoding one produces `{}` and an upload that
+# silently does nothing. The cost of multipart is that Flask hands back
+# request.form, where every value is a STRING: `false` arrives as "false",
+# which is truthy, and 0 arrives as "0". Assigning those straight onto Boolean
+# and Integer columns is how a landlord who unticked "send SMS" and uploaded a
+# logo in the same save ends up with SMS still on.
+#
+# So: coerce at the boundary, once, rather than at each assignment.
+
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off", ""}
+
+
+def _read_body():
+    """(data, files_present) for a request that may be JSON or multipart."""
+    if request.is_json:
+        return (request.get_json(silent=True) or {}), False
+    return request.form.to_dict(), True
+
+
+def _as_bool(value, default=None):
+    """Coerce a JSON bool or a form string to a real bool."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in _TRUE:
+        return True
+    if text in _FALSE:
+        return False
+    return default
+
+
+def _as_int(value, default=None):
+    if value is None or value == "":
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+# ---------------------------------------------------------------------------
 # GET / PUT /api/settings/general
 # ---------------------------------------------------------------------------
 @settings_bp.route("/general", methods=["GET", "PUT"])
@@ -82,18 +129,19 @@ def general_settings():
 
     before = landlord.to_dict()
 
-    if request.is_json:
-        data = request.get_json(silent=True) or {}
-    else:
-        data = request.form.to_dict()
-        # Handle logo and signature file uploads
-        if "logo" in request.files:
+    data, is_multipart = _read_body()
+    if is_multipart:
+        # Handle logo and signature file uploads. An empty file part (the browser
+        # sends one for an untouched input) must not blank out a saved logo.
+        logo = request.files.get("logo")
+        if logo and logo.filename:
             landlord.logo_url = upload_to_s3(
-                request.files["logo"], folder=f"logos/{landlord_id}", profile="brand"
+                logo, folder=f"logos/{landlord_id}", profile="brand"
             )
-        if "signature" in request.files:
+        signature = request.files.get("signature")
+        if signature and signature.filename:
             landlord.signature_url = upload_to_s3(
-                request.files["signature"], folder=f"signatures/{landlord_id}", profile="brand"
+                signature, folder=f"signatures/{landlord_id}", profile="brand"
             )
 
     landlord_fields = [
@@ -109,10 +157,17 @@ def general_settings():
     # Update channel settings (LandlordSettings)
     ls = landlord.landlord_settings
     if ls:
-        for field in ["sms_enabled", "whatsapp_enabled", "email_enabled",
-                      "low_sms_balance_threshold"]:
+        # Coerced, not assigned raw — see _read_body(). On a multipart save these
+        # arrive as the strings "true"/"false", and "false" is truthy.
+        for field in ["sms_enabled", "whatsapp_enabled", "email_enabled"]:
             if field in data:
-                setattr(ls, field, data[field])
+                coerced = _as_bool(data[field])
+                if coerced is not None:
+                    setattr(ls, field, coerced)
+        if "low_sms_balance_threshold" in data:
+            threshold = _as_int(data["low_sms_balance_threshold"])
+            if threshold is not None:
+                ls.low_sms_balance_threshold = threshold
 
         # Which collections count as gross on reports — validated against the
         # allowed set so a typo can't silently disable rent-only accounting.
@@ -534,19 +589,39 @@ def account_settings():
     landlord_id = get_current_landlord_id()
     landlord = db.session.get(Landlord, landlord_id)
 
+    # Which row actually holds this person's name.
+    #
+    # `users` has no username/first_name/last_name — those live on the ROLE
+    # profile (TeamMember, SystemAdmin), and a landlord/PM is identified by
+    # their company name instead. The account page has always rendered
+    # Username / First name / Last name inputs; because User.to_dict() returns
+    # none of those keys they came up blank, and because the PUT below only ever
+    # wrote email and phone, anything typed into them was discarded on save.
+    # That is the "profile details don't persist" bug: not a failed write, a
+    # write that was never attempted.
+    profile = getattr(user, "team_member_profile", None) or getattr(user, "admin_profile", None)
+    _NAME_FIELDS = ("username", "first_name", "last_name")
+
     if request.method == "GET":
         payload = user.to_dict()
+        for field in _NAME_FIELDS:
+            payload[field] = getattr(profile, field, None)
         if landlord:
             payload["signature_url"] = landlord.signature_url
+            payload["company_name"] = landlord.company_name
+        # Say plainly which of these the caller may edit, so the client can
+        # disable the rest instead of offering an input that silently no-ops.
+        payload["editable_fields"] = ["email", "phone"] + (
+            [f for f in _NAME_FIELDS if hasattr(profile, f)] if profile else []
+        )
         return jsonify(payload), 200
 
     before = user.to_dict()
 
-    if request.is_json:
-        data = request.get_json(silent=True) or {}
-    else:
-        data = request.form.to_dict()
-        if "signature" in request.files and landlord:
+    data, is_multipart = _read_body()
+    if is_multipart and landlord:
+        signature = request.files.get("signature")
+        if signature and signature.filename:
             # The signature is an ACCOUNT-level asset — it is stamped on every
             # report and receipt the company issues. Editing your own profile
             # here is self-service for everyone, but replacing the company
@@ -554,13 +629,23 @@ def account_settings():
             from decorators import _check_permission
             _check_permission("settings", "edit")
             landlord.signature_url = upload_to_s3(
-                request.files["signature"], folder=f"signatures/{landlord_id}", profile="brand"
+                signature, folder=f"signatures/{landlord_id}", profile="brand"
             )
 
     # Profile fields on User
     for field in ["email", "phone"]:
         if field in data:
             setattr(user, field, data[field])
+
+    # Name fields on the ROLE profile row. Blank strings are ignored rather
+    # than written: a form that posts every field would otherwise wipe a name
+    # the user never touched.
+    if profile is not None:
+        for field in _NAME_FIELDS:
+            if field in data and hasattr(profile, field):
+                value = (data[field] or "").strip()
+                if value:
+                    setattr(profile, field, value)
 
     # Password change
     current_pw = data.get("current_password")
@@ -654,12 +739,18 @@ def change_password():
 @require_permission("settings", "view")
 def receipt_layout_settings():
     """
-    The landlord's receipt layout — paper size, which header component sits
-    where, density, and which sections print.
+    The landlord's receipt layout AND document theme.
 
-    GET returns the saved layout plus the option catalogue the editor renders.
-    PUT saves a new one; every value is validated against the allowed set, so a
-    hand-edited payload can never produce a receipt that fails to render.
+    Layout — paper size, which header component sits where, density, and which
+    sections print — applies to receipts. Theme — a primary and a secondary
+    colour — applies to receipts AND to every report and statement, because a
+    statement in one colour next to a receipt in another looks like two
+    different companies produced them.
+
+    GET returns both, plus the option catalogue and the colour palette the
+    editor renders. PUT saves them; every value is validated against the allowed
+    set, so a hand-edited payload can never produce a document that fails to
+    render, and no colour outside the palette can reach a printed page.
     ---
     tags: [Settings]
     security:
@@ -668,6 +759,7 @@ def receipt_layout_settings():
       200: {description: Layout + options.}
     """
     from services import receipt_layout as rl
+    from services import receipt_theme as rt
 
     landlord_id = get_current_landlord_id()
     landlord    = db.session.get(Landlord, landlord_id)
@@ -679,19 +771,30 @@ def receipt_layout_settings():
     if request.method == "GET":
         return jsonify({
             "layout":  rl.for_landlord(landlord),
+            "theme":   rt.for_landlord(landlord),
+            # NULL means "never chosen". The picker needs to tell that from
+            # "chose the brand colour", or it shows a selection nobody made.
+            "theme_is_default": not (settings and settings.theme_primary),
             "options": rl.to_public_dict(),
+            "palette": rt.to_public_dict(),
         }), 200
 
     from decorators import _check_permission
     _check_permission("settings", "edit")
 
     data   = request.get_json(silent=True) or {}
-    before = rl.for_landlord(landlord)
+    before = {"layout": rl.for_landlord(landlord), "theme": rt.for_landlord(landlord)}
     layout = rl.normalise(data.get("layout", data))
+    # The theme is only touched when it is sent, so saving a layout from a
+    # screen that does not offer colours cannot reset somebody's palette.
+    theme = rt.normalise(data["theme"]) if "theme" in data else before["theme"]
 
     if settings:
         import json as _json
         settings.receipt_layout_json = _json.dumps(layout)
+        if "theme" in data:
+            settings.theme_primary = theme["primary"]
+            settings.theme_secondary = theme["secondary"]
         db.session.commit()
 
     record_audit(
@@ -700,13 +803,15 @@ def receipt_layout_settings():
         action="update_receipt_layout",
         entity_type="settings",
         entity_id=landlord_id,
-        description=f"Receipt layout updated ({layout['paper']}, {layout['density']}).",
+        description=(f"Receipt layout updated ({layout['paper']}, {layout['density']}); "
+                     f"theme {theme['primary']}/{theme['secondary']}."),
         before_data=before,
-        after_data=layout,
+        after_data={"layout": layout, "theme": theme},
     )
     db.session.commit()
 
-    return jsonify({"layout": layout, "message": "Receipt layout saved."}), 200
+    return jsonify({"layout": layout, "theme": theme,
+                    "message": "Receipt layout saved."}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -718,8 +823,10 @@ def receipt_layout_settings():
 @require_permission("settings", "view")
 def receipt_layout_preview():
     """
-    Render a sample receipt PDF in a candidate layout WITHOUT saving it, so the
-    landlord can see the paper size and header arrangement before committing.
+    Render a sample receipt PDF in a candidate layout and theme WITHOUT saving
+    either, so the landlord can see the real paper size, arrangement and colours
+    before committing. The preview takes the same rendering path as a real
+    receipt — a preview that disagrees with the document is worse than none.
     ---
     tags: [Settings]
     security:
@@ -728,6 +835,7 @@ def receipt_layout_preview():
       200: {description: Sample receipt PDF.}
     """
     from services import receipt_layout as rl
+    from services import receipt_theme as rt
     from services.receipt_service import render_sample_receipt_pdf
 
     landlord_id = get_current_landlord_id()
@@ -737,8 +845,9 @@ def receipt_layout_preview():
 
     data   = request.get_json(silent=True) or {}
     layout = rl.normalise(data.get("layout", data))
+    theme  = rt.normalise(data["theme"]) if "theme" in data else None
 
-    pdf = render_sample_receipt_pdf(landlord, layout)
+    pdf = render_sample_receipt_pdf(landlord, layout, theme)
     return Response(
         pdf,
         mimetype="application/pdf",

@@ -9,6 +9,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
 import { toast } from "@/components/ui/Toast";
 import Pagination from "@/components/ui/Pagination";
 import { usePagination } from "@/hooks/usePagination";
@@ -171,27 +172,26 @@ function AttributeReferralModal({ isOpen, onClose }) {
         doesn't already have a referral.
       </p>
       <div className="space-y-4">
+        {/* The server-side search still narrows what is FETCHED; the pickers
+            below filter what has been fetched. Both matter at this scale —
+            neither list is short. */}
         <Input label="Search landlord by name/email" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <select
-          className="glass-input w-full"
+        <Select
+          label="Landlord"
+          placeholder="Select landlord…"
           value={landlordId}
           onChange={(e) => setLandlordId(e.target.value)}
-        >
-          <option value="" className="bg-primary-900">Select landlord…</option>
-          {(landlordData?.landlords ?? []).map((l) => (
-            <option key={l.id} value={l.id} className="bg-primary-900">{l.company_name}</option>
-          ))}
-        </select>
-        <select
-          className="glass-input w-full"
+          options={(landlordData?.landlords ?? []).map((l) => ({ value: l.id, label: l.company_name }))}
+        />
+        <Select
+          label="Affiliate"
+          placeholder="Select affiliate…"
           value={affiliateId}
           onChange={(e) => setAffiliateId(e.target.value)}
-        >
-          <option value="" className="bg-primary-900">Select affiliate…</option>
-          {(affiliateData?.affiliates ?? []).map((a) => (
-            <option key={a.id} value={a.id} className="bg-primary-900">{a.full_name} ({a.referral_code})</option>
-          ))}
-        </select>
+          options={(affiliateData?.affiliates ?? []).map((a) => ({
+            value: a.id, label: `${a.full_name} (${a.referral_code})`,
+          }))}
+        />
       </div>
     </Modal>
   );

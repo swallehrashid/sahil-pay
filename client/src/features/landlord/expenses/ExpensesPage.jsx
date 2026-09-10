@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Receipt, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchInput from "@/components/ui/SearchInput";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -21,7 +22,7 @@ import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
-import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { EXPENSE_CATEGORIES, EXPENSE_STATUSES } from "@/utils/constants";
@@ -30,9 +31,10 @@ export default function ExpensesPage() {
   const [tab, setTab] = useState("expenses");
   const [filters, setFilters] = useState({ property_id: "", category: "", status: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
+  const [search, setSearch] = useState("");
 
   const pg = usePagination();
-  const { data, isLoading } = useGetExpensesQuery({ ...appliedFilters, ...pg.params });
+  const { data, isLoading } = useGetExpensesQuery({ ...appliedFilters, ...pg.params, search });
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: unitsData } = useGetUnitsQuery();
   const [createExpense, { isLoading: isCreating }] = useCreateExpenseMutation();
@@ -48,7 +50,14 @@ export default function ExpensesPage() {
   const properties = toRows(propertiesData);
   const units = toRows(unitsData);
 
-  const totals = { total: data?.total_amount ?? expenses.reduce((sum, e) => sum + Number(e.amount ?? 0), 0), count: expenses.length };
+  // `total_expenses` is the server's key for the summed amount, and `total` is
+  // the row count for the whole filtered set. The page read `total_amount`
+  // (which does not exist) and then summed the visible page, so "Total spent"
+  // showed one page's worth of expenses.
+  const totals = {
+    total: readSummary(data, "total_expenses"),
+    count: meta.total ?? expenses.length,
+  };
 
   const handleSubmit = async (values) => {
     try {
@@ -116,7 +125,18 @@ export default function ExpensesPage() {
 
       {tab === "expenses" ? (
         <>
-          {isLoading ? (
+          {/* Its own control rather than part of the Apply-button panel below:
+          a search box you have to press a second button to run does not
+          read as a search box. */}
+      <SearchInput
+        value={search}
+        onSearch={(term) => { setSearch(term); pg.reset(); }}
+        placeholder="Search category, note or property…"
+        aria-label="Search expenses"
+        resultCount={meta.total}
+      />
+
+      {isLoading ? (
             <SkeletonStatCards count={2} />
           ) : (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">

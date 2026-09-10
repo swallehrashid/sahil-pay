@@ -462,7 +462,11 @@ def commit_rows(landlord, rows: list[dict], actor_user_id: int | None = None) ->
             )
             db.session.add(unit)
             db.session.flush()
-            prop.number_of_units = (prop.number_of_units or 0) + 1
+            # The count is recomputed from the units table once the import
+            # finishes (services/unit_counts.py). Incrementing by hand here as
+            # well would be a second source of truth for the same number, and
+            # the two only have to disagree once — a retried import, a unit
+            # deleted mid-run — for the figure to be wrong with nothing to say so.
             created["units"] += 1
         elif rent is not None:
             unit.rent_amount = rent
@@ -543,6 +547,11 @@ def commit_rows(landlord, rows: list[dict], actor_user_id: int | None = None) ->
         if index % 100 == 0:
             db.session.flush()
 
+    # A tenant import can create properties and units of its own, so the cached
+    # counts have to be brought back in line before the transaction closes.
+    from services.unit_counts import recount
+
+    recount(landlord_id=landlord.id)
     db.session.commit()
 
     return {"created": created, "skipped": skipped, "summary": validation["summary"]}

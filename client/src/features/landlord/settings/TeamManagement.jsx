@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchInput from "@/components/ui/SearchInput";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Dropdown from "@/components/ui/Dropdown";
 import Modal from "@/components/ui/Modal";
@@ -18,7 +19,11 @@ import { toRows } from "@/utils/tableAdapters";
 
 // §4.20 — team table + add/edit/remove member.
 export default function TeamManagement() {
-  const { data, isLoading } = useGetTeamMembersQuery();
+  // The endpoint already supports ?search= (routes/team_routes.py); nothing
+  // was passing it. A property manager here runs 50+ caretakers and
+  // secretaries, so scrolling is not a way to find one.
+  const [search, setSearch] = useState("");
+  const { data, isLoading } = useGetTeamMembersQuery({ search, per_page: 100 });
   const { data: propertiesData } = useGetPropertiesQuery();
   const [createMember, { isLoading: isCreating }] = useCreateTeamMemberMutation();
   const [updateMember, { isLoading: isUpdating }] = useUpdateTeamMemberMutation();
@@ -111,6 +116,14 @@ export default function TeamManagement() {
             Add team member
           </Button>
         }
+      />
+
+      <SearchInput
+        value={search}
+        onSearch={setSearch}
+        placeholder="Search name, username or email…"
+        aria-label="Search team members"
+        resultCount={members.length}
       />
 
       <ResponsiveTable

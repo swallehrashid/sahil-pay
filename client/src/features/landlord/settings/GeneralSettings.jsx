@@ -3,7 +3,6 @@ import { FlaskConical } from "lucide-react";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Checkbox from "@/components/ui/Checkbox";
-import FileUpload from "@/components/ui/FileUpload";
 import Button from "@/components/ui/Button";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
@@ -15,6 +14,8 @@ import {
   useRunAutomationsMutation,
 } from "./settingsApiSlice";
 import { MPESA_TYPES, ACCOUNT_TYPES } from "@/utils/constants";
+import toFormData from "@/utils/toFormData";
+import BrandImageField from "./BrandImageField";
 import Textarea from "@/components/ui/Textarea";
 import AllocationPriorityEditor from "./AllocationPriorityEditor";
 import { useDemoMode } from "@/features/landlord/useDemoMode";
@@ -72,11 +73,18 @@ export default function GeneralSettings() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await updateGeneral({ ...form, logo }).unwrap();
+      // A File cannot survive JSON.stringify — it serialises to {} and the
+      // upload silently does nothing while the page still says "saved". Send
+      // multipart when (and only when) a file is actually attached.
+      const payload = { ...form, ...(logo ? { logo } : {}) };
+      await updateGeneral(toFormData(payload) ?? payload).unwrap();
       await updateAutomation(automationForm).unwrap();
-      toast("Settings saved.", { type: "success" });
-    } catch {
-      toast("Could not save settings.", { type: "error" });
+      // Drop the staged file once it is on the server, so a second save does
+      // not re-upload the same bytes and the field shows the stored logo.
+      setLogo(null);
+      toast(logo ? "Settings saved — logo uploaded." : "Settings saved.", { type: "success" });
+    } catch (err) {
+      toast(err?.data?.error || "Could not save settings.", { type: "error" });
     }
   };
 
@@ -89,7 +97,13 @@ export default function GeneralSettings() {
           <Input label="Abbreviated name" value={form.abbreviated_name ?? ""} onChange={update("abbreviated_name")} />
         </div>
         <Input label="Company address" value={form.company_address ?? ""} onChange={update("company_address")} />
-        <FileUpload label="Logo" accept="image/*" value={logo} onChange={setLogo} hint="Appears on statements and receipts" />
+        <BrandImageField
+          label="Logo"
+          kind="logo"
+          currentUrl={form.logo_url}
+          value={logo}
+          onChange={setLogo}
+        />
         <div className="grid grid-cols-2 gap-4">
           <Input label="Invoice title" value={form.invoice_title ?? ""} onChange={update("invoice_title")} />
           <Select

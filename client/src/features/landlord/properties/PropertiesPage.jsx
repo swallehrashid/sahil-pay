@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Building2, DoorOpen, AlertCircle, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchInput from "@/components/ui/SearchInput";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -11,14 +12,16 @@ import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import PropertyForm from "./PropertyForm";
 import { useGetPropertiesQuery, useCreatePropertyMutation, useUpdatePropertyMutation, useDeletePropertyMutation } from "./propertyApiSlice";
-import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function PropertiesPage() {
   const pg = usePagination();
-  const { data, isLoading } = useGetPropertiesQuery(pg.params);
+  const [search, setSearch] = useState("");
+  // `name` is the properties endpoint's search parameter.
+  const { data, isLoading } = useGetPropertiesQuery({ ...pg.params, name: search });
   const [createProperty, { isLoading: isCreating }] = useCreatePropertyMutation();
   const [updateProperty, { isLoading: isUpdating }] = useUpdatePropertyMutation();
   const [deleteProperty] = useDeletePropertyMutation();
@@ -29,10 +32,13 @@ export default function PropertiesPage() {
 
   const properties = toRows(data);
   const meta = toPaginationMeta(data);
+  // Whole-dataset figures from the server's `summary` block — NOT the rows on
+  // this page. Summing the page gave a landlord with 100 properties a "Total
+  // properties" card reading 20, which is the page size.
   const totals = {
-    properties: data?.total_properties ?? properties.length,
-    units: data?.total_units ?? properties.reduce((sum, p) => sum + (p.number_of_units ?? 0), 0),
-    vacancies: data?.total_vacancies ?? 0,
+    properties: readSummary(data, "total_properties"),
+    units: readSummary(data, "total_units"),
+    vacancies: readSummary(data, "total_vacancies"),
   };
 
   const openCreate = () => {
@@ -88,6 +94,17 @@ export default function PropertiesPage() {
             Add property
           </Button>
         }
+      />
+
+      {/* Server-side search. At this scale filtering the twenty rows already
+          on screen would be worse than useless — it would look like it worked
+          and quietly miss everything on the other pages. */}
+      <SearchInput
+        value={search}
+        onSearch={(term) => { setSearch(term); pg.reset(); }}
+        placeholder="Search properties by name…"
+        aria-label="Search properties"
+        resultCount={meta.total}
       />
 
       {isLoading ? (

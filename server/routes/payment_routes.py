@@ -30,7 +30,6 @@ from decorators import (
     scope_to_accessible_properties,
 )
 from services.audit_service   import record_audit
-from services.pdf_service     import generate_receipt_pdf
 from services.communication_service import dispatch_message
 from services.notification_service import notify
 from services.storage_service import upload_to_s3
@@ -93,6 +92,23 @@ def list_payments():
         query = query.filter(Payment.unit_id == v)
     if v := request.args.get("tenant_id", type=int):
         query = query.filter(Payment.tenant_id == v)
+
+    if search := (request.args.get("search") or "").strip():
+        # The M-Pesa code and the payer's name are what somebody has in front of
+        # them when they come looking for a payment — usually a tenant on the
+        # phone reading a confirmation SMS out loud.
+        like = f"%{search}%"
+        query = query.outerjoin(Tenant, Tenant.id == Payment.tenant_id).filter(
+            db.or_(
+                Payment.payment_ref.ilike(like),
+                Payment.mpesa_reference.ilike(like),
+                Payment.reference_text.ilike(like),
+                Tenant.first_name.ilike(like),
+                Tenant.last_name.ilike(like),
+                Tenant.phone.ilike(like),
+                Tenant.account_number.ilike(like),
+            )
+        )
 
     total_amount = db.session.query(
         db.func.coalesce(db.func.sum(Payment.amount), 0)
