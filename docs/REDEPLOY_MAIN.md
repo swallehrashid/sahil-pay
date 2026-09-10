@@ -277,8 +277,8 @@ FLUXSMS_API_KEY=<live key>
 FLUXSMS_SENDER_ID=SAHILPAY
 COMMS_SIMULATION_MODE=false      # false in prod so OTP/reminders actually send
 
-# Email (SendGrid) — so email OTP + receipts send:
-SENDGRID_API_KEY=<key>
+# Email (Resend) — so email OTP + receipts send:
+RESEND_API_KEY=<key>
 
 # JWT / secrets:
 SECRET_KEY=<...>

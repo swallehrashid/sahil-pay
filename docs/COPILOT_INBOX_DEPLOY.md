@@ -176,7 +176,7 @@ source /var/www/sahilpay/venv/bin/activate
 python -c "
 from dotenv import load_dotenv; import os
 load_dotenv()
-for k in ('COMMS_SIMULATION_MODE','SENDGRID_API_KEY','FLUXSMS_API_KEY','FLUXSMS_SENDER_ID'):
+for k in ('COMMS_SIMULATION_MODE','RESEND_API_KEY','FLUXSMS_API_KEY','FLUXSMS_SENDER_ID'):
     v = os.getenv(k)
     print(k, '=', (v[:6]+'...') if v and len(v) > 8 else v)
 "

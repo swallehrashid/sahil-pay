@@ -56,34 +56,37 @@ def list_properties():
     name     = request.args.get("name", "").strip()
 
     query = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
-    all_props_query = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
-    unit_totals_query = (
-        db.session.query(
-            db.func.count(Unit.id).label("total"),
-            db.func.sum(
-                db.cast(db.and_(Unit.is_occupied.is_(False), Unit.is_deleted.is_(False)), db.Integer)
-            ).label("vacancies"),
-        )
-        .join(Property, Property.id == Unit.property_id)
-        .filter(Property.landlord_id == landlord_id, Property.is_deleted.is_(False))
-    )
 
     # Property-scoped team members (property_access_all=False) only ever see
     # their assigned subset — applied to both the list and its summary so the
     # numbers shown always match what's actually browsable.
     if g.accessible_property_ids is not None:
         query = query.filter(Property.id.in_(g.accessible_property_ids))
-        all_props_query = all_props_query.filter(Property.id.in_(g.accessible_property_ids))
-        unit_totals_query = unit_totals_query.filter(Property.id.in_(g.accessible_property_ids))
 
     if city:
         query = query.filter(Property.city.ilike(f"%{city}%"))
     if name:
         query = query.filter(Property.name.ilike(f"%{name}%"))
 
-    # Summary aggregates
-    total_properties = all_props_query.count()
-    unit_totals = unit_totals_query.first()
+    # THE SUMMARY DESCRIBES WHAT THE TABLE IS SHOWING.
+    #
+    # These aggregates used to be computed from a second, UNFILTERED query, so
+    # searching for "Riverside" left the table showing one property and the card
+    # above it still reading 100. Two numbers on the same screen disagreeing
+    # about the same thing, with nothing to say which one answers the question
+    # you just asked. Derive them from the same query the rows come from.
+    total_properties = query.count()
+    matched_ids = query.with_entities(Property.id).scalar_subquery()
+    unit_totals = (
+        db.session.query(
+            db.func.count(Unit.id).label("total"),
+            db.func.coalesce(
+                db.func.sum(db.cast(Unit.is_occupied.is_(False), db.Integer)), 0
+            ).label("vacancies"),
+        )
+        .filter(Unit.property_id.in_(matched_ids), Unit.is_deleted.is_(False))
+        .first()
+    )
     total_units     = unit_totals.total     or 0
     total_vacancies = unit_totals.vacancies or 0
 
@@ -151,7 +154,8 @@ def list_properties():
 def create_property():
     """
     Create a new property.
-    Required: name, number_of_units, city.
+    Required: name, city. (number_of_units is derived from the units that
+    actually exist — see services/unit_counts.py — and is ignored if sent.)
     Optional: water_rate, electricity_rate, mpesa_details,
               rent_payment_penalty, tax_rate, management_fee, commission_rate,
               owner_phone, notes, street_name, property_group_id.
@@ -172,8 +176,13 @@ def create_property():
 
     if not name or not city:
         return jsonify({"error": "name and city are required."}), 400
-    if number_of_units is None:
-        return jsonify({"error": "number_of_units is required."}), 400
+    # NOT required any more. A property has as many units as there are units
+    # pointing at it, and that is knowable — asking for the number at creation
+    # time asks for a guess that is wrong the moment a unit is added. Anything
+    # supplied is accepted as an initial value and then overwritten by
+    # services/unit_counts.recount() as soon as real units exist.
+    if number_of_units in (None, ""):
+        number_of_units = 0
 
     prop = Property(
         landlord_id         = landlord_id,

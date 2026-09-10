@@ -1,11 +1,43 @@
 """
 SahilPay — services/email_service.py
 =======================================
-Transactional email. _send_email() is a real implementation — it posts to
-SendGrid's v3 API with stdlib urllib + json (no SDK dependency) whenever
-SENDGRID_API_KEY is configured, and falls back to logging the message when
-it isn't, so registration/OTP/receipt flows still complete while testing
-without real email credentials.
+Transactional email. _send_email() posts to Resend's REST API with stdlib
+urllib + json (no SDK dependency) whenever RESEND_API_KEY is configured, and
+falls back to logging the message when it isn't, so registration/OTP/receipt
+flows still complete while testing without real email credentials.
+
+WHY RESEND, AND WHAT CARRIES OVER FROM SENDGRID
+-----------------------------------------------
+SendGrid was replaced for its free-tier limits. The deliverability posture that
+kept this mail out of spam is preserved, but it is now enforced in two places
+instead of one:
+
+  * Click and open tracking are OFF. Under SendGrid this was a per-message
+    `tracking_settings` block. Resend has no per-message equivalent — tracking
+    is a DOMAIN setting, and sahilpay.co.ke is configured with both disabled.
+    That is load-bearing: every link this app sends is a one-shot credential
+    (verification, password reset, team invitation, receipt), and a rewritten
+    href through a tracking host is the difference between "here is your login
+    link" and a dead redirect the recipient cannot get past. It has broken
+    before — see the regression note at the bottom of tests/test_email_delivery.py.
+    assert_tracking_disabled() below re-checks the live domain setting so a
+    dashboard toggle cannot silently undo it.
+
+  * Authentication is unchanged in effect: DKIM signs as d=sahilpay.co.ke and
+    the Return-Path lives on send.sahilpay.co.ke, so both SPF and DKIM align
+    with the From domain under DMARC's relaxed alignment. _dmarc.sahilpay.co.ke
+    exists, which is what Gmail/Yahoo bulk-sender rules require.
+
+WHAT IS NEW, AND WHY
+--------------------
+Every message now carries a plain-text alternative alongside the HTML. The
+SendGrid path sent HTML only. An HTML-only body is one of the cheapest spam
+signals there is — Gmail and Outlook both weight it — and it costs nothing to
+fix, so it is done here for every template at once rather than per-template.
+
+A Reply-To of hello@sahilpay.co.ke is set for the same reason: the From is a
+no-reply address, and mail from a domain that accepts no reply anywhere scores
+worse than mail that offers a real one.
 
 Every public function here is a Celery task (routes call them via
 .delay(...)), matching how routes/*.py already imports them.
@@ -16,8 +48,10 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import urllib.error
 import urllib.request
+from html import unescape
 
 from flask import current_app
 
@@ -26,7 +60,28 @@ from services import email_templates as T
 
 logger = logging.getLogger(__name__)
 
-SENDGRID_URL = "https://api.sendgrid.com/v3/mail/send"
+RESEND_URL = "https://api.resend.com/emails"
+RESEND_DOMAINS_URL = "https://api.resend.com/domains"
+
+# The address a human can actually write to. The From stays no-reply (people
+# should not reply to an OTP), but a domain with no reachable reply address
+# reads as unattended bulk mail to a spam filter.
+REPLY_TO = "hello@sahilpay.co.ke"
+
+# MUST be sent on every request to api.resend.com.
+#
+# Resend sits behind Cloudflare, and Cloudflare rejects stdlib urllib's default
+# `Python-urllib/3.x` User-Agent outright with "403 Forbidden / error code:
+# 1010" — a browser-signature ban, before the request ever reaches Resend. The
+# API key is irrelevant; every call fails identically.
+#
+# This is the worst possible failure shape for this module, because _send_email
+# deliberately swallows errors so a dead mailer cannot fail the payment that
+# triggered a receipt. Without this header, every email in production fails
+# silently: registrations never verify, resets never arrive, and the logs show
+# a 403 nobody is reading. Verified against the live API — the identical
+# request succeeds with this header and 403s without it.
+USER_AGENT = "SahilPay/1.0 (+https://sahilpay.co.ke)"
 
 
 def _frontend_url() -> str:
@@ -48,6 +103,59 @@ def _absolute_url(url: str) -> str:
     return f"{_frontend_url()}/{url.lstrip('/')}"
 
 
+_BLOCK_END = re.compile(r"</(p|div|tr|h[1-6]|li|table)\s*>", re.I)
+_BREAK = re.compile(r"<br\s*/?>", re.I)
+_TAG = re.compile(r"<[^>]+>")
+_BLANK_RUN = re.compile(r"\n{3,}")
+
+
+def plain_text_from_html(html: str) -> str:
+    """
+    A readable text/plain alternative for an HTML body.
+
+    Deliberately crude — these are our own templates, not arbitrary HTML, and
+    the goal is a legible fallback plus the spam-score credit for sending
+    multipart at all, not a faithful rendering. Links are kept as their own
+    text because a bare URL is what a text-only reader needs to act on.
+    """
+    if not html:
+        return ""
+    text = re.sub(r"(?is)<(script|style|head)[^>]*>.*?</\1>", "", html)
+    # Surface hrefs before the tags carrying them are stripped.
+    text = re.sub(
+        r'(?is)<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+        lambda m: f"{_TAG.sub('', m.group(2)).strip()} ( {m.group(1)} )",
+        text,
+    )
+    text = _BREAK.sub("\n", text)
+    text = _BLOCK_END.sub("\n", text)
+    text = _TAG.sub("", text)
+    text = unescape(text)
+    text = "\n".join(line.strip() for line in text.splitlines())
+    return _BLANK_RUN.sub("\n\n", text).strip()
+
+
+def _delivery_blocked(to_email: str) -> bool:
+    """
+    True when an allowlist is configured and this recipient is not on it.
+
+    EMAIL_TEST_ALLOWLIST exists so a developer machine pointed at a database
+    full of seeded tenants — which carry real-looking addresses — cannot email
+    a stranger while somebody verifies a flow by hand. Unset (the production
+    state) it does nothing at all, so this can never suppress live mail.
+    """
+    raw = current_app.config.get("EMAIL_TEST_ALLOWLIST") or ""
+    if not raw.strip():
+        return False
+    allowed = {a.strip().lower() for a in raw.split(",") if a.strip()}
+    if to_email.strip().lower() in allowed:
+        return False
+    logger.warning(
+        "EMAIL [blocked by EMAIL_TEST_ALLOWLIST] would have gone to %s — not sent.", to_email
+    )
+    return True
+
+
 def _send_email(
     to_email: str,
     subject: str,
@@ -57,7 +165,7 @@ def _send_email(
 ) -> bool:
     """
     Send one HTML email, optionally with a single PDF attachment. Returns
-    True if a real send was attempted and accepted, False if SendGrid isn't
+    True if a real send was attempted and accepted, False if Resend isn't
     configured (the email is logged instead) or the send failed. Never
     raises — a failed email should never fail the request/task that
     triggered it.
@@ -68,71 +176,123 @@ def _send_email(
 
     # Honour COMMS_SIMULATION_MODE like the SMS path: when simulation is on (the
     # default until go-live) log the email instead of dispatching, so a non-prod
-    # environment that happens to carry a real SendGrid key never emails a real
+    # environment that happens to carry a real Resend key never emails a real
     # person. In production (COMMS_SIMULATION_MODE=false) real emails are sent.
     if current_app.config.get("COMMS_SIMULATION_MODE", True):
         logger.info("EMAIL [simulated — not sent] to %s: %s", to_email, subject)
         return False
 
-    api_key = current_app.config.get("SENDGRID_API_KEY")
+    if _delivery_blocked(to_email):
+        return False
+
+    api_key = current_app.config.get("RESEND_API_KEY")
     sender = current_app.config.get("MAIL_DEFAULT_SENDER", "noreply@sahilpay.co.ke")
     sender_name = current_app.config.get("MAIL_DEFAULT_SENDER_NAME", "Sahil Pay")
 
     if not api_key:
-        logger.info("EMAIL [stub — SendGrid not configured] to %s | subject: %s\n%s", to_email, subject, html_body)
+        logger.info("EMAIL [stub — Resend not configured] to %s | subject: %s\n%s", to_email, subject, html_body)
         return False
 
     payload = {
-        "personalizations": [{"to": [{"email": to_email}]}],
-        "from": {"email": sender, "name": sender_name},
+        # Resend takes the RFC 5322 display-name form in a single field rather
+        # than SendGrid's {"email": ..., "name": ...} object.
+        "from": f"{sender_name} <{sender}>",
+        "to": [to_email],
+        "reply_to": REPLY_TO,
         "subject": subject,
-        "content": [{"type": "text/html", "value": html_body}],
-        # Send these EXPLICITLY rather than inheriting the SendGrid account
-        # default, which has click tracking on.
-        #
-        # Click tracking rewrites every href into a ct.sendgrid.net redirect.
-        # For marketing mail that is a fair trade; for this mail it is not.
-        # Everything sent from here is a one-shot credential: a verification
-        # link, a password reset, a team invitation, a receipt. If the tracking
-        # domain is not authenticated — or the redirect is stripped, flagged as
-        # a phishing pattern, or mangled by a mail client — the recipient is
-        # locked out of their account, and the analytics gained were worth
-        # nothing. The real destination is also what makes the link trustworthy:
-        # people check that a login link points at sahilpay.co.ke before
-        # clicking, and an opaque redirect defeats that.
-        #
-        # Open tracking is off for the same reason it is not needed: it injects
-        # a remote pixel into every receipt, which triggers "images blocked"
-        # banners on financial mail that should look plain and legitimate.
-        "tracking_settings": {
-            "click_tracking": {"enable": False, "enable_text": False},
-            "open_tracking": {"enable": False},
-            "subscription_tracking": {"enable": False},
-        },
+        "html": html_body,
+        # The text/plain alternative. See the module docstring: HTML-only mail
+        # scores worse everywhere, and every template gets this for free here.
+        "text": plain_text_from_html(html_body),
     }
     if pdf_bytes:
         payload["attachments"] = [
             {
                 "content": base64.b64encode(pdf_bytes).decode("ascii"),
                 "filename": pdf_filename or "document.pdf",
-                "type": "application/pdf",
-                "disposition": "attachment",
+                "content_type": "application/pdf",
             }
         ]
 
     req = urllib.request.Request(
-        SENDGRID_URL,
+        RESEND_URL,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15):
-            logger.info("Email sent to %s via SendGrid: %s", to_email, subject)
-            return True
+        with urllib.request.urlopen(req, timeout=15) as response:
+            body = response.read().decode("utf-8", "replace")
+        message_id = ""
+        try:
+            message_id = json.loads(body).get("id", "")
+        except ValueError:
+            pass
+        logger.info("Email sent to %s via Resend (id=%s): %s", to_email, message_id, subject)
+        return True
+    except urllib.error.HTTPError as exc:
+        # Resend answers a rejection with a JSON body naming the reason (an
+        # unverified domain, a malformed From). Logging the status alone turns
+        # a five-second fix into an afternoon, so read the body out.
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+        except Exception:  # pragma: no cover - diagnostics must never raise
+            pass
+        logger.error("_send_email failed for %s: HTTP %s %s", to_email, exc.code, detail)
+        return False
     except urllib.error.URLError as exc:
         logger.error("_send_email failed for %s: %s", to_email, exc)
         return False
+
+
+def assert_tracking_disabled() -> dict:
+    """
+    Read back the live Resend domain settings.
+
+    Resend has no per-message tracking override, so the guarantee that hrefs are
+    not rewritten rests entirely on a dashboard setting we do not control from
+    code. This makes that setting observable: deploy checks and the test suite
+    call it and fail loudly rather than discovering it from a user who cannot
+    open their verification link.
+
+    Returns {"ok": bool, "domains": [...], "error": str|None}.
+    """
+    api_key = current_app.config.get("RESEND_API_KEY")
+    if not api_key:
+        return {"ok": False, "domains": [], "error": "RESEND_API_KEY is not configured."}
+
+    req = urllib.request.Request(
+        RESEND_DOMAINS_URL,
+        headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, ValueError) as exc:
+        return {"ok": False, "domains": [], "error": str(exc)}
+
+    domains = []
+    ok = True
+    for entry in data.get("data") or []:
+        row = {
+            "name": entry.get("name"),
+            "status": entry.get("status"),
+            "click_tracking": bool(entry.get("click_tracking")),
+            "open_tracking": bool(entry.get("open_tracking")),
+        }
+        if row["status"] != "verified" or row["click_tracking"] or row["open_tracking"]:
+            ok = False
+        domains.append(row)
+
+    if not domains:
+        ok = False
+    return {"ok": ok, "domains": domains, "error": None}
 
 
 @celery.task(name="services.email_service.send_otp_email")

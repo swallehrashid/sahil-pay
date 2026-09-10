@@ -21,9 +21,36 @@ export function toPaginationMeta(response) {
   }
   return {
     total: response.total ?? 0,
-    page: response.page ?? 1,
+    // The list endpoints return `current_page`, not `page` — reading only
+    // `page` pinned this at 1 forever, so the pager showed "page 1" no matter
+    // which page you were actually on.
+    page: response.current_page ?? response.page ?? 1,
     perPage: response.per_page ?? response.perPage ?? 20,
   };
+}
+
+/**
+ * Read a whole-dataset total out of a list response.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Every list endpoint returns its aggregates nested under `summary`:
+ *
+ *     { summary: { total_units: 1000, total_vacancies: 57 },
+ *       units: [ ...20 rows... ], total: 1000, current_page: 1 }
+ *
+ * The pages read them FLAT — `data?.total_units` — which is always undefined,
+ * so every card silently fell through to its fallback and counted the rows on
+ * the current page instead. On an account with 100 properties and 1,000 units
+ * the cards read 20 and 20: not a rounding problem, a different number
+ * entirely, and one that looks plausible enough not to question.
+ *
+ * The fallback is kept for endpoints that genuinely have no summary block, but
+ * it is now the exception rather than the thing that always runs.
+ */
+export function readSummary(response, key, fallback = 0) {
+  const value = response?.summary?.[key] ?? response?.[key];
+  return value ?? fallback;
 }
 
 // Builds a `?page=1&per_page=20&...` query string from a filters object, dropping
@@ -37,4 +64,4 @@ export function buildQueryParams(filters = {}) {
   return params.toString();
 }
 
-export default { toRows, toPaginationMeta, buildQueryParams };
+export default { toRows, toPaginationMeta, readSummary, buildQueryParams };

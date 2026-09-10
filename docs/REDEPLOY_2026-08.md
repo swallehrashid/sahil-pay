@@ -1,5 +1,8 @@
 # Sahil Pay — Redeployment Guide, August 2026
 
+> **Email provider changed (2026-09-09).** SendGrid was replaced by **Resend**. Wherever this document says `SENDGRID_API_KEY`, read `RESEND_API_KEY`. See **EMAIL_RESEND_SETUP.md** — it is the current source of truth for email, including the Cloudflare User-Agent trap that silently fails every send if missed.
+
+
 > **Read this once end to end before you touch anything.** It is written so
 > that a second person (or another AI) can follow it with no other context.
 >

@@ -216,11 +216,23 @@ class BaseConfig:
     FLUXSMS_SENDER_ID: str = _env("FLUXSMS_SENDER_ID", "SAHILPAY")
 
     # ------------------------------------------------------------------
-    # Email — SendGrid  (transactional; §2 Third-Party Integrations)
+    # Email — Resend  (transactional; §2 Third-Party Integrations)
     # ------------------------------------------------------------------
-    SENDGRID_API_KEY: str | None = _env("SENDGRID_API_KEY")
+    # Replaced SendGrid. The sender domain sahilpay.co.ke is verified in Resend
+    # with DKIM (resend._domainkey) and an SPF-bearing return path
+    # (send.sahilpay.co.ke), so SPF and DKIM both align with the From domain
+    # under DMARC. Click/open tracking is disabled at the DOMAIN level, which is
+    # what keeps one-shot credential links from being rewritten — see
+    # services/email_service.py.
+    RESEND_API_KEY: str | None = _env("RESEND_API_KEY")
     MAIL_DEFAULT_SENDER: str = _env("MAIL_DEFAULT_SENDER", "noreply@sahilpay.co.ke")
     MAIL_DEFAULT_SENDER_NAME: str = _env("MAIL_DEFAULT_SENDER_NAME", "Sahil Pay")
+
+    # Comma-separated recipients that email may be delivered to. A SAFETY VALVE
+    # FOR NON-PRODUCTION ONLY: a dev database seeded with ~1,000 tenants carries
+    # real-looking addresses, and one hand-run flow with COMMS_SIMULATION_MODE
+    # off would mail a stranger. Left blank (the production state) it is inert.
+    EMAIL_TEST_ALLOWLIST: str = _env("EMAIL_TEST_ALLOWLIST", "")
 
     # When True (default until real SMS/email/WhatsApp providers are wired),
     # message dispatch is SIMULATED: no external API is called, and a message is
@@ -233,7 +245,7 @@ class BaseConfig:
 
     # When True, landlords/PMs must verify their email before they can log in.
     # Defaults on; DevelopmentConfig flips it off so local testing isn't blocked
-    # before SendGrid is wired. Override per-environment with ENFORCE_EMAIL_VERIFICATION.
+    # before Resend is wired. Override per-environment with ENFORCE_EMAIL_VERIFICATION.
     ENFORCE_EMAIL_VERIFICATION: bool = _env("ENFORCE_EMAIL_VERIFICATION", "true").lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------
@@ -448,7 +460,7 @@ class ProductionConfig(BaseConfig):
         _require("DATABASE_URL", "production PostgreSQL connection string")
         _require("JWT_SECRET_KEY", "production JWT signing key")
         _require("REDIS_URL", "production Redis URL for Celery / rate-limiter")
-        _require("SENDGRID_API_KEY", "transactional email")
+        _require("RESEND_API_KEY", "transactional email")
         _require("FIELD_ENCRYPTION_KEY", "encryption key for two-factor secrets at rest")
         # Cloud file/image storage is OPTIONAL for v1. When Cloudinary / AWS S3
         # credentials are absent, services/storage_service.py transparently falls

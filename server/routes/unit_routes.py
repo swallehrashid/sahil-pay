@@ -19,6 +19,7 @@ from decorators import (
     scope_to_accessible_properties,
 )
 from services.audit_service import record_audit
+from services.unit_counts import recount
 
 unit_bp = Blueprint("units", __name__, url_prefix="/api/units")
 
@@ -36,7 +37,7 @@ def list_units():
     List all non-deleted units for the current landlord.
     Returns a summary (total_properties, total_units, total_vacancies).
 
-    Filters: ?property_id=, ?is_occupied=(true|false), ?page=, ?per_page=
+    Filters: ?search=, ?property_id=, ?is_occupied=(true|false), ?page=, ?per_page=
     ---
     tags: [Units]
     security:
@@ -49,6 +50,7 @@ def list_units():
     per_page    = request.args.get("per_page", 20, type=int)
     prop_filter = request.args.get("property_id", type=int)
     occ_filter  = request.args.get("is_occupied", "").lower()
+    search      = (request.args.get("search") or "").strip()
 
     query = (
         Unit.query
@@ -63,6 +65,18 @@ def list_units():
     if g.accessible_property_ids is not None:
         query = query.filter(Unit.property_id.in_(g.accessible_property_ids))
 
+    if search:
+        # Across the unit AND its property: at 1,000 units nobody remembers
+        # which block "B12" is in, and typing the block name to narrow to it is
+        # the other half of the same search.
+        like = f"%{search}%"
+        query = query.filter(
+            db.or_(
+                Unit.name.ilike(like),
+                Unit.pay_code.ilike(like),
+                Property.name.ilike(like),
+            )
+        )
     if prop_filter:
         query = query.filter(Unit.property_id == prop_filter)
     if occ_filter == "true":
@@ -70,9 +84,15 @@ def list_units():
     elif occ_filter == "false":
         query = query.filter(Unit.is_occupied.is_(False))
 
-    # Summary
-    total_units     = query.count()
-    total_vacancies = query.filter(Unit.is_occupied.is_(False)).count()
+    # Summary — over the FILTERED set, so the cards above the table describe
+    # the table. total_properties counts the distinct blocks the matched units
+    # belong to: searching "Riverside" and being told there are still 2
+    # properties is the same disagreement in miniature.
+    total_units      = query.count()
+    total_vacancies  = query.filter(Unit.is_occupied.is_(False)).count()
+    total_properties = query.with_entities(
+        db.func.count(db.distinct(Unit.property_id))
+    ).scalar() or 0
 
     paginated = query.order_by(Unit.property_id, Unit.name).paginate(
         page=page, per_page=per_page, error_out=False
@@ -89,8 +109,9 @@ def list_units():
 
     return jsonify({
         "summary": {
-            "total_units":     total_units,
-            "total_vacancies": total_vacancies,
+            "total_properties": total_properties,
+            "total_units":      total_units,
+            "total_vacancies":  total_vacancies,
         },
         "units":        items,
         "total":        paginated.total,
@@ -149,6 +170,11 @@ def create_unit():
         is_occupied = False,
     )
     db.session.add(unit)
+    db.session.flush()
+    # The property's cached unit count is derived, never typed — see
+    # services/unit_counts.py. Refresh it here so the number a landlord reads on
+    # the properties screen is the number of units that exist.
+    recount([property_id])
     db.session.commit()
 
     record_audit(
@@ -276,6 +302,10 @@ def delete_unit(unit_id):
 
     unit.is_deleted = True
     unit.deleted_at = datetime.utcnow()
+    db.session.flush()
+    # A deleted unit is not a unit the landlord has. Without this the count
+    # only ever went up.
+    recount([unit.property_id])
     db.session.commit()
 
     record_audit(

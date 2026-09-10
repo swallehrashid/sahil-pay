@@ -706,6 +706,20 @@ def commit(landlord, entity: str, rows: list[dict], mapping: dict,
     else:                                             # pragma: no cover
         created, reused = 0, 0
 
+    # Bring properties.number_of_units back in line with the units that now
+    # exist. THIS is the step that was missing: an import created the property
+    # with the column at its default of 0 and then added its units without ever
+    # coming back, so importing 100 properties and 1,000 units left every
+    # property reading "0 units" on screen and in every export.
+    #
+    # Scoped to the whole account rather than the imported rows on purpose — a
+    # units import can attach units to properties that came in on an earlier
+    # run, and one statement covers the lot either way.
+    if entity in ("properties", "units"):
+        from services.unit_counts import recount
+
+        recount(landlord_id=landlord.id)
+
     db.session.commit()
 
     from services.audit_service import record_audit

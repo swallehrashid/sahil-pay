@@ -13,7 +13,7 @@
 
 - ✅ `wsgi.py` added; gunicorn target `app:create_app()` verified booting in production mode.
 - ✅ Production config no longer requires Cloudinary/AWS — file uploads fall back to local disk (`server/uploads/`).
-- ✅ Email sender = `noreply@sahilpay.co.ke`; contact address users see = `hello@sahilpay.co.ke`. **Real SendGrid send tested and delivered.**
+- ✅ Email sender = `noreply@sahilpay.co.ke`; contact address users see = `hello@sahilpay.co.ke`. **Real Resend send tested and delivered (2026-09-09).**
 - ✅ `deploy/` has correct systemd units (gunicorn + celery worker + celery beat), nginx config, `update.sh`, and `server.env.production.example`.
 - ✅ Migrations verified to apply cleanly on a fresh Postgres DB. All 103 tests pass.
 
@@ -31,7 +31,7 @@ git push origin backend-set-up
 ```
 
 Have ready: a **GitHub Personal Access Token** (for cloning the private repo), your
-**production secrets** (M-Pesa, FluxSMS keys), and the **fresh SendGrid production key**.
+**production secrets** (M-Pesa, FluxSMS keys), and the **Resend production key**.
 
 ---
 
@@ -126,7 +126,7 @@ nano /var/www/sahilpay/app/server/.env
 
 Fill in every value. **Minimum to boot:** `SECRET_KEY`, `JWT_SECRET_KEY`
 (generate each with `python3 -c "import secrets;print(secrets.token_urlsafe(48))"`),
-`DATABASE_URL` (with the step-4 password), `REDIS_URL`, `SENDGRID_API_KEY`
+`DATABASE_URL` (with the step-4 password), `REDIS_URL`, `RESEND_API_KEY`
 (your fresh production key), `PLATFORM_DARAJA_CONSUMER_KEY`. Set
 **`COMMS_SIMULATION_MODE=false`** so real OTPs/emails send. Leave the M-Pesa
 block `MPESA_SIMULATION_MODE=true` until you have the Daraja production passkey.
@@ -221,9 +221,9 @@ payment and watch `journalctl -u sahilpay -f` for the callback hit.
   ```
   Copy these off the server (rsync/rclone to object storage or another host).
 - **Fail2ban** for SSH: `apt install -y fail2ban`.
-- **🔑 Rotate the SendGrid API key.** The key you pasted in chat should be replaced:
-  create a fresh one in SendGrid, put it in the VPS `.env`, restart `sahilpay`, then
-  delete the old key in SendGrid.
+- **🔑 Rotate the Resend API key.** The key pasted in chat should be replaced:
+  create a fresh one in Resend, put it in the VPS `.env`, restart `sahilpay`, then
+  revoke the old key in Resend.
 - Consider Sentry (free tier) for error tracking.
 
 ---
