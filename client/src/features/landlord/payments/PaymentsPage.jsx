@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Plus, Wallet, Upload, Pencil, Trash2, Send, Download, ArrowRightLeft, FileBarChart, CheckCircle2, Landmark } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchInput from "@/components/ui/SearchInput";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -50,11 +51,12 @@ export default function PaymentsPage() {
   const [tab, setTab] = useState(tabFromQuery === "copilot" ? "copilot" : "payments");
   const [filters, setFilters] = useState({ status: statusFromQuery || "", source: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState(statusFromQuery ? { status: statusFromQuery } : {});
+  const [search, setSearch] = useState("");
   const { data: copilotSummary } = useGetCopilotInboxSummaryQuery();
   const copilotBadgeCount = (copilotSummary?.unparsed ?? 0) + (copilotSummary?.unmatched ?? 0);
 
   const pg = usePagination();
-  const { data, isLoading } = useGetPaymentsQuery({ ...appliedFilters, ...pg.params });
+  const { data, isLoading } = useGetPaymentsQuery({ ...appliedFilters, ...pg.params, search });
   const { data: tenantsData } = useGetTenantsQuery();
   const { data: invoicesData } = useGetInvoicesQuery();
   const [createPayment, { isLoading: isCreating }] = useCreatePaymentMutation();
@@ -207,7 +209,18 @@ export default function PaymentsPage() {
         <CopilotInboxTab openMessageId={copilotMessageFromQuery} />
       ) : (
         <>
-          {isLoading ? (
+          {/* Its own control rather than part of the Apply-button panel below:
+          a search box you have to press a second button to run does not
+          read as a search box. */}
+      <SearchInput
+        value={search}
+        onSearch={(term) => { setSearch(term); pg.reset(); }}
+        placeholder="Search M-Pesa code, name or phone…"
+        aria-label="Search payments"
+        resultCount={meta.total}
+      />
+
+      {isLoading ? (
             <SkeletonStatCards count={2} />
           ) : (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">

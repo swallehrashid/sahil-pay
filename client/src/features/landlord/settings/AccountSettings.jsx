@@ -5,7 +5,8 @@ import { AUTH_ROUTES } from "@/config/routePaths";
 import { env } from "@/config/env";
 import { getAccessToken } from "@/utils/tokenStorage";
 import Input from "@/components/ui/Input";
-import FileUpload from "@/components/ui/FileUpload";
+import toFormData from "@/utils/toFormData";
+import BrandImageField from "./BrandImageField";
 import Button from "@/components/ui/Button";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
@@ -36,13 +37,26 @@ export default function AccountSettings() {
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  // The server says which fields it will actually write for this role.
+  // `users` carries no name columns — those live on the TeamMember/SystemAdmin
+  // profile row, and a landlord/PM is identified by their company name in
+  // General settings instead. Rendering an input the save cannot persist is
+  // what made this page look broken, so show only what is really editable.
+  const editable = new Set(form.editable_fields ?? ["email", "phone"]);
+
   const handleProfileSubmit = async (e) => {
     e.preventDefault();
     try {
-      await updateAccount({ ...form, signature }).unwrap();
-      toast("Account updated.", { type: "success" });
-    } catch {
-      toast("Could not update your account.", { type: "error" });
+      // Same trap as the logo: a File inside a plain object is JSON-stringified
+      // to {} and never reaches the server, while the page reports success.
+      const payload = { ...form, ...(signature ? { signature } : {}) };
+      await updateAccount(toFormData(payload) ?? payload).unwrap();
+      setSignature(null);
+      toast(signature ? "Account updated — signature uploaded." : "Account updated.", {
+        type: "success",
+      });
+    } catch (err) {
+      toast(err?.data?.error || "Could not update your account.", { type: "error" });
     }
   };
 
@@ -52,14 +66,32 @@ export default function AccountSettings() {
         <div className="glass space-y-4 p-6">
           <h3 className="text-base font-medium text-white">Profile</h3>
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Username" value={form.username ?? ""} onChange={update("username")} />
+            {editable.has("username") && (
+              <Input label="Username" value={form.username ?? ""} onChange={update("username")} />
+            )}
             <Input label="Email" type="email" value={form.email ?? ""} onChange={update("email")} />
+            <Input label="Phone" value={form.phone ?? ""} onChange={update("phone")} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="First name" value={form.first_name ?? ""} onChange={update("first_name")} />
-            <Input label="Last name" value={form.last_name ?? ""} onChange={update("last_name")} />
-          </div>
-          <FileUpload label="Signature" accept="image/*" value={signature} onChange={setSignature} hint="Appears on statements and receipts" />
+          {(editable.has("first_name") || editable.has("last_name")) && (
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="First name" value={form.first_name ?? ""} onChange={update("first_name")} />
+              <Input label="Last name" value={form.last_name ?? ""} onChange={update("last_name")} />
+            </div>
+          )}
+          {form.company_name != null && (
+            <p className="text-xs text-white/40">
+              Your business name is <strong className="text-white/60">{form.company_name}</strong> —
+              change it under <strong className="text-white/60">General</strong> settings, where it is
+              stored alongside your logo.
+            </p>
+          )}
+          <BrandImageField
+            label="Signature"
+            kind="signature"
+            currentUrl={form.signature_url}
+            value={signature}
+            onChange={setSignature}
+          />
         </div>
 
         <div className="flex justify-end">

@@ -28,6 +28,7 @@ from io import BytesIO
 
 from utils import render_pdf
 from services import branding
+from services import receipt_theme
 
 # ---------------------------------------------------------------------------
 # Column kinds — drive both alignment and value formatting
@@ -281,6 +282,11 @@ def build_meta(landlord, *, report_title: str, period: str | None = None, subjec
         "company_address": getattr(landlord, "company_address", None),
         "logo_url": getattr(landlord, "logo_url", None),
         "signature_url": getattr(landlord, "signature_url", None),
+        # The two colours this account's documents are drawn in. Carried on the
+        # meta rather than looked up per renderer so a report, a receipt and a
+        # statement issued by the same landlord cannot come out in different
+        # colours — see services/receipt_theme.py.
+        "theme": receipt_theme.for_landlord(landlord),
         "currency": getattr(landlord, "currency", "KES") or "KES",
         "subject": subject,            # e.g. tenant or property the report is about
         "property_name": property_name,
@@ -292,32 +298,61 @@ def build_meta(landlord, *, report_title: str, period: str | None = None, subjec
     return meta
 
 
-_REPORT_STYLE = """
+def report_style(theme: dict | None = None) -> str:
+    """
+    The stylesheet every generated document shares, in the landlord's colours.
+
+    Was a module constant with the Sahil Pay violet hard-coded into the
+    letterhead rule, the table heads and the section headings. A landlord who
+    picks their own colours has to see them on REPORTS as well as receipts —
+    a statement in someone else's brand colour next to a receipt in their own
+    is worse than having no choice at all.
+
+    Called with no theme it returns exactly the previous stylesheet, so every
+    account that has never opened the screen is unaffected.
+    """
+    colours = receipt_theme.resolve(theme)
+    primary = colours["primary"]
+    secondary = colours["secondary"]
+    head_fill = receipt_theme.tint(primary, 0.94)
+    rule_faint = receipt_theme.tint(primary, 0.88)
+    total_fill = receipt_theme.tint(secondary, 0.96)
+    # 0.55 washed out: legible on a backlit screen, not on a laser print that
+    # a tenant then photographs. Secondary text still has to be readable.
+    muted = receipt_theme.tint(primary, 0.42)
+
+    return f"""
 <style>
-  @page { size: A4; margin: 1.6cm 1.4cm; }
-  body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1a1a2e; font-size: 12px; }
-  .letterhead { display: flex; justify-content: space-between; align-items: flex-start;
-                border-bottom: 2px solid #200497; padding-bottom: 12px; margin-bottom: 6px; }
-  .letterhead .brand { display: flex; gap: 12px; align-items: center; }
-  .letterhead img.logo { max-height: 56px; max-width: 160px; object-fit: contain; }
-  .company { font-size: 17px; font-weight: 600; }
-  .muted { color: #6b6b80; }
-  .doc-meta { text-align: right; font-size: 11px; color: #4a4a60; }
-  .doc-title { font-size: 20px; font-weight: 300; margin: 14px 0 2px; }
-  .subject { font-size: 12px; color: #4a4a60; margin-bottom: 10px; }
-  h2 { font-size: 14px; font-weight: 600; margin: 22px 0 6px; color: #200497; }
-  table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-  th, td { padding: 5px 7px; border-bottom: 1px solid #e2e2e8; font-size: 11px; }
-  th { background: #f4f4f8; font-weight: 600; text-align: left; }
-  td.right, th.right { text-align: right; }
-  tr.total-row td { font-weight: 700; border-top: 2px solid #1a1a2e; background: #fafafe; }
-  .kv td:first-child { color: #4a4a60; }
-  .signature { margin-top: 40px; display: flex; justify-content: flex-end; }
-  .signature .block { text-align: center; min-width: 220px; }
-  .signature img { max-height: 60px; margin-bottom: 4px; }
-  .signature .line { border-top: 1px solid #1a1a2e; padding-top: 4px; font-size: 11px; }
+  @page {{ size: A4; margin: 1.6cm 1.4cm; }}
+  body {{ font-family: -apple-system, Helvetica, Arial, sans-serif; color: {primary}; font-size: 12px; }}
+  .letterhead {{ display: flex; justify-content: space-between; align-items: flex-start;
+                border-bottom: 2px solid {secondary}; padding-bottom: 12px; margin-bottom: 6px; }}
+  .letterhead .brand {{ display: flex; gap: 12px; align-items: center; }}
+  .letterhead img.logo {{ max-height: 56px; max-width: 160px; object-fit: contain; }}
+  .company {{ font-size: 17px; font-weight: 600; }}
+  .muted {{ color: {muted}; }}
+  .doc-meta {{ text-align: right; font-size: 11px; color: {muted}; }}
+  .doc-title {{ font-size: 20px; font-weight: 300; margin: 14px 0 2px; }}
+  .subject {{ font-size: 12px; color: {muted}; margin-bottom: 10px; }}
+  h2 {{ font-size: 14px; font-weight: 600; margin: 22px 0 6px; color: {secondary}; }}
+  table {{ width: 100%; border-collapse: collapse; margin-top: 6px; }}
+  th, td {{ padding: 5px 7px; border-bottom: 1px solid {rule_faint}; font-size: 11px; }}
+  th {{ background: {head_fill}; color: {primary}; font-weight: 600; text-align: left; }}
+  td.right, th.right {{ text-align: right; }}
+  tr.total-row td {{ font-weight: 700; border-top: 2px solid {secondary}; background: {total_fill}; }}
+  .kv td:first-child {{ color: {muted}; }}
+  .signature {{ margin-top: 40px; display: flex; justify-content: flex-end; }}
+  .signature .block {{ text-align: center; min-width: 220px; }}
+  .signature img {{ max-height: 60px; margin-bottom: 4px; }}
+  .signature .line {{ border-top: 1px solid {primary}; padding-top: 4px; font-size: 11px; }}
 </style>
 """
+
+
+# Kept so existing importers (services/receipt_service.py) keep working. It is
+# the DEFAULT-themed stylesheet; anything that knows the landlord should call
+# report_style(meta["theme"]) instead.
+_REPORT_STYLE = report_style()
 
 
 def _letterhead_html(meta: dict) -> str:
@@ -437,7 +472,8 @@ def _render_pdf(doc: ReportDocument, selection: dict[str, list[str]], chart_keys
     body.append(_signature_html(doc.meta))
     body.append(_platform_credit_html())
     html = (
-        f"<!doctype html><html><head><meta charset='utf-8'>{_REPORT_STYLE}</head>"
+        f"<!doctype html><html><head><meta charset='utf-8'>"
+        f"{report_style(doc.meta.get('theme'))}</head>"
         f"<body>{''.join(body)}</body></html>"
     )
     return render_pdf(html)

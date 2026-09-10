@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Sahil Pay — redeploy script. Run on the VPS as the sahilpay user after the
-# first-time setup in DEPLOYMENT_GUIDE.md:
+# first-time setup in docs/DEPLOYMENT_GUIDE.md:
 #   cd /var/www/sahilpay/app && ./deploy/update.sh
 #
 # Layout on the VPS:

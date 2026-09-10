@@ -70,7 +70,6 @@ def list_tenants():
     search      = request.args.get("search", "").strip()
 
     query = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False)
-    all_tenants_query = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False)
 
     # Property-scoped team members only see tenants in units under their
     # assigned properties. Tenant has no property_id directly, so scope via
@@ -81,7 +80,6 @@ def list_tenants():
             Unit.property_id.in_(g.accessible_property_ids)
         )
         query = query.filter(Tenant.unit_id.in_(accessible_unit_ids))
-        all_tenants_query = all_tenants_query.filter(Tenant.unit_id.in_(accessible_unit_ids))
 
     if prop_id:
         query = query.join(Unit).filter(Unit.property_id == prop_id)
@@ -97,17 +95,43 @@ def list_tenants():
             )
         )
 
-    all_tenants     = all_tenants_query.all()
-    total_arrears   = sum(abs(float(t.balance)) for t in all_tenants if t.balance < 0)
-
-    # Leases expiring within 30 days
-    in_30           = date.today()
+    # THE SUMMARY DESCRIBES WHAT THE TABLE IS SHOWING, and is computed in SQL.
+    #
+    # Two problems here, both of which only show up on a real account. The
+    # aggregates came from a second UNFILTERED query, so searching for one
+    # tenant left "Total arrears" reporting the whole book — the table and the
+    # card above it answering different questions. And they were computed by
+    # loading every tenant row into Python and looping: at ~1,000 tenants that
+    # is the entire table fetched on every page of every list request, to
+    # produce three numbers the database can return itself.
     from datetime import timedelta
-    near_expiry_date = date.today() + timedelta(days=30)
-    leases_expiring = sum(
-        1 for t in all_tenants
-        if t.lease_expiry_date and in_30 <= t.lease_expiry_date <= near_expiry_date
-    )
+
+    today            = date.today()
+    near_expiry_date = today + timedelta(days=30)
+
+    summary_row = query.with_entities(
+        db.func.count(Tenant.id).label("total"),
+        # balance < 0 is arrears; advances (positive) must not net them off.
+        db.func.coalesce(
+            db.func.sum(
+                db.case((Tenant.balance < 0, -Tenant.balance), else_=0)
+            ), 0
+        ).label("arrears"),
+        db.func.coalesce(
+            db.func.sum(
+                db.case(
+                    (db.and_(Tenant.lease_expiry_date.isnot(None),
+                             Tenant.lease_expiry_date >= today,
+                             Tenant.lease_expiry_date <= near_expiry_date), 1),
+                    else_=0,
+                )
+            ), 0
+        ).label("expiring"),
+    ).one()
+
+    total_tenants   = summary_row.total or 0
+    total_arrears   = float(summary_row.arrears or 0)
+    leases_expiring = int(summary_row.expiring or 0)
 
     from sqlalchemy.orm import joinedload
 
@@ -131,7 +155,7 @@ def list_tenants():
 
     return jsonify({
         "summary": {
-            "total_tenants":     len(all_tenants),
+            "total_tenants":     total_tenants,
             "total_arrears":     round(total_arrears, 2),
             "leases_expiring":   leases_expiring,
         },

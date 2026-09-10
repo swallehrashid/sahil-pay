@@ -1,5 +1,8 @@
 # Deploying this release
 
+> **Email provider changed (2026-09-09).** SendGrid was replaced by **Resend**. Wherever this document says `SENDGRID_API_KEY`, read `RESEND_API_KEY`. See **EMAIL_RESEND_SETUP.md** — it is the current source of truth for email, including the Cloudflare User-Agent trap that silently fails every send if missed.
+
+
 Everything you need to do, in the order to do it, with the reason for each step.
 
 This release contains **12 database migrations**, a **build-step change**, **two

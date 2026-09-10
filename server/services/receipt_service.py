@@ -25,7 +25,8 @@ from decimal import Decimal
 from html import escape
 
 from utils import render_pdf
-from services.report_builder import build_meta, _letterhead_html, _signature_html, _platform_credit_html, _REPORT_STYLE
+from services.report_builder import (build_meta, _letterhead_html, _signature_html,
+                                     _platform_credit_html, report_style)
 
 logger = logging.getLogger(__name__)
 
@@ -250,23 +251,73 @@ def _money(value, currency="KES") -> str:
     return f"{currency} {_f(value):,.2f}"
 
 
-def _section_html(title: str, rows: list, currency: str) -> str:
+def _section_html(title: str, rows: list, currency: str, columns: int = 4) -> str:
+    """
+    One charge group as a table.
+
+    `columns` is how many money columns the paper can carry — see
+    receipt_layout.money_columns(). Four of them across a 99mm band leaves each
+    about two characters wide, which is not a smaller receipt but an unreadable
+    one, so a cut slip or a till roll shows the item and what was paid and puts
+    the rest in the summary.
+    """
     if not rows:
         return ""
-    body = "".join(
-        f"<tr><td>{escape(r['description'])}</td>"
-        f"<td class='right'>{_money(r['amount_due'], currency)}</td>"
-        f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td>"
-        f"<td class='right'>{_money(r['balance_cf'], currency)}</td></tr>"
-        for r in rows
-    )
+    if columns >= 4:
+        body = "".join(
+            f"<tr><td>{escape(r['description'])}</td>"
+            f"<td class='right'>{_money(r['amount_due'], currency)}</td>"
+            f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td>"
+            f"<td class='right'>{_money(r['balance_cf'], currency)}</td></tr>"
+            for r in rows
+        )
+        head = ("<th>Item</th><th class='right'>Amount due</th>"
+                "<th class='right'>Paid (this receipt)</th>"
+                "<th class='right'>Balance c/f</th>")
+    else:
+        body = "".join(
+            f"<tr><td>{escape(r['description'])}</td>"
+            f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td></tr>"
+            for r in rows
+        )
+        head = "<th>Item</th><th class='right'>Paid</th>"
     return (
         f"<h2>{escape(title)}</h2>"
-        "<table><thead><tr>"
-        "<th>Item</th><th class='right'>Amount due</th>"
-        "<th class='right'>Paid (this receipt)</th><th class='right'>Balance c/f</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+        f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
     )
+
+
+def _charge_groups_html(groups, currency: str, columns: int, max_rows: int | None) -> str:
+    """
+    Every charge group, trimmed to what the paper can hold.
+
+    A fixed-height band cannot grow, so a tenant with a long list of charges
+    would push the receipt onto a second band — which prints as a mostly empty
+    slip and reads as a printing fault. Rather than silently dropping the
+    overflow, the receipt SAYS how many rows it folded away and where to see
+    them, so nobody is left thinking a charge went missing.
+    """
+    if max_rows is None:
+        return "".join(_section_html(title, rows, currency, columns) for title, rows in groups)
+
+    html = ""
+    used = 0
+    hidden = 0
+    for title, rows in groups:
+        if not rows:
+            continue
+        room = max(0, max_rows - used)
+        shown = rows[:room]
+        hidden += len(rows) - len(shown)
+        if shown:
+            html += _section_html(title, shown, currency, columns)
+            used += len(shown)
+    if hidden:
+        html += (
+            f"<p class='muted receipt-small'>+{hidden} more item"
+            f"{'s' if hidden != 1 else ''} — see the full statement.</p>"
+        )
+    return html
 
 
 def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
@@ -279,6 +330,7 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
     original A4 receipt unchanged.
     """
     from services import receipt_layout as rl
+    from services import receipt_theme
 
     data     = build_receipt(payment)
     landlord = payment.landlord
@@ -304,12 +356,14 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
         "</tbody></table>"
     )
 
-    sections_html = (
-        _section_html("Rent", data["rent_section"], currency)
-        + _section_html("Utilities", data["utilities_section"], currency)
-        + _section_html("Deposits", data["deposits_section"], currency)
-        + _section_html("Other charges", data["other_section"], currency)
-    )
+    columns = rl.money_columns(layout)
+    groups = [
+        ("Rent", data["rent_section"]),
+        ("Utilities", data["utilities_section"]),
+        ("Deposits", data["deposits_section"]),
+        ("Other charges", data["other_section"]),
+    ]
+    sections_html = _charge_groups_html(groups, currency, columns, rl.max_charge_rows(layout))
 
     advance_row = (
         f"<tr><td>Advance / credit</td><td class='right'>{_money(data['advance_credit'], currency)}</td></tr>"
@@ -357,14 +411,23 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
     from services.etims_pdf import receipt_block_html
     etims_block = receipt_block_html(payment, payment.property, payment.tenant)
 
-    body = (
-        f"{rl.header_html(layout, meta)}{info}{sections_html}{totals}"
-        f"{thanks}{etims_block}{signature}{_platform_credit_html()}"
-    )
+    # The blocks are handed over NAMED rather than concatenated, so the paper's
+    # flow can deal them into columns. Joining them here is what made every
+    # paper a shrunken A4 receipt — nothing downstream could rearrange a string.
+    body = rl.compose_body(layout, {
+        "details": info,
+        "charges": sections_html,
+        "totals": totals,
+        "notes": thanks,
+        "etims": etims_block,
+        "signature": signature,
+        "credit": _platform_credit_html(),
+    })
+    theme = receipt_theme.for_landlord(landlord)
     html = (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"{_REPORT_STYLE}<style>{rl.page_css(layout)}</style>"
-        f"</head><body>{body}</body></html>"
+        f"{report_style(theme)}<style>{rl.page_css(layout, theme)}</style>"
+        f"</head><body>{rl.header_html(layout, meta)}{body}</body></html>"
     )
     return render_pdf(html)
 
@@ -373,7 +436,7 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
 # Layout preview
 # ---------------------------------------------------------------------------
 
-def render_sample_receipt_pdf(landlord, layout: dict) -> bytes:
+def render_sample_receipt_pdf(landlord, layout: dict, theme_override: dict | None = None) -> bytes:
     """
     A receipt built from FAKE data, so the layout editor can show the real paper
     size and header arrangement without needing a real payment to point at — a
@@ -383,6 +446,7 @@ def render_sample_receipt_pdf(landlord, layout: dict) -> bytes:
     document they can hand to a tenant.
     """
     from services import receipt_layout as rl
+    from services import receipt_theme
     from services.report_builder import build_meta
 
     layout = rl.normalise(layout)
@@ -438,15 +502,27 @@ def render_sample_receipt_pdf(landlord, layout: dict) -> bytes:
     )
     signature = _signature_html(meta) if layout["sections"].get("signature", True) else ""
 
-    body = (
-        f"{rl.header_html(layout, meta)}"
-        "<p class='muted'><strong>SAMPLE RECEIPT — not a real payment.</strong></p>"
-        f"{info}{sections}{totals}{thanks}{signature}{_platform_credit_html()}"
-    )
+    # The preview MUST take the same arrangement path as a real receipt — a
+    # preview that stacks while the real thing runs in columns is worse than no
+    # preview, because it is confidently wrong about the one thing it exists to
+    # show.
+    body = rl.compose_body(layout, {
+        "details": info,
+        "charges": sections,
+        "totals": totals,
+        "notes": thanks,
+        "signature": signature,
+        "credit": _platform_credit_html(),
+    })
+    theme = receipt_theme.resolve(theme_override) if theme_override is not None \
+        else receipt_theme.for_landlord(landlord)
     html = (
         "<!doctype html><html><head><meta charset='utf-8'>"
-        f"{_REPORT_STYLE}<style>{rl.page_css(layout)}</style>"
-        f"</head><body>{body}</body></html>"
+        f"{report_style(theme)}<style>{rl.page_css(layout, theme)}</style>"
+        "</head><body>"
+        f"{rl.header_html(layout, meta)}"
+        "<p class='muted receipt-small'><strong>SAMPLE — not a real payment.</strong></p>"
+        f"{body}</body></html>"
     )
     return render_pdf(html)
 

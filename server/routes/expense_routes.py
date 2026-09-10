@@ -16,7 +16,7 @@ from flask import Blueprint, request, jsonify, abort, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
-from models import Expense, RecurringExpense, ExpenseStatus
+from models import Expense, RecurringExpense, ExpenseStatus, Property
 from decorators import (
     accessible_property_ids,
     require_landlord_or_team, require_permission, get_current_landlord_id,
@@ -74,6 +74,18 @@ def list_expenses():
         query = query.filter(Expense.status == v)
     if v := request.args.get("category"):
         query = query.filter(Expense.category == v)
+
+    if search := (request.args.get("search") or "").strip():
+        # Category, notes and the property/unit it was booked against — the
+        # three things somebody actually remembers about a past expense.
+        like = f"%{search}%"
+        query = query.outerjoin(Property, Property.id == Expense.property_id).filter(
+            db.or_(
+                Expense.category.ilike(like),
+                Expense.notes.ilike(like),
+                Property.name.ilike(like),
+            )
+        )
 
     total = db.session.query(
         db.func.coalesce(db.func.sum(Expense.amount), 0)

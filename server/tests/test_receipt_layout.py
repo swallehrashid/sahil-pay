@@ -75,20 +75,59 @@ def test_every_paper_produces_usable_css(paper):
     assert "@page" in css and "size:" in css
 
 
-def test_thermal_roll_has_no_fixed_height():
+def test_thermal_roll_is_80mm_wide():
     """
-    A till roll is continuous stationery. A fixed height would either cut a long
-    receipt off or spit out blank paper after a short one.
+    A till roll is 80mm wide, and the page has to say so.
+
+    This test used to assert `size: 80mm auto`, which read like "continuous
+    stationery" and was in fact invalid CSS: `auto` is not a legal SECOND value
+    in an @page size, so WeasyPrint discarded the whole declaration and fell
+    back to A4. Every thermal receipt came out 210mm wide — two and a half
+    times the width of the paper — while this test passed, because it was
+    checking the string rather than the outcome.
+
+    So: assert the width the roll actually is, and that the declaration is one
+    a renderer will accept.
     """
     css = rl.page_css(rl.normalise({"paper": "thermal_80"}))
-    assert "80mm auto" in css
+    assert "80mm" in css
+    assert "auto" not in css, "an @page size of `auto` is silently ignored"
+
+
+def test_no_paper_produces_a_page_size_a_renderer_will_reject(recwarn):
+    """
+    The general form of the bug above: an invalid @page size fails SILENTLY —
+    the receipt still renders, just on the wrong paper — so nothing downstream
+    can catch it. Every paper must produce two real lengths.
+    """
+    import re
+
+    for paper in rl.PAPERS:
+        css = rl.page_css(rl.normalise({"paper": paper}))
+        size = re.search(r"@page \{ size: ([^;]+);", css).group(1).strip()
+        assert size == "A4" or re.fullmatch(r"[\d.]+mm [\d.]+mm", size), \
+            f"{paper} produced an unusable page size: {size!r}"
 
 
 def test_compact_density_tightens_the_page():
     normal = rl.page_css(rl.normalise({"density": "normal"}))
     compact = rl.page_css(rl.normalise({"density": "compact"}))
     assert normal != compact
-    assert "2px 4px" in compact, "compact should reduce row padding"
+    # Assert the OUTCOME rather than a literal padding string: the exact value
+    # is a typesetting detail that has changed once and will change again, and
+    # pinning it turns a tuning pass into a test failure.
+    assert _row_padding_mm(compact) < _row_padding_mm(normal), \
+        "compact should reduce row padding"
+
+
+def _row_padding_mm(css: str) -> float:
+    """The vertical row padding a stylesheet sets, normalised to millimetres."""
+    import re
+
+    match = re.search(r"table td, table th \{ padding: ([\d.]+)(mm|px)", css)
+    assert match, "no row padding found in the stylesheet"
+    value = float(match.group(1))
+    return value if match.group(2) == "mm" else value * 25.4 / 96
 
 
 # ---------------------------------------------------------------------------

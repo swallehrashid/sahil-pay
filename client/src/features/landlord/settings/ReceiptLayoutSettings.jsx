@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { RotateCcw, Save, Eye } from "lucide-react";
+import { RotateCcw, Save, Eye, Printer } from "lucide-react";
 import Button from "@/components/ui/Button";
 import Select from "@/components/ui/Select";
 import Checkbox from "@/components/ui/Checkbox";
@@ -8,6 +8,7 @@ import Spinner from "@/components/ui/Spinner";
 import { toast } from "@/components/ui/Toast";
 import { env } from "@/config/env";
 import { getAccessToken } from "@/utils/tokenStorage";
+import ThemePicker from "./ThemePicker";
 
 /**
  * Design the receipt you actually print.
@@ -45,6 +46,9 @@ async function api(path, options = {}) {
 
 export default function ReceiptLayoutSettings() {
   const [layout, setLayout] = useState(null);
+  const [theme, setTheme] = useState(null);
+  const [themeIsDefault, setThemeIsDefault] = useState(true);
+  const [palette, setPalette] = useState(null);
   const [options, setOptions] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -58,6 +62,9 @@ export default function ReceiptLayoutSettings() {
         const data = await res.json();
         setLayout(data.layout);
         setOptions(data.options);
+        setTheme(data.theme);
+        setPalette(data.palette);
+        setThemeIsDefault(data.theme_is_default);
       } catch (err) {
         toast(err.message, { type: "error" });
       } finally {
@@ -97,7 +104,7 @@ export default function ReceiptLayoutSettings() {
     try {
       const res = await api("/settings/receipt-layout/preview", {
         method: "POST",
-        body: JSON.stringify({ layout }),
+        body: JSON.stringify({ layout, theme }),
       });
       const blob = await res.blob();
       setPreviewUrl(URL.createObjectURL(blob));
@@ -113,9 +120,12 @@ export default function ReceiptLayoutSettings() {
     try {
       await api("/settings/receipt-layout", {
         method: "PUT",
-        body: JSON.stringify({ layout }),
+        body: JSON.stringify({ layout, theme }),
       });
-      toast("Receipt layout saved. New receipts will use it.", { type: "success" });
+      setThemeIsDefault(false);
+      toast("Saved. New receipts and reports will use this layout and these colours.", {
+        type: "success",
+      });
     } catch (err) {
       toast(err.message, { type: "error" });
     } finally {
@@ -125,18 +135,23 @@ export default function ReceiptLayoutSettings() {
 
   function resetToDefault() {
     if (options?.default) setLayout(structuredClone(options.default));
+    if (palette?.default) setTheme({ ...palette.default });
   }
 
   if (loading) return <Spinner className="mx-auto my-12" />;
-  if (!layout || !options) return null;
+  if (!layout || !options || !theme || !palette) return null;
 
   return (
     <div className="animate-fade-in-up space-y-6">
       <div>
-        <h2 className="text-lg font-light tracking-wide text-white">Receipt layout</h2>
+        <h2 className="text-lg font-light tracking-wide text-white">
+          Receipt layout &amp; document colours
+        </h2>
         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-white/50">
-          Set up the receipt to match what you actually print on. This affects
-          every receipt — downloaded, emailed, or opened from an SMS link.
+          Set up the receipt to match what you actually print on. The layout
+          affects every receipt — downloaded, emailed, or opened from an SMS
+          link. The colours below go further: they apply to your statements and
+          reports as well.
         </p>
       </div>
 
@@ -183,6 +198,21 @@ export default function ReceiptLayoutSettings() {
                 );
               })}
             </div>
+
+            {paperSpec?.cut_hint && (
+              <p className="mt-3 text-xs text-white/45">{paperSpec.cut_hint}</p>
+            )}
+
+            {/* The PDF is generated at exactly this size. "Fit to page" — the
+                default in most print dialogs — then scales it onto the sheet and
+                surrounds it with margin, which looks exactly like a broken
+                layout and is not one. Say so where the choice is made. */}
+            {options.print_note && paperSpec?.key !== "a4" && (
+              <p className="mt-3 flex gap-2 rounded-lg bg-amber-400/10 p-3 text-xs leading-relaxed text-amber-200/90">
+                <Printer className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+                <span>{options.print_note}</span>
+              </p>
+            )}
           </section>
 
           {/* Header arrangement */}
@@ -224,6 +254,14 @@ export default function ReceiptLayoutSettings() {
               ))}
             </div>
           </section>
+
+          {/* Document colours — receipts AND reports */}
+          <ThemePicker
+            palette={palette}
+            theme={theme}
+            isDefault={themeIsDefault}
+            onChange={setTheme}
+          />
 
           {/* Spacing + sections */}
           <section className="glass p-5">

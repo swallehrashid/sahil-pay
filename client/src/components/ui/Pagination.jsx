@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import clsx from "clsx";
+import Select from "./Select";
 
 // Pairs with the backend's ?page/?per_page list params. Shows the current
 // range (e.g. "Showing 1–25 of 340"), page-number buttons, and a page-size
@@ -30,17 +31,18 @@ export default function Pagination({
         {onPerPageChange && (
           <label className="flex items-center gap-1.5 text-white/50">
             <span>Rows:</span>
-            <select
-              value={perPage}
-              onChange={(e) => onPerPageChange(Number(e.target.value))}
-              className="glass-input h-8 rounded-lg px-2 py-0 text-sm"
-            >
-              {pageSizeOptions.map((size) => (
-                <option key={size} value={size} className="bg-primary-900 text-white">
-                  {size}
-                </option>
-              ))}
-            </select>
+            {/* The shared Select, so this behaves like every other dropdown —
+                same keyboard handling, same panel, and it is not clipped by the
+                table's overflow container the way a native one sitting inside
+                it would be. */}
+            <div className="w-24">
+              <Select
+                value={String(perPage)}
+                onChange={(e) => onPerPageChange(Number(e.target.value))}
+                options={pageSizeOptions.map((size) => ({ value: size, label: String(size) }))}
+                aria-label="Rows per page"
+              />
+            </div>
           </label>
         )}
       </div>

@@ -67,9 +67,9 @@ Go to <https://novahost.co.ke/> and get:
    > guide changes.
 3. **Email hosting for `info@sahilpay.co.ke`** — Novahost's basic email hosting on the same
    domain, so the address on your letterhead actually receives mail. (Outbound *transactional*
-   mail is SendGrid — §9 — these are separate things.)
+   mail is Resend — §9 — these are separate things.)
 
-**Credentials to have ready before Day 1:** SendGrid API key, Cloudinary account,
+**Credentials to have ready before Day 1:** Resend API key, Cloudinary account,
 an S3-compatible bucket (Cloudflare R2 free tier is fine), Africa's Talking SMS account,
 Daraja production consumer key/secret (you have these; passkey still pending — simulation
 mode covers that, §8).
@@ -85,7 +85,7 @@ In Novahost's DNS panel for `sahilpay.co.ke`, create:
 | A | `@` | `<VPS public IP>` | 3600 |
 | A | `www` | `<VPS public IP>` | 3600 |
 
-(Leave the MX records as Novahost sets them for your `info@` mailbox. SendGrid CNAMEs come
+(Leave the MX records as Novahost sets them for your `info@` mailbox. Resend's DNS records come
 in §9.) Verify propagation before §7: `dig +short sahilpay.co.ke` must return the VPS IP.
 
 ---
@@ -153,7 +153,7 @@ venv/bin/pip install -r requirements.txt
 
 # c) environment — the template has every REQUIRED var annotated
 cp ../deploy/server.env.production.example .env
-nano .env        # fill in: secrets, DB password from §4, SendGrid, Cloudinary,
+nano .env        # fill in: secrets, DB password from §4, Resend, Cloudinary,
                  # S3/R2, Africa's Talking, Daraja keys. See the file's comments.
 chmod 600 .env
 
@@ -237,8 +237,10 @@ can reach them. What remains:
 ## 9. Email deliverability (info@sahilpay.co.ke)
 
 1. **Receiving:** create the `info@sahilpay.co.ke` mailbox in Novahost's email hosting panel.
-2. **Sending (SendGrid):** SendGrid → Settings → Sender Authentication → **Authenticate
-   Domain** → `sahilpay.co.ke`. SendGrid gives you 3 CNAME records — add them in Novahost's
+2. **Sending (Resend):** ALREADY DONE and verified — `resend._domainkey`,
+   `send.sahilpay.co.ke` (SPF) and `_dmarc` are all live. See EMAIL_RESEND_SETUP.md.
+   For reference, the old SendGrid path was: Sender Authentication → **Authenticate
+   Domain** → 3 CNAME records — added in Novahost's
    DNS panel. Once verified, set `MAIL_DEFAULT_SENDER=info@sahilpay.co.ke` (already in the
    env template) and OTP/verification emails stop landing in spam.
 3. Test: register a fresh landlord account and confirm the verification email arrives.
@@ -301,6 +303,6 @@ main guide keeps both on one box.
 |---|---|
 | 502 on /api | `sudo journalctl -u sahilpay -n 50` (gunicorn down / .env invalid — ProductionConfig refuses to boot when a REQUIRED var is missing and prints which one) |
 | Blank page on / | nginx `root` path vs. where you copied `dist` (§6 note) |
-| Emails not arriving | SendGrid domain auth pending (§9), or `ENFORCE_EMAIL_VERIFICATION` while sender unverified |
+| Emails not arriving | Missing `User-Agent` on the Resend call (Cloudflare 403s it silently — see EMAIL_RESEND_SETUP.md §6), `COMMS_SIMULATION_MODE=true`, or `EMAIL_TEST_ALLOWLIST` set in production |
 | M-Pesa payment invisible | `journalctl -u sahilpay -f` during a test payment; confirm HTTPS works from outside: `curl -s https://sahilpay.co.ke/api/health` from your laptop |
 | Invoices not generating on the 1st | `sudo systemctl status sahilpay-celerybeat sahilpay-celery` |

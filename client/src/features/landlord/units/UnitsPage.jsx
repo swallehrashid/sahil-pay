@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Building2, DoorOpen, AlertCircle, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchInput from "@/components/ui/SearchInput";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -14,14 +15,15 @@ import UnitForm from "./UnitForm";
 import { useGetUnitsQuery, useCreateUnitMutation, useUpdateUnitMutation, useDeleteUnitMutation } from "./unitApiSlice";
 import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 export default function UnitsPage() {
   const pg = usePagination();
-  const { data, isLoading } = useGetUnitsQuery(pg.params);
+  const [search, setSearch] = useState("");
+  const { data, isLoading } = useGetUnitsQuery({ ...pg.params, search });
   const { data: propertiesData } = useGetPropertiesQuery();
   const [createUnit, { isLoading: isCreating }] = useCreateUnitMutation();
   const [updateUnit, { isLoading: isUpdating }] = useUpdateUnitMutation();
@@ -34,10 +36,18 @@ export default function UnitsPage() {
   const units = toRows(data);
   const meta = toPaginationMeta(data);
   const properties = toRows(propertiesData);
+  // Whole-dataset figures, from the server's `summary` block — and all three
+  // from the UNITS response, so they describe the same set.
+  //
+  // `properties` used to count the rows of an unpaginated properties query,
+  // which returns page one, so this card read 20 on an account with 100
+  // properties. Taking it from the properties summary fixed the count but not
+  // the disagreement: search the units for one block and this card still said
+  // "2 properties" beside "8 units" that were all in one of them.
   const totals = {
-    properties: properties.length,
-    units: data?.total_units ?? units.length,
-    vacancies: data?.total_vacancies ?? units.filter((u) => !u.is_occupied).length,
+    properties: readSummary(data, "total_properties"),
+    units: readSummary(data, "total_units"),
+    vacancies: readSummary(data, "total_vacancies"),
   };
 
   const openCreate = () => {
@@ -97,6 +107,17 @@ export default function UnitsPage() {
             Add unit
           </Button>
         }
+      />
+
+      {/* Server-side search. At this scale filtering the twenty rows already
+          on screen would be worse than useless — it would look like it worked
+          and quietly miss everything on the other pages. */}
+      <SearchInput
+        value={search}
+        onSearch={(term) => { setSearch(term); pg.reset(); }}
+        placeholder="Search unit, pay code or property…"
+        aria-label="Search units"
+        resultCount={meta.total}
       />
 
       {isLoading ? (

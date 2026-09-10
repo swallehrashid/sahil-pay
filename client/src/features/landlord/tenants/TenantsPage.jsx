@@ -18,6 +18,7 @@ import {
   Upload,
 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
+import SearchInput from "@/components/ui/SearchInput";
 import TenantImportWizard from "./TenantImportWizard";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
@@ -43,7 +44,7 @@ import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatCurrency, formatBalance } from "@/utils/currencyFormatter";
 import { downloadFile } from "@/utils/downloadFile";
-import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
+import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import { LANDLORD_ROUTES } from "@/config/routePaths";
 import SendReminderModal from "../communications/SendReminderModal";
@@ -53,7 +54,8 @@ import TenantScoreBadge from "@/components/ui/TenantScoreBadge";
 export default function TenantsPage() {
   const navigate = useNavigate();
   const pg = usePagination();
-  const { data, isLoading, refetch } = useGetTenantsQuery(pg.params);
+  const [search, setSearch] = useState("");
+  const { data, isLoading, refetch } = useGetTenantsQuery({ ...pg.params, search });
   const { data: propertiesData } = useGetPropertiesQuery();
   const { data: unitsData } = useGetUnitsQuery();
   const [createTenant, { isLoading: isCreating }] = useCreateTenantMutation();
@@ -75,11 +77,17 @@ export default function TenantsPage() {
   const properties = toRows(propertiesData);
   const units = toRows(unitsData);
 
+  // Whole-dataset figures, from the server's `summary` block. Summing the
+  // visible rows understated arrears by however many tenants were on later
+  // pages — which, at ~1,000 tenants, is most of them.
+  //
+  // `leases_expiring` is the server's key; the page asked for
+  // `leases_expiring_soon`, so this card read 0 permanently.
   const totals = {
-    tenants: data?.total_tenants ?? tenants.length,
+    tenants: readSummary(data, "total_tenants"),
     // balance < 0 = arrears (owed); matches server's landlord_dashboard_routes convention.
-    arrears: data?.total_arrears ?? tenants.reduce((sum, t) => sum + Math.max(0, -Number(t.balance ?? 0)), 0),
-    expiringLeases: data?.leases_expiring_soon ?? 0,
+    arrears: readSummary(data, "total_arrears"),
+    expiringLeases: readSummary(data, "leases_expiring"),
   };
 
   const toggleSelected = (id) => setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -176,6 +184,17 @@ export default function TenantsPage() {
             </Button>
           </>
         }
+      />
+
+      {/* Server-side search. At this scale filtering the twenty rows already
+          on screen would be worse than useless — it would look like it worked
+          and quietly miss everything on the other pages. */}
+      <SearchInput
+        value={search}
+        onSearch={(term) => { setSearch(term); pg.reset(); }}
+        placeholder="Search name or phone…"
+        aria-label="Search tenants"
+        resultCount={meta.total}
       />
 
       {isLoading ? (

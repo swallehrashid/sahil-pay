@@ -25,7 +25,7 @@ from models import (
     PaymentStatus, InvoiceStatus, MaintenanceRequest,
     MaintenanceStatus, MaintenanceCategory,
 )
-from services.pdf_service  import generate_tenant_statement_pdf, generate_receipt_pdf
+from services.pdf_service  import generate_tenant_statement_pdf
 
 tenant_portal_bp = Blueprint("tenant_portal", __name__, url_prefix="/api/portal")
 
