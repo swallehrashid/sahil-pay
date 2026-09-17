@@ -27,7 +27,7 @@ from html import escape
 from io import BytesIO
 
 from utils import render_pdf
-from services import branding
+from services import branding, document_brand
 from services import receipt_theme
 
 # ---------------------------------------------------------------------------
@@ -282,6 +282,9 @@ def build_meta(landlord, *, report_title: str, period: str | None = None, subjec
         "company_address": getattr(landlord, "company_address", None),
         "logo_url": getattr(landlord, "logo_url", None),
         "signature_url": getattr(landlord, "signature_url", None),
+        # Letterhead banner + contact details — see services/document_brand.py.
+        "letterhead_url": getattr(landlord, "letterhead_url", None),
+        **{k: v for k, v in (document_brand.contact_for(landlord).items() if landlord else ())},
         # The two colours this account's documents are drawn in. Carried on the
         # meta rather than looked up per renderer so a report, a receipt and a
         # statement issued by the same landlord cannot come out in different
@@ -320,6 +323,8 @@ def report_style(theme: dict | None = None) -> str:
     # 0.55 washed out: legible on a backlit screen, not on a laser print that
     # a tenant then photographs. Secondary text still has to be readable.
     muted = receipt_theme.tint(primary, 0.42)
+    grid_rule = receipt_theme.tint(primary, 0.80)
+    zebra = receipt_theme.tint(primary, 0.97)
 
     return f"""
 <style>
@@ -336,11 +341,30 @@ def report_style(theme: dict | None = None) -> str:
   .subject {{ font-size: 12px; color: {muted}; margin-bottom: 10px; }}
   h2 {{ font-size: 14px; font-weight: 600; margin: 22px 0 6px; color: {secondary}; }}
   table {{ width: 100%; border-collapse: collapse; margin-top: 6px; }}
-  th, td {{ padding: 5px 7px; border-bottom: 1px solid {rule_faint}; font-size: 11px; }}
+  th, td {{ padding: 6px 8px; border-bottom: 1px solid {rule_faint}; font-size: 11px; vertical-align: top; }}
   th {{ background: {head_fill}; color: {primary}; font-weight: 600; text-align: left; }}
   td.right, th.right {{ text-align: right; }}
   tr.total-row td {{ font-weight: 700; border-top: 2px solid {secondary}; background: {total_fill}; }}
   .kv td:first-child {{ color: {muted}; }}
+  /* PROPER TABLES. Every data table is a ruled grid: a solid header band in
+     the landlord's primary colour, a hairline around every cell, zebra rows so
+     a long statement can be followed across the page, figures that never wrap
+     ("KES" on one line and the amount on the next had to be read twice), and a
+     header that repeats on every printed page. */
+  table.grid {{ border: 1px solid {grid_rule}; }}
+  table.grid th, table.grid td {{ border: 1px solid {grid_rule}; }}
+  table.grid thead th {{ background: {primary}; color: #ffffff; border-color: {primary}; letter-spacing: .02em; }}
+  table.grid tbody tr:nth-child(even) td {{ background: {zebra}; }}
+  table.grid td.right, table.grid th.right {{ white-space: nowrap; }}
+  table.grid tr.total-row td {{ background: {total_fill}; border-top: 2px solid {secondary}; }}
+  table.grid thead {{ display: table-header-group; }}
+  table.grid tr {{ page-break-inside: avoid; }}
+  table.grid.kv td:first-child {{ width: 38%; background: {head_fill}; color: {primary}; font-weight: 600; }}
+  table.grid tr.group-row td {{ background: {head_fill}; color: {secondary}; font-weight: 700;
+                                text-transform: uppercase; letter-spacing: .05em; font-size: 0.85em; }}
+  .contact-line {{ font-size: 10.5px; color: {muted}; margin-top: 2px; }}
+  .letterhead-banner {{ width: 100%; margin-bottom: 6px; }}
+  .letterhead-banner img {{ width: 100%; max-height: 110px; object-fit: contain; object-position: left center; }}
   .signature {{ margin-top: 40px; display: flex; justify-content: flex-end; }}
   .signature .block {{ text-align: center; min-width: 220px; }}
   .signature img {{ max-height: 60px; margin-bottom: 4px; }}
@@ -356,22 +380,16 @@ _REPORT_STYLE = report_style()
 
 
 def _letterhead_html(meta: dict) -> str:
-    # The landlord's own logo is the primary identity on their documents. When
-    # they haven't uploaded one yet, a small muted Sahil Pay mark fills the
-    # slot next to the generated-by metadata so the document still looks
-    # finished — it must never read as if Sahil Pay were the letterhead owner.
-    logo = (
-        f"<img class='logo' src='{escape(meta['logo_url'])}' alt='logo'/>"
-        if meta.get("logo_url")
-        else branding.logo_mark_svg(color=branding.BRAND_MUTED, size=24)
-    )
-    company = escape(meta.get("company_name") or "")
-    address = escape(meta.get("company_address") or "")
-    parts = [f"<div class='company'>{company}</div>"]
-    if address:
-        parts.append(f"<div class='muted'>{address}</div>")
-    left = f"<div class='brand'>{logo}<div>{''.join(parts)}</div></div>"
+    """
+    The top of every landlord-issued PDF: letterhead, logo, contact details.
 
+    An uploaded letterhead banner is the landlord's own designed header, so it
+    replaces the generated name-and-address block entirely. Otherwise the
+    landlord's logo sits beside the company name, address and contact line.
+    When they haven't uploaded a logo, a small muted Sahil Pay mark fills the
+    slot so the document still looks finished — it must never read as if Sahil
+    Pay were the letterhead owner.
+    """
     meta_lines = [f"<div><strong>{escape(meta.get('report_title') or 'Report')}</strong></div>"]
     if meta.get("property_name"):
         meta_lines.append(f"<div>Property: {escape(str(meta['property_name']))}</div>")
@@ -381,13 +399,33 @@ def _letterhead_html(meta: dict) -> str:
     meta_lines.append(f"<div>Currency: {escape(meta.get('currency') or 'KES')}</div>")
     right = f"<div class='doc-meta'>{''.join(meta_lines)}</div>"
 
+    contact = document_brand.contact_line(meta)
+    contact_html = f"<div class='contact-line'>{escape(contact)}</div>" if contact else ""
+
+    if meta.get("letterhead_url"):
+        head = (
+            f"<div class='letterhead-banner'><img src='{escape(meta['letterhead_url'])}' alt='letterhead'/></div>"
+            f"<div class='letterhead'><div>{contact_html}</div>{right}</div>"
+        )
+    else:
+        logo = (
+            f"<img class='logo' src='{escape(meta['logo_url'])}' alt='logo'/>"
+            if meta.get("logo_url")
+            else branding.logo_mark_svg(color=branding.BRAND_MUTED, size=24)
+        )
+        company = escape(meta.get("company_name") or "")
+        address = escape(meta.get("company_address") or "")
+        parts = [f"<div class='company'>{company}</div>"]
+        if address:
+            parts.append(f"<div class='muted'>{address}</div>")
+        parts.append(contact_html)
+        left = f"<div class='brand'>{logo}<div>{''.join(parts)}</div></div>"
+        head = f"<div class='letterhead'>{left}{right}</div>"
+
     subject = (
         f"<div class='subject'>{escape(str(meta['subject']))}</div>" if meta.get("subject") else ""
     )
-    return (
-        f"<div class='letterhead'>{left}{right}</div>"
-        f"<div class='doc-title'>{escape(meta.get('report_title') or 'Report')}</div>{subject}"
-    )
+    return f"{head}<div class='doc-title'>{escape(meta.get('report_title') or 'Report')}</div>{subject}"
 
 
 def _signature_html(meta: dict) -> str:
@@ -432,7 +470,7 @@ def _render_pdf(doc: ReportDocument, selection: dict[str, list[str]], chart_keys
                 f"<td class='right'>{escape(str(r.get('display', r.get('value', ''))))}</td></tr>"
                 for r in sec.rows
             )
-            body.append(f"<table class='kv'><tbody>{rows_html}</tbody></table>")
+            body.append(f"<table class='grid kv'><tbody>{rows_html}</tbody></table>")
             continue
 
         visible = _visible_columns(sec, selection)
@@ -458,7 +496,7 @@ def _render_pdf(doc: ReportDocument, selection: dict[str, list[str]], chart_keys
                 else:
                     total_cells += "<td></td>"
             rows_html += f"<tr class='total-row'>{total_cells}</tr>"
-        body.append(f"<table><thead><tr>{head}</tr></thead><tbody>{rows_html}</tbody></table>")
+        body.append(f"<table class='grid'><thead><tr>{head}</tr></thead><tbody>{rows_html}</tbody></table>")
 
         # Charts selected for download, drawn from this section's rows.
         for chart in sec.charts:

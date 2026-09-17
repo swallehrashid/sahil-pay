@@ -1,0 +1,10 @@
+{
+  "name": "Sahil Pay Co-pilot",
+  "version": "1.0.0",
+  "notes": "Forwards your M-Pesa payment SMS to Sahil Pay so payments record themselves.",
+  "file": "/downloads/sahil-pay-copilot.apk",
+  "size_bytes": 19715074,
+  "sha256": "c00a93a4adfabfb33f748638112e1a7463dda002d85ec8e5d211069bb3568408",
+  "min_android": "7.0",
+  "updated_at": "2026-09-16"
+}

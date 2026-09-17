@@ -108,6 +108,7 @@ def send_owner_monthly_statements(run_date=None) -> dict:
                         period_label,
                         landlord.company_name,
                         pdf_bytes,
+                        landlord_id=landlord.id,
                     )
                     totals["statements"] += 1
                 except Exception:

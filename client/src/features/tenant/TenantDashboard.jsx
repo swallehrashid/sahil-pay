@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { Wallet, Receipt, Droplets, ShieldCheck } from "lucide-react";
+import { Wallet, Receipt, Droplets, ShieldCheck, PenLine, ChevronRight, Clock } from "lucide-react";
+import { useGetPortalLeasesQuery } from "@/features/landlord/leases/leaseApiSlice";
 import SummaryCard from "@/components/ui/SummaryCard";
 import { SkeletonStatCards } from "@/components/ui/Skeleton";
 import ResponsiveTable from "@/components/tables/ResponsiveTable";
@@ -18,6 +19,8 @@ import { TENANT_ROUTES } from "@/config/routePaths";
 export default function TenantDashboard() {
   const { data, isLoading } = useGetPortalDashboardQuery();
   const { data: score } = useGetPortalScoreQuery();
+  const { data: leaseData } = useGetPortalLeasesQuery();
+  const leaseToSign = (leaseData?.items ?? []).find((l) => l.can_sign);
   const openInvoices = data?.open_invoices ?? [];
   const items = data?.breakdown_items ?? [];
   const totalDue = data?.total_due ?? 0;
@@ -53,6 +56,39 @@ export default function TenantDashboard() {
 
   return (
     <div className="animate-fade-in-up space-y-6">
+      {/* A lease waiting on the tenant is the first thing they see — it was
+          previously discoverable only through a nav link off the screen edge. */}
+      {leaseToSign && (
+        <Link
+          to={TENANT_ROUTES.leaseDetailPath(leaseToSign.id)}
+          className="glass flex items-center gap-4 border-l-4 border-secondary p-4 transition-colors hover:border-secondary hover:bg-white/15 sm:p-5"
+          data-testid="lease-action-card"
+        >
+          <span className="rounded-2xl bg-secondary p-3 text-white shadow-lg shadow-secondary/30">
+            <PenLine className="h-5 w-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-base font-medium text-white">
+              {leaseToSign.status === "rejected" ? "Your lease needs a correction" : "You have a lease to sign"}
+            </span>
+            <span className="mt-0.5 block text-sm text-white/60">
+              {leaseToSign.landlord_name} sent “{leaseToSign.title}”
+              {leaseToSign.unit_name ? ` for Unit ${leaseToSign.unit_name}` : ""}.
+              {leaseData.action_needed > 1 ? ` ${leaseData.action_needed - 1} more waiting.` : ""}
+            </span>
+          </span>
+          <span className="hidden items-center gap-1 text-sm font-medium text-secondary-200 sm:flex">
+            Review &amp; sign <ChevronRight className="h-4 w-4" />
+          </span>
+          <ChevronRight className="h-5 w-5 text-white/40 sm:hidden" />
+        </Link>
+      )}
+      {!leaseToSign && leaseData?.in_review > 0 && (
+        <Link to={TENANT_ROUTES.leases} className="glass flex items-center gap-3 p-4 text-sm text-white/70">
+          <Clock className="h-4 w-4 text-amber-300" /> Your signed lease is with your landlord for review.
+        </Link>
+      )}
+
       {/* Only renders for someone renting more than one unit. */}
       <UnitSwitcher className="sm:max-w-md" />
 

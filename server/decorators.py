@@ -73,7 +73,74 @@ def require_landlord_or_team():
     reach landlord-scoped routes (current_landlord_id() resolves the
     impersonated landlord's id for them — see utils.active_impersonation).
     """
-    return require_role("landlord", "property_manager", "team_member", "system_admin")
+    role_guard = require_role("landlord", "property_manager", "team_member", "system_admin")
+
+    def decorator(fn):
+        from functools import wraps
+        guarded = role_guard(fn)
+
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            _enforce_subscription_access()
+            return guarded(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+# While an account is locked for an unpaid balance these still work: paying it
+# (billing), signing in and out, reading notifications, and the profile a
+# person needs to prove who they are. Everything else answers 402.
+_OPEN_WHEN_LOCKED = (
+    "/api/billing", "/api/auth", "/api/notifications", "/api/preferences",
+    "/api/otp", "/api/twofa", "/api/2fa",
+)
+
+
+def _enforce_subscription_access() -> None:
+    """
+    The landlord portal's paywall. Raises 402 `subscription_locked` for a locked
+    account on any route outside _OPEN_WHEN_LOCKED.
+
+    Never applies to a system admin (support must be able to look), to tenants
+    (their portal never passes through this decorator), or to webhooks — rent
+    keeps being collected and receipted while the landlord settles up.
+    """
+    from flask import request
+
+    path = request.path or ""
+    if any(path.startswith(prefix) for prefix in _OPEN_WHEN_LOCKED):
+        return
+    user = get_jwt_user()
+    if user is None or user.role == "system_admin":
+        return
+    # Cached on the REQUEST (not flask.g, whose app context can outlive a request).
+    cache = request.environ
+    if "sahilpay.subscription_checked" in cache:
+        if cache.get("sahilpay.subscription_locked"):
+            raise cache["sahilpay.subscription_locked"]
+        return
+    cache["sahilpay.subscription_checked"] = True
+
+    landlord_id = current_landlord_id()
+    if landlord_id is None:
+        return
+    from extensions import db
+    from models import Landlord
+    from services.billing_service import access_state
+
+    landlord = db.session.get(Landlord, landlord_id)
+    if landlord is None:
+        return
+    state = access_state(landlord)
+    if state["locked"]:
+        error = ApiError(
+            "Your Sahil Pay account is locked until the subscription balance is paid. "
+            "Go to Settings → Billing to pay — any amount helps, and the account opens "
+            "as soon as the balance is cleared.",
+            status=402, code="subscription_locked", errors=state,
+        )
+        cache["sahilpay.subscription_locked"] = error
+        raise error
 
 
 def require_affiliate():

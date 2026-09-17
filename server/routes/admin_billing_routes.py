@@ -130,6 +130,26 @@ def verify_billing_transaction(txn_id):
         return jsonify({"error": "This transaction is already verified.", "transaction": txn.to_dict()}), 409
 
     before = txn.to_dict()
+    # A landlord's "I paid via Paybill" claim has no trusted amount — the admin
+    # enters what the paybill statement actually shows. Body: { amount }.
+    body = request.get_json(silent=True) or {}
+    if body.get("amount") not in (None, ""):
+        try:
+            confirmed = Decimal(str(body["amount"])).quantize(Decimal("0.01"))
+        except Exception:
+            return jsonify({"error": "amount must be a number."}), 400
+        if confirmed <= 0:
+            return jsonify({"error": "amount must be positive."}), 400
+        txn.amount = confirmed
+    if not txn.amount or Decimal(str(txn.amount)) <= 0:
+        return jsonify({"error": "Enter the amount shown on the paybill statement to confirm this payment."}), 422
+    if txn.type == BillingTransactionType.sms_purchase.value and not txn.sms_count:
+        from services.sms_billing import effective_price_per_sms
+        price = effective_price_per_sms(txn.landlord.landlord_settings, landlord=txn.landlord)
+        txn.sms_count = int(Decimal(str(txn.amount)) / price) if price else 0
+        ctx = dict(txn.context_json or {})
+        ctx["sms_count"] = txn.sms_count
+        txn.context_json = ctx
     if txn.type == BillingTransactionType.sms_purchase.value:
         billing_service.finalize_sms_purchase(txn, admin_id=_admin_actor_id())
     else:
@@ -381,3 +401,21 @@ def resolve_c2b_payment(c2b_id):
         "payment": c2b.to_dict(),
         "transaction": txn.to_dict(),
     }), 200
+
+
+@admin_billing_bp.route("/<int:txn_id>/receipt", methods=["GET"])
+@jwt_required()
+def admin_billing_receipt(txn_id):
+    """The same Sahil Pay receipt the landlord downloads, for a confirmed payment."""
+    from flask import Response
+    from services.pdf_service import generate_tax_invoice_pdf
+
+    _require_admin()
+    txn = db.session.get(BillingTransaction, txn_id)
+    if not txn:
+        return jsonify({"error": "Billing transaction not found."}), 404
+    if not txn.is_verified:
+        return jsonify({"error": "A receipt is available once the payment is confirmed."}), 409
+    pdf = generate_tax_invoice_pdf(txn, txn.landlord)
+    return Response(pdf, mimetype="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="sahilpay-receipt-SP-RCPT-{txn.id:06d}.pdf"'})

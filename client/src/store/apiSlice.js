@@ -82,6 +82,12 @@ async function baseQueryWithReauth(args, api, extraOptions) {
     }
   }
 
+  // The account was locked mid-session (a balance passed its grace period):
+  // refresh the access query so the lock screen replaces the page at once.
+  if (result.error?.status === 402 && result.error?.data?.code === "subscription_locked") {
+    api.dispatch(apiSlice.util.invalidateTags(["Billing"]));
+  }
+
   return result;
 }
 

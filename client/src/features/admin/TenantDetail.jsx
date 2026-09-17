@@ -95,6 +95,22 @@ export default function TenantDetail() {
       </div>
 
       <div className="glass p-6">
+        <h3 className="mb-4 text-sm font-medium text-white/70">Lease agreements</h3>
+        <ResponsiveTable
+          columns={[
+            { key: "title", header: "Document" },
+            { key: "status", header: "Status", render: (r) => <span className="capitalize">{r.status}</span> },
+            { key: "sent_at", header: "Sent", render: (r) => (r.sent_at ? formatDateTime(r.sent_at) : "—") },
+            { key: "signed_at", header: "Signed", render: (r) => (r.signed_at ? `${formatDateTime(r.signed_at)} (${r.signing_method === "scan" ? "paper" : "portal"})` : "—") },
+            { key: "reviewed_at", header: "Approved", render: (r) => (r.status === "approved" && r.reviewed_at ? formatDateTime(r.reviewed_at) : "—") },
+          ]}
+          rows={data?.leases ?? []}
+          isLoading={isLoading}
+          emptyState={<p className="text-sm text-white/50">No lease agreements for this tenant.</p>}
+        />
+      </div>
+
+      <div className="glass p-6">
         <h3 className="mb-4 text-sm font-medium text-white/70">Recent invoices</h3>
         <ResponsiveTable
           columns={[

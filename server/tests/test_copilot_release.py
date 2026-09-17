@@ -251,12 +251,17 @@ def test_the_public_link_needs_no_authentication(client, db_session, admin):
     assert res.status_code == 200
 
 
-def test_download_is_404_when_nothing_is_published(client, db_session):
-    """A release uploaded but never marked latest must not be served."""
+def test_download_falls_back_to_the_bundled_apk_when_nothing_is_published(client, db_session):
+    """
+    A release uploaded but never marked latest is not served — the public link
+    falls back to the APK that ships with the website build instead of a 404,
+    so a link already sent to clients never dead-ends.
+    """
     db_session.query(CopilotAppRelease).update({"is_latest": False})
     db_session.flush()
     res = client.get("/api/copilot/app/download")
-    assert res.status_code == 404
+    assert res.status_code == 302
+    assert res.headers["Location"].endswith("/downloads/sahil-pay-copilot.apk")
 
 
 def test_a_missing_file_reports_clearly_instead_of_500(client, db_session):

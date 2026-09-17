@@ -316,7 +316,8 @@ def _dispatch_document(
 
     if channel == MessageChannel.email.value and tenant.email:
         send_document_email.delay(
-            tenant.email, tenant.first_name, template_name, pdf_bytes, file_url
+            tenant.email, tenant.first_name, template_name, pdf_bytes, file_url,
+            landlord_id=landlord_id,
         )
         log = CommunicationLog(
             landlord_id    = landlord_id,

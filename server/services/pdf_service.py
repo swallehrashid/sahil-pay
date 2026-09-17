@@ -54,68 +54,87 @@ def _shell(title: str, body_html: str) -> str:
     return f"<!doctype html><html><head><meta charset='utf-8'>{_BASE_STYLE}</head><body><h1>{escape(title)}</h1>{body_html}{_generated_by_html()}</body></html>"
 
 
+def _landlord_document(landlord, *, title: str, body_html: str, subject: str | None = None,
+                       property_name: str | None = None, period: str | None = None,
+                       signature: bool = True) -> str:
+    """
+    A landlord-issued document in the landlord's identity: their letterhead,
+    logo, contact details and theme colours, ruled-grid tables, their signature
+    and the small generated-by credit. The same frame every report uses, so an
+    invoice, a statement and a report from one account look like one set.
+    """
+    from services.report_builder import (
+        _letterhead_html, _platform_credit_html, _signature_html, build_meta, report_style,
+    )
+
+    meta = build_meta(landlord, report_title=title, subject=subject,
+                      property_name=property_name, period=period)
+    sig = _signature_html(meta) if signature else ""
+    return (
+        "<!doctype html><html><head><meta charset='utf-8'>"
+        f"{report_style(meta.get('theme'))}</head><body>"
+        f"{_letterhead_html(meta)}{body_html}{sig}{_platform_credit_html()}"
+        "</body></html>"
+    )
+
+
 def generate_invoice_pdf(invoice) -> bytes:
-    """Render a single invoice (header + line items) to PDF."""
+    """Render a single invoice (details + line items + totals) as ruled tables."""
     tenant = invoice.tenant
     landlord = invoice.landlord
+    unit_name = invoice.unit.name if invoice.unit else ""
+    prop_name = invoice.unit.property.name if invoice.unit and invoice.unit.property else None
     rows = "".join(
         f"<tr><td>{escape(li.item)}</td><td>{escape(li.description or '')}</td>"
-        f"<td>{li.quantity}</td><td>{_money(li.unit_price)}</td><td>{_money(li.amount)}</td></tr>"
+        f"<td class='right'>{li.quantity}</td><td class='right'>{_money(li.unit_price)}</td>"
+        f"<td class='right'>{_money(li.amount)}</td></tr>"
         for li in invoice.line_items
     )
     body = f"""
-    <div class="header">
-      <div>
-        <strong>{escape(landlord.company_name)}</strong><br/>
-        <span class="muted">{escape(landlord.company_address or '')}</span>
-      </div>
-      <div class="muted">
-        Invoice #{escape(invoice.invoice_number)}<br/>
-        Issued: {invoice.issue_date}<br/>
-        Due: {invoice.due_date or '—'}
-      </div>
-    </div>
-    <p>Billed to: <strong>{escape(tenant.first_name)} {escape(tenant.last_name)}</strong> — Unit {escape(invoice.unit.name if invoice.unit else '')}</p>
-    <table>
-      <thead><tr><th>Item</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Amount</th></tr></thead>
+    <h2>Invoice details</h2>
+    <table class="grid kv"><tbody>
+      <tr><td>Invoice number</td><td>{escape(invoice.invoice_number)}</td></tr>
+      <tr><td>Billed to</td><td>{escape(tenant.first_name)} {escape(tenant.last_name)}</td></tr>
+      <tr><td>Unit</td><td>{escape(unit_name)}{(' — ' + escape(prop_name)) if prop_name else ''}</td></tr>
+      <tr><td>Issue date</td><td>{invoice.issue_date}</td></tr>
+      <tr><td>Due date</td><td>{invoice.due_date or '—'}</td></tr>
+    </tbody></table>
+    <h2>Charges</h2>
+    <table class="grid">
+      <thead><tr><th>Item</th><th>Description</th><th class="right">Qty</th><th class="right">Unit price</th><th class="right">Amount</th></tr></thead>
       <tbody>{rows}</tbody>
-      <tfoot>
-        <tr class="total-row"><td colspan="4">Total</td><td>{_money(invoice.total_amount)}</td></tr>
-        <tr><td colspan="4">Paid</td><td>{_money(invoice.amount_paid)}</td></tr>
-        <tr><td colspan="4">Balance</td><td>{_money(invoice.balance)}</td></tr>
-      </tfoot>
     </table>
+    <h2>Summary</h2>
+    <table class="grid kv"><tbody>
+      <tr><td>Total</td><td class="right">{_money(invoice.total_amount)}</td></tr>
+      <tr><td>Paid</td><td class="right">{_money(invoice.amount_paid)}</td></tr>
+      <tr class="total-row"><td>Balance due</td><td class="right">{_money(invoice.balance)}</td></tr>
+    </tbody></table>
     """
-    return render_pdf(_shell(invoice.title or f"Invoice {invoice.invoice_number}", body))
+    return render_pdf(_landlord_document(
+        landlord, title=invoice.title or f"Invoice {invoice.invoice_number}", body_html=body,
+        subject=f"{tenant.first_name} {tenant.last_name} · Unit {unit_name}", property_name=prop_name,
+    ))
 
 
 def generate_receipt_pdf(payment) -> bytes:
-    """Render a payment receipt to PDF."""
+    """Render a payment receipt to PDF (the full itemised receipt lives in receipt_service)."""
     landlord = payment.landlord
     tenant = payment.tenant
+    name = f"{tenant.first_name} {tenant.last_name}" if tenant else "N/A"
     body = f"""
-    <div class="header">
-      <div>
-        <strong>{escape(landlord.company_name)}</strong><br/>
-        <span class="muted">{escape(landlord.company_address or '')}</span>
-      </div>
-      <div class="muted">
-        Receipt — {escape(payment.payment_ref)}<br/>
-        Date: {payment.payment_date}
-      </div>
-    </div>
-    <p>Received from: <strong>{escape(tenant.first_name) if tenant else 'N/A'} {escape(tenant.last_name) if tenant else ''}</strong></p>
-    <table>
-      <tbody>
-        <tr><td>Amount</td><td>{_money(payment.amount)}</td></tr>
-        <tr><td>Method</td><td>{escape(payment.payment_method or payment.source or '—')}</td></tr>
-        <tr><td>Reference</td><td>{escape(payment.mpesa_reference or payment.payment_ref)}</td></tr>
-        <tr><td>Status</td><td>{escape(payment.status or '')}</td></tr>
-      </tbody>
-    </table>
+    <table class="grid kv"><tbody>
+      <tr><td>Receipt number</td><td>{escape(payment.payment_ref)}</td></tr>
+      <tr><td>Date</td><td>{payment.payment_date}</td></tr>
+      <tr><td>Received from</td><td>{escape(name)}</td></tr>
+      <tr><td>Method</td><td>{escape(payment.payment_method or payment.source or '—')}</td></tr>
+      <tr><td>Reference</td><td>{escape(payment.mpesa_reference or payment.payment_ref)}</td></tr>
+      <tr><td>Status</td><td>{escape(payment.status or '')}</td></tr>
+      <tr class="total-row"><td>Amount</td><td class="right">{_money(payment.amount)}</td></tr>
+    </tbody></table>
     <p class="muted">Thank you for your payment.</p>
     """
-    return render_pdf(_shell("Payment Receipt", body))
+    return render_pdf(_landlord_document(landlord, title="Payment Receipt", body_html=body, subject=name))
 
 
 def _subscription_etims_html(transaction, landlord) -> str:
@@ -161,96 +180,149 @@ def _subscription_etims_html(transaction, landlord) -> str:
     return (f"<table class='block'><tbody>{''.join(lines)}</tbody></table>{qr_html}")
 
 
+def _platform_document(*, title: str, meta_rows: list[tuple[str, str]], body_html: str) -> str:
+    """
+    A document Sahil Pay issues as ITSELF (subscription and SMS receipts): the
+    Sahil Pay letterhead with the full lockup, registered contact details, and
+    the same ruled-grid tables landlords' documents use — in Sahil colours.
+    """
+    from services.report_builder import report_style
+
+    meta_html = "".join(
+        f"<tr><td>{escape(k)}</td><td class='right'>{v}</td></tr>" for k, v in meta_rows
+    )
+    return f"""<!doctype html><html><head><meta charset='utf-8'>{report_style(None)}
+    <style>
+      .sp-head {{ display:flex; justify-content:space-between; align-items:flex-start;
+                  border-bottom: 3px solid {branding.BRAND_VIOLET}; padding-bottom: 12px; }}
+      .sp-contact {{ font-size: 10.5px; color: {branding.BRAND_MUTED}; line-height: 1.55; margin-top: 8px; }}
+      .sp-title {{ font-size: 22px; font-weight: 600; color: {branding.BRAND_NAVY}; margin: 16px 0 4px; letter-spacing:.02em; }}
+      .sp-meta {{ width: 46%; }}
+      .sp-meta table {{ margin-top: 0; }}
+      .stamp {{ display:inline-block; padding: 5px 14px; border-radius: 999px; font-weight: 700;
+                font-size: 11px; letter-spacing: .08em; }}
+      .stamp.paid {{ background:#e6f7ef; color:#0f7a4d; border:1px solid #0f7a4d; }}
+      .stamp.pending {{ background:#fff6e5; color:#9a5b00; border:1px solid #9a5b00; }}
+      .stamp.failed {{ background:#fdeceb; color:#b5382f; border:1px solid #b5382f; }}
+      .foot {{ margin-top: 22px; font-size: 10.5px; color: {branding.BRAND_MUTED}; }}
+    </style></head><body>
+    <div class="sp-head">
+      <div>
+        {branding.logo_lockup_html()}
+        <div class="sp-contact">
+          {branding.BRAND_LOCATION}<br/>
+          Tel: {branding.BRAND_PHONE} &middot; {branding.BRAND_EMAIL}<br/>
+          {branding.BRAND_WEBSITE.replace('https://', '')}
+        </div>
+      </div>
+      <div class="sp-meta"><table class="grid kv"><tbody>{meta_html}</tbody></table></div>
+    </div>
+    <div class="sp-title">{escape(title)}</div>
+    {body_html}
+    {branding.pdf_footer_html()}
+    </body></html>"""
+
+
 def generate_tax_invoice_pdf(transaction, landlord) -> bytes:
     """
-    Render a branded Sahil Pay payment receipt / tax invoice for a platform
-    charge (subscription or SMS purchase). VAT is shown as inclusive of the
-    charged amount (Kenya standard-rate 16%), which is the format landlords
-    submit for their own records.
+    The Sahil Pay receipt for a platform charge (subscription or SMS credits).
+
+    Only a VERIFIED transaction is issued as PAID — the route refuses anything
+    else — but the stamp still reads the real status so a copy can never claim
+    more than the ledger does. VAT is shown inclusive (Kenya standard rate 16%).
     """
     from decimal import Decimal, ROUND_HALF_UP
 
-    # Human line-item description for the charge.
+    ctx = dict(transaction.context_json or {})
     if transaction.type == "sms_purchase":
-        line_desc = f"SMS credit purchase — {transaction.sms_count or 0} credits"
+        line_desc = f"SMS credits — {transaction.sms_count or 0:,} messages"
+        if ctx.get("unit_price"):
+            line_desc += f" at KES {Decimal(str(ctx['unit_price'])):,.2f} each"
     else:
         line_desc = "Sahil Pay subscription — platform fee"
+        if ctx.get("mode") == "balance":
+            line_desc = "Sahil Pay subscription — payment towards account balance"
+        if ctx.get("billing_cycle") and ctx.get("mode") != "balance":
+            line_desc += f" ({ctx['billing_cycle']})"
 
     gross = Decimal(str(transaction.amount or 0))
     net = (gross / Decimal("1.16")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     vat = gross - net
 
-    issued = transaction.created_at.strftime("%d %b %Y") if transaction.created_at else "—"
+    from datetime import timedelta
+    paid_on = transaction.verified_at or transaction.created_at
+    # Stored in UTC; a Kenyan receipt reads in East Africa Time.
+    issued = (paid_on + timedelta(hours=3)).strftime("%d %b %Y, %H:%M EAT") if paid_on else "—"
     receipt_no = f"SP-RCPT-{transaction.id:06d}"
+    status = (transaction.status or "pending").lower()
+    stamp_class = {"paid": "paid", "failed": "failed"}.get(status, "pending")
+    stamp = f"<span class='stamp {stamp_class}'>{escape(status.upper())}</span>"
 
-    # eTIMS block for SahilPay's OWN invoice to the client (spec §3.4). SahilPay
-    # is the seller here, so the seller PIN is the platform's and the buyer PIN
-    # is the client's. Renders only once an admin has recorded a number AND the
-    # platform PIN is on file — otherwise this receipt is exactly as it was.
     etims_html = _subscription_etims_html(transaction, landlord)
-    is_paid = (transaction.status or "").lower() == "paid"
-    status_pill = (
-        f"<span style='display:inline-block;padding:4px 12px;border-radius:999px;"
-        f"font-weight:700;font-size:11px;letter-spacing:.05em;"
-        f"background:{'#e6f7ef' if is_paid else '#fdeceb'};"
-        f"color:{'#0f7a4d' if is_paid else '#b5382f'};'>"
-        f"{escape((transaction.status or 'PENDING').upper())}</span>"
-    )
+    contact = ""
+    try:
+        from services.document_brand import contact_for
+        c = contact_for(landlord)
+        contact = " · ".join(p for p in (c["phone"], c["email"]) if p)
+    except Exception:  # pragma: no cover - a receipt must render regardless
+        pass
 
-    style = """
-    <style>
-      .rcpt-title { text-align: right; }
-      .rcpt-title h2 { color:#200497; margin:0 0 4px; font-size:18px; font-weight:600; }
-      .block { margin-top: 18px; }
-      .foot { margin-top: 28px; border-top: 1px solid #e2e2e8; padding-top: 12px; }
-    </style>
-    """
+    balance_rows = ""
+    if ctx.get("balance_before") is not None and ctx.get("balance_after") is not None:
+        before = Decimal(str(ctx["balance_before"]))
+        after = Decimal(str(ctx["balance_after"]))
+        after_label = "Credit carried forward" if after < 0 else "Balance remaining"
+        balance_rows = f"""
+    <h2>Account balance</h2>
+    <table class="grid kv"><tbody>
+      <tr><td>Balance before this payment</td><td class="right">{_money(before)}</td></tr>
+      <tr><td>This payment</td><td class="right">-{_money(gross)}</td></tr>
+      <tr class="total-row"><td>{after_label}</td><td class="right">{_money(abs(after))}</td></tr>
+    </tbody></table>"""
 
     body = f"""
-    {style}
-    {branding.pdf_header_html(
-        document_label="Property Management Platform",
-        meta_html=f"<h2 style='margin:0 0 4px;color:{branding.BRAND_VIOLET};font-size:18px;font-weight:600;'>Payment Receipt</h2>"
-                  f"Receipt No: <strong>{receipt_no}</strong><br/>Date: {issued}<div class='block'>{status_pill}</div>",
-    )}
+    <div style="margin: 4px 0 12px;">{stamp}</div>
+    <h2>Billed to</h2>
+    <table class="grid kv"><tbody>
+      <tr><td>Account</td><td>{escape(landlord.company_name)}</td></tr>
+      <tr><td>Address</td><td>{escape(landlord.company_address or '—')}</td></tr>
+      <tr><td>Contact</td><td>{escape(contact or '—')}</td></tr>
+      <tr><td>Account number</td><td>{'SMS' if transaction.type == 'sms_purchase' else 'SUB'}-{landlord.id}</td></tr>
+    </tbody></table>
 
-    <div class="block">
-      <div class="muted">Billed to</div>
-      <strong>{escape(landlord.company_name)}</strong><br/>
-      <span class="muted">{escape(landlord.company_address or '')}</span>
-    </div>
-
-    <table class="block">
-      <thead><tr><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
+    <h2>Charges</h2>
+    <table class="grid">
+      <thead><tr><th>Description</th><th class="right">Amount</th></tr></thead>
       <tbody>
-        <tr><td>{escape(line_desc)}</td><td style="text-align:right;">{_money(net)}</td></tr>
-        <tr><td>VAT (16%)</td><td style="text-align:right;">{_money(vat)}</td></tr>
-      </tbody>
-      <tfoot>
-        <tr class="total-row"><td>Total paid</td><td style="text-align:right;">{_money(gross)}</td></tr>
-      </tfoot>
-    </table>
-
-    <table class="block">
-      <tbody>
-        <tr><td>Payment reference</td><td>{escape(transaction.payment_reference or '—')}</td></tr>
-        <tr><td>Transaction ID</td><td>#{transaction.id}</td></tr>
+        <tr><td>{escape(line_desc)}</td><td class="right">{_money(net)}</td></tr>
+        <tr><td>VAT (16%, inclusive)</td><td class="right">{_money(vat)}</td></tr>
+        <tr class="total-row"><td>Total paid</td><td class="right">{_money(gross)}</td></tr>
       </tbody>
     </table>
+    {balance_rows}
+    <h2>Payment</h2>
+    <table class="grid kv"><tbody>
+      <tr><td>Method</td><td>M-Pesa Paybill {escape(str(ctx.get('shortcode') or '4326127'))}</td></tr>
+      <tr><td>M-Pesa receipt</td><td>{escape(transaction.payment_reference or '—')}</td></tr>
+      <tr><td>Paid from</td><td>{escape(str(ctx.get('payer_phone') or '—'))}</td></tr>
+      <tr><td>Confirmed</td><td>{escape(issued)}{' — confirmed by M-Pesa' if transaction.is_verified else ''}</td></tr>
+      <tr><td>Transaction ID</td><td>#{transaction.id}</td></tr>
+    </tbody></table>
 
     {etims_html}
 
-    <div class="foot muted">
-      Thank you for your business. This is a system-generated receipt and is valid
-      without a signature. Amounts are shown in KES and are inclusive of VAT where applicable.
+    <div class="foot">
+      Thank you for choosing Sahil Pay. This receipt was generated after the payment was
+      confirmed in the Sahil Pay paybill and is valid without a signature. Amounts are in
+      KES and include VAT where applicable. Questions: {branding.BRAND_EMAIL} &middot; {branding.BRAND_PHONE}.
     </div>
-    {branding.pdf_footer_html()}
     """
-    html = (
-        f"<!doctype html><html><head><meta charset='utf-8'>{_BASE_STYLE}</head>"
-        f"<body>{body}</body></html>"
-    )
-    return render_pdf(html)
+    return render_pdf(_platform_document(
+        title="Payment Receipt",
+        meta_rows=[("Receipt no.", f"<strong>{receipt_no}</strong>"), ("Date", escape(issued)),
+                   ("Status", escape(status.title()))],
+        body_html=body,
+    ))
 
 
 def generate_affiliate_receipt_pdf(withdrawal) -> bytes:
@@ -325,64 +397,77 @@ def generate_affiliate_receipt_pdf(withdrawal) -> bytes:
 
 def generate_tenant_statement_pdf(tenant) -> bytes:
     """
-    Render a tenant's full running statement (invoices + payments,
-    chronological) to PDF.
-
-    Carries the landlord's identity block like every other document here. It
-    previously did not: the only name on a tenant's own statement was Sahil
-    Pay's, in the generated-by footer, which made the managing agent invisible
-    on the one document their tenant reads most often.
+    A tenant's full running statement (invoices + payments, chronological) as
+    one ruled table, in the landlord's identity.
     """
     landlord = tenant.landlord
     entries = []
     for inv in tenant.invoices:
-        entries.append((inv.issue_date, f"Invoice {inv.invoice_number} ({inv.invoice_type})", inv.total_amount, 0))
+        if getattr(inv, "is_deleted", False):
+            continue
+        entries.append((inv.issue_date, f"Invoice {inv.invoice_number}", inv.title or inv.invoice_type, inv.total_amount, 0))
     for pay in tenant.payments:
-        entries.append((pay.payment_date, f"Payment {pay.payment_ref}", 0, pay.amount))
-    entries.sort(key=lambda e: e[0] or "")
+        entries.append((pay.payment_date, f"Payment {pay.payment_ref}",
+                        pay.mpesa_reference or pay.payment_method or "", 0, pay.amount))
+    entries.sort(key=lambda e: str(e[0] or ""))
 
     rows = ""
     running = 0.0
-    for d, label, due, paid in entries:
+    total_due = total_paid = 0.0
+    for d, label, detail, due, paid in entries:
         running += float(due or 0) - float(paid or 0)
+        total_due += float(due or 0)
+        total_paid += float(paid or 0)
         rows += (
-            f"<tr><td>{d}</td><td>{escape(label)}</td><td>{_money(due)}</td>"
-            f"<td>{_money(paid)}</td><td>{_money(running)}</td></tr>"
+            f"<tr><td>{d}</td><td>{escape(label)}</td><td>{escape(str(detail or ''))}</td>"
+            f"<td class='right'>{_money(due) if due else '—'}</td>"
+            f"<td class='right'>{_money(paid) if paid else '—'}</td>"
+            f"<td class='right'>{_money(running)}</td></tr>"
         )
+    rows += (f"<tr class='total-row'><td colspan='3'>Totals</td><td class='right'>{_money(total_due)}</td>"
+             f"<td class='right'>{_money(total_paid)}</td><td class='right'>{_money(tenant.balance)}</td></tr>")
 
+    unit = tenant.unit
+    prop = unit.property if unit else None
     body = f"""
-    <div class="header">
-      <div>
-        <strong>{escape(landlord.company_name if landlord else '')}</strong><br/>
-        <span class="muted">{escape((landlord.company_address if landlord else '') or '')}</span>
-      </div>
-      <div class="muted">Statement<br/>Generated: {date.today()}</div>
-    </div>
-    <p class="muted">Tenant: <strong>{escape(tenant.first_name)} {escape(tenant.last_name)}</strong> — Unit {escape(tenant.unit.name if tenant.unit else '')}</p>
-    <table>
-      <thead><tr><th>Date</th><th>Item</th><th>Due</th><th>Paid</th><th>Running balance</th></tr></thead>
+    <h2>Account</h2>
+    <table class="grid kv"><tbody>
+      <tr><td>Tenant</td><td>{escape(tenant.first_name)} {escape(tenant.last_name)}</td></tr>
+      <tr><td>Unit</td><td>{escape(unit.name if unit else '—')}{(' — ' + escape(prop.name)) if prop else ''}</td></tr>
+      <tr><td>Phone</td><td>{escape(tenant.phone or '—')}</td></tr>
+      <tr class="total-row"><td>Current balance</td><td class="right">{_money(tenant.balance)}</td></tr>
+    </tbody></table>
+    <h2>Statement of account</h2>
+    <table class="grid">
+      <thead><tr><th>Date</th><th>Entry</th><th>Detail</th><th class="right">Charged</th><th class="right">Paid</th><th class="right">Balance</th></tr></thead>
       <tbody>{rows}</tbody>
     </table>
-    <p class="muted">Current balance: {_money(tenant.balance)}</p>
     """
-    return render_pdf(_shell("Tenant Statement", body))
+    return render_pdf(_landlord_document(
+        landlord, title="Tenant Statement", body_html=body,
+        subject=f"{tenant.first_name} {tenant.last_name}", property_name=prop.name if prop else None,
+        signature=False,
+    ))
 
 
 def generate_tenants_list_pdf(tenants: list) -> bytes:
-    """Render a simple tenants directory (name, unit, phone, balance) to PDF."""
+    """A tenants directory (name, unit, phone, balance) as a ruled table."""
     rows = "".join(
         f"<tr><td>{escape(t.first_name)} {escape(t.last_name)}</td>"
         f"<td>{escape(t.unit.name if t.unit else '')}</td>"
-        f"<td>{escape(t.phone)}</td><td>{_money(t.balance)}</td></tr>"
+        f"<td>{escape(t.phone or '')}</td><td class='right'>{_money(t.balance)}</td></tr>"
         for t in tenants
     )
     body = f"""
-    <table>
-      <thead><tr><th>Tenant</th><th>Unit</th><th>Phone</th><th>Balance</th></tr></thead>
+    <table class="grid">
+      <thead><tr><th>Tenant</th><th>Unit</th><th>Phone</th><th class="right">Balance</th></tr></thead>
       <tbody>{rows}</tbody>
     </table>
     """
-    return render_pdf(_shell("Tenants", body))
+    landlord = tenants[0].landlord if tenants else None
+    if landlord is None:
+        return render_pdf(_shell("Tenants", body))
+    return render_pdf(_landlord_document(landlord, title="Tenants", body_html=body, signature=False))
 
 
 def render_document_template(html_body: str) -> bytes:

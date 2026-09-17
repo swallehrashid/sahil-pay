@@ -80,3 +80,5 @@ pytest-flask==1.3.0
 pyotp==2.10.0
 # Encrypts the TOTP secret at rest (Fernet)
 cryptography==50.0.0
+pypdf==6.1.1
+nh3==0.3.1

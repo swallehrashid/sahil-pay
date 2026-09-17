@@ -138,6 +138,11 @@ def general_settings():
             landlord.logo_url = upload_to_s3(
                 logo, folder=f"logos/{landlord_id}", profile="brand"
             )
+        letterhead = request.files.get("letterhead")
+        if letterhead and letterhead.filename:
+            landlord.letterhead_url = upload_to_s3(
+                letterhead, folder=f"letterheads/{landlord_id}", profile="letterhead"
+            )
         signature = request.files.get("signature")
         if signature and signature.filename:
             landlord.signature_url = upload_to_s3(
@@ -149,10 +154,22 @@ def general_settings():
         "currency", "timezone", "account_type",
         "mpesa_type", "mpesa_number", "default_account_number",
         "payment_instructions", "allocation_priority",
+        "contact_phone", "contact_email", "website",
     ]
     for field in landlord_fields:
         if field in data:
-            setattr(landlord, field, data[field])
+            value = data[field]
+            if field in ("contact_phone", "contact_email", "website"):
+                value = (value or "").strip() or None
+                if field == "contact_email" and value and "@" not in value:
+                    return jsonify({"error": "Contact email is not a valid email address.",
+                                    "errors": {"contact_email": "invalid"}}), 422
+                if field == "website" and value and not value.startswith(("http://", "https://")):
+                    value = f"https://{value}"
+            setattr(landlord, field, value)
+    # Removing the letterhead banner falls back to the generated header.
+    if _as_bool(data.get("remove_letterhead")):
+        landlord.letterhead_url = None
 
     # Update channel settings (LandlordSettings)
     ls = landlord.landlord_settings

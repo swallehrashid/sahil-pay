@@ -93,12 +93,12 @@ function SectionTable({ section, visibleKeys, currency }) {
 
   return (
     <>
-      <div className="glass overflow-x-auto">
-        <table className="w-full text-left text-sm">
+      <div className="table-scroll rounded-xl">
+        <table className="doc-table">
           <thead>
-            <tr className="border-b border-white/10 text-white/40">
+            <tr>
               {cols.map((c) => (
-                <th key={c.key} className={`whitespace-nowrap px-4 py-3 font-medium ${c.align === "right" ? "text-right" : ""}`}>
+                <th key={c.key} className={c.align === "right" ? "num" : ""}>
                   {c.label}
                 </th>
               ))}
@@ -106,18 +106,18 @@ function SectionTable({ section, visibleKeys, currency }) {
           </thead>
           <tbody>
             {pageRows.map((row, i) => (
-              <tr key={start + i} className="border-b border-white/5 hover:bg-white/5">
+              <tr key={start + i}>
                 {cols.map((c) => (
-                  <td key={c.key} className={`whitespace-nowrap px-4 py-2.5 text-white/85 ${c.align === "right" ? "text-right" : ""}`}>
+                  <td key={c.key} className={c.align === "right" ? "num" : "whitespace-nowrap"}>
                     {formatCell(row[c.key], c.kind, currency)}
                   </td>
                 ))}
               </tr>
             ))}
             {section.totals && Object.keys(section.totals).length > 0 && (
-              <tr className="border-t-2 border-white/20 font-semibold text-white">
+              <tr className="total-row">
                 {cols.map((c, idx) => (
-                  <td key={c.key} className={`px-4 py-2.5 ${c.align === "right" ? "text-right" : ""}`}>
+                  <td key={c.key} className={c.align === "right" ? "num" : ""}>
                     {c.key in section.totals
                       ? formatCell(section.totals[c.key], c.kind, currency)
                       : idx === 0
@@ -175,13 +175,17 @@ function ChartsPanel({ section, includedKeys, onToggle }) {
 
 function SummaryBlock({ section }) {
   return (
-    <div className="glass max-w-md divide-y divide-white/10 p-2">
-      {section.rows.map((row, i) => (
-        <div key={i} className="flex items-center justify-between px-4 py-2.5 text-sm">
-          <span className="text-white/50">{row.label}</span>
-          <span className="font-medium text-white/90">{row.display}</span>
-        </div>
-      ))}
+    <div className="max-w-xl">
+      <table className="doc-table kv">
+        <tbody>
+          {section.rows.map((row, i) => (
+            <tr key={i}>
+              <td>{row.label}</td>
+              <td className="num font-medium text-white">{row.display}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

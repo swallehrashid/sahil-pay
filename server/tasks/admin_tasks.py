@@ -27,3 +27,24 @@ def check_trial_expirations() -> dict:
     result = expire_due_trials()
     logger.info("check_trial_expirations: %s trial(s) expired.", result["count"])
     return result
+
+
+@celery.task(name="tasks.admin_tasks.roll_subscription_billing")
+def roll_subscription_billing() -> dict:
+    """
+    Daily: add every subscription charge whose billing date has passed and
+    settle each account's status (active / past due). Idempotent — see
+    services/billing_service.py "Balance ledger".
+    """
+    from extensions import db
+    from models import Landlord
+    from services import billing_service
+
+    charged = 0
+    for landlord in Landlord.query.filter(Landlord.is_demo.is_(False)).all():
+        try:
+            charged += billing_service.roll_forward(landlord)
+            db.session.commit()
+        except Exception:                                  # noqa: BLE001
+            db.session.rollback()
+    return {"charges_added": charged}

@@ -970,6 +970,13 @@ def get_tenant(tenant_id):
     )
     d["recent_invoices"] = [i.to_dict() for i in open_invoices]
 
+    # Tenancy agreements — status and the dates that matter in a dispute. The
+    # admin sees the record, not the files (those stay between the parties).
+    from models import LeaseAgreement
+    lease_rows = (LeaseAgreement.query.filter_by(tenant_id=t.id)
+                  .order_by(LeaseAgreement.created_at.desc()).limit(20).all())
+    d["leases"] = [{k: v for k, v in l.to_dict().items() if k != "document_url"} for l in lease_rows]
+
     return jsonify(d), 200
 
 

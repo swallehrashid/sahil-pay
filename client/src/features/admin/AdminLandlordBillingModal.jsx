@@ -40,6 +40,8 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
         billing_cycle: data.subscription?.billing_cycle ?? "monthly",
         is_on_trial: Boolean(data.is_on_trial),
         trial_ends_at: data.trial_ends_at ? data.trial_ends_at.slice(0, 10) : "",
+        access_override_until: data.subscription?.access_override_until ?? "",
+        access_override_reason: data.subscription?.access_override_reason ?? "",
       });
       setCustomPrice(data.per_unit_price ?? "");
       setFixedPrice_(data.fixed_monthly_price ?? "");
@@ -58,6 +60,8 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
         billing_cycle: form.billing_cycle,
         is_on_trial: form.is_on_trial,
         trial_ends_at: form.trial_ends_at || null,
+        access_override_until: form.access_override_until || null,
+        access_override_reason: form.access_override_reason || null,
       }).unwrap();
       toast("Billing updated.", { type: "success" });
       onClose();
@@ -144,6 +148,30 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
               onChange={(e) => setForm((f) => ({ ...f, is_on_trial: e.target.checked }))}
             />
             <Input label="Trial ends" type="date" value={form.trial_ends_at} onChange={set("trial_ends_at")} className="flex-1" />
+          </div>
+
+          {/* Installments: account state and the exemption that keeps it open. */}
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-white/60">Account access</p>
+              {data.access?.locked
+                ? <Badge color="secondary">Locked — unpaid balance</Badge>
+                : data.access?.override_until
+                  ? <Badge color="amber">Open by exemption until {data.access.override_until}</Badge>
+                  : <Badge color="emerald">Open</Badge>}
+            </div>
+            <p className="text-xs leading-relaxed text-white/55">
+              Balance {data.access?.balance?.toLocaleString?.() ?? "—"} KES
+              {data.access?.balance_due_since ? ` · owing since ${data.access.balance_due_since}` : ""}
+              {data.access?.grace_until ? ` · grace ends ${data.access.grace_until}` : ""}.
+              An exemption keeps the account open until the date you set; the balance stays and is added
+              to the next month's charge.
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Input label="Keep open until" type="date" value={form.access_override_until} onChange={set("access_override_until")} />
+              <Input label="Reason" value={form.access_override_reason} onChange={set("access_override_reason")}
+                     placeholder="e.g. Paid 6,000 of 10,000 — balance next month" />
+            </div>
           </div>
 
           <div className="flex justify-end gap-3">

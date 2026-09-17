@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { Download } from "lucide-react";
 import Modal from "@/components/ui/Modal";
 import Button from "@/components/ui/Button";
@@ -8,28 +9,36 @@ import { useGetPortalReceiptQuery } from "./tenantPortalApiSlice";
 
 // View the receipt on screen first (same breakdown as the branded PDF), then
 // download — mirroring the landlord's report generate → view → download flow.
-function Section({ title, rows }) {
-  if (!rows?.length) return null;
+// Drawn as the same ruled tables as the PDF: details, charges, summary.
+function ChargesTable({ groups }) {
+  const shown = groups.filter(([, rows]) => rows?.length);
+  if (!shown.length) return null;
   return (
-    <div className="mt-3">
-      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/50">{title}</p>
-      <table className="w-full text-sm">
+    // Phones show Item + Paid; the due and carried-forward columns join from a
+    // tablet up. The summary below always carries the balance, so nothing is lost.
+    <div className="rounded-xl">
+      <table className="doc-table">
         <thead>
-          <tr className="text-left text-xs text-white/40">
-            <th className="py-1 font-medium">Item</th>
-            <th className="py-1 text-right font-medium">Amount due</th>
-            <th className="py-1 text-right font-medium">Paid</th>
-            <th className="py-1 text-right font-medium">Balance c/f</th>
+          <tr>
+            <th>Item</th>
+            <th className="num hidden sm:table-cell">Amount due</th>
+            <th className="num">Paid</th>
+            <th className="num hidden sm:table-cell">Balance c/f</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.invoice_number} className="border-t border-white/5 text-white/80">
-              <td className="py-1.5">{r.description}</td>
-              <td className="py-1.5 text-right">{formatCurrency(r.amount_due)}</td>
-              <td className="py-1.5 text-right text-secondary">{formatCurrency(r.paid_this_receipt)}</td>
-              <td className="py-1.5 text-right">{formatCurrency(r.balance_cf)}</td>
-            </tr>
+          {shown.map(([title, rows]) => (
+            <Fragment key={title}>
+              <tr className="group-row"><td colSpan={4}>{title}</td></tr>
+              {rows.map((r, i) => (
+                <tr key={`${title}-${r.invoice_number}-${i}`}>
+                  <td>{r.description}</td>
+                  <td className="num hidden sm:table-cell">{formatCurrency(r.amount_due)}</td>
+                  <td className="num text-secondary-300">{formatCurrency(r.paid_this_receipt)}</td>
+                  <td className="num hidden sm:table-cell">{formatCurrency(r.balance_cf)}</td>
+                </tr>
+              ))}
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -46,41 +55,51 @@ export default function TenantReceiptModal({ paymentId, onClose }) {
         <div className="flex justify-center py-10"><Spinner /></div>
       ) : (
         <div className="space-y-4">
-          <div className="rounded-xl bg-white/5 p-4 text-sm">
-            <p className="text-base font-medium text-white">{data.landlord?.company_name}</p>
-            {data.landlord?.company_address && (
-              <p className="text-xs text-white/50">{data.landlord.company_address}</p>
+          <div className="flex items-center gap-3">
+            {data.landlord?.logo_url && (
+              <img src={data.landlord.logo_url} alt="" className="h-10 w-10 rounded-lg bg-white object-contain p-1" />
             )}
-            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-white/60">
-              <span>Receipt: <span className="text-white/80">{data.payment_ref}</span></span>
-              <span>Date: <span className="text-white/80">{data.payment_date}</span></span>
-              <span>Tenant: <span className="text-white/80">{data.tenant_name}</span></span>
-              <span>Unit: <span className="text-white/80">{[data.unit_name, data.property_name].filter(Boolean).join(" · ")}</span></span>
-              <span>Method: <span className="text-white/80">{data.method}</span></span>
-              <span>Ref: <span className="text-white/80">{data.reference}</span></span>
+            <div className="min-w-0">
+              <p className="text-base font-medium text-white">{data.landlord?.company_name}</p>
+              {data.landlord?.company_address && (
+                <p className="text-xs text-white/50">{data.landlord.company_address}</p>
+              )}
             </div>
           </div>
 
-          <Section title="Rent" rows={data.rent_section} />
-          <Section title="Utilities" rows={data.utilities_section} />
-          <Section title="Other charges" rows={data.other_section} />
+          <table className="doc-table kv">
+            <tbody>
+              <tr><td>Receipt no.</td><td>{data.payment_ref}</td></tr>
+              <tr><td>Date</td><td>{data.payment_date}</td></tr>
+              <tr><td>Received from</td><td>{data.tenant_name}</td></tr>
+              <tr><td>Unit</td><td>{[data.unit_name, data.property_name].filter(Boolean).join(" · ") || "—"}</td></tr>
+              <tr><td>Method</td><td className="capitalize">{data.method || "—"}</td></tr>
+              <tr><td>Reference</td><td className="break-all">{data.reference || "—"}</td></tr>
+            </tbody>
+          </table>
 
-          <div className="space-y-1 border-t border-white/10 pt-3 text-sm">
-            <div className="flex justify-between text-white/70">
-              <span>Total amount due</span><span>{formatCurrency(data.total_due)}</span>
-            </div>
-            <div className="flex justify-between font-medium text-white">
-              <span>Amount paid (this receipt)</span><span>{formatCurrency(data.amount_paid)}</span>
-            </div>
-            {data.advance_credit > 0 && (
-              <div className="flex justify-between text-white/70">
-                <span>Advance / credit</span><span>{formatCurrency(data.advance_credit)}</span>
-              </div>
-            )}
-            <div className="flex justify-between font-semibold text-white">
-              <span>Balance remaining</span><span>{formatCurrency(data.balance_remaining)}</span>
-            </div>
-          </div>
+          <ChargesTable
+            groups={[
+              ["Rent", data.rent_section],
+              ["Utilities", data.utilities_section],
+              ["Deposits", data.deposits_section],
+              ["Other charges", data.other_section],
+            ]}
+          />
+
+          <table className="doc-table kv">
+            <tbody>
+              <tr><td>Total amount due</td><td className="num">{formatCurrency(data.total_due)}</td></tr>
+              <tr className="total-row"><td>Amount paid (this receipt)</td><td className="num">{formatCurrency(data.amount_paid)}</td></tr>
+              {data.advance_credit > 0 && (
+                <tr><td>Advance / credit</td><td className="num">{formatCurrency(data.advance_credit)}</td></tr>
+              )}
+              <tr className="total-row"><td>Balance remaining</td><td className="num">{formatCurrency(data.balance_remaining)}</td></tr>
+              {data.deposit_held_total > 0 && (
+                <tr><td>Deposit held (refundable)</td><td className="num">{formatCurrency(data.deposit_held_total)}</td></tr>
+              )}
+            </tbody>
+          </table>
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="ghost" onClick={onClose}>Close</Button>

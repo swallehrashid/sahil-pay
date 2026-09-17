@@ -49,6 +49,7 @@ export default function GeneralSettings() {
   }
 
   const [logo, setLogo] = useState(null);
+  const [letterhead, setLetterhead] = useState(null);
 
   if (isLoading || isAutomationLoading || !form || !automationForm) return <SkeletonForm fields={8} />;
 
@@ -76,13 +77,14 @@ export default function GeneralSettings() {
       // A File cannot survive JSON.stringify — it serialises to {} and the
       // upload silently does nothing while the page still says "saved". Send
       // multipart when (and only when) a file is actually attached.
-      const payload = { ...form, ...(logo ? { logo } : {}) };
+      const payload = { ...form, ...(logo ? { logo } : {}), ...(letterhead ? { letterhead } : {}) };
       await updateGeneral(toFormData(payload) ?? payload).unwrap();
       await updateAutomation(automationForm).unwrap();
       // Drop the staged file once it is on the server, so a second save does
       // not re-upload the same bytes and the field shows the stored logo.
       setLogo(null);
-      toast(logo ? "Settings saved — logo uploaded." : "Settings saved.", { type: "success" });
+      setLetterhead(null);
+      toast(logo || letterhead ? "Settings saved — images uploaded." : "Settings saved.", { type: "success" });
     } catch (err) {
       toast(err?.data?.error || "Could not save settings.", { type: "error" });
     }
@@ -92,7 +94,7 @@ export default function GeneralSettings() {
     <form onSubmit={handleSubmit} className="space-y-8">
       <div className="glass space-y-4 p-6">
         <h3 className="text-base font-medium text-white">Company</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input label="Company name" value={form.company_name ?? ""} onChange={update("company_name")} required />
           <Input label="Abbreviated name" value={form.abbreviated_name ?? ""} onChange={update("abbreviated_name")} />
         </div>
@@ -104,7 +106,7 @@ export default function GeneralSettings() {
           value={logo}
           onChange={setLogo}
         />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input label="Invoice title" value={form.invoice_title ?? ""} onChange={update("invoice_title")} />
           <Select
             label="Account type"
@@ -115,13 +117,48 @@ export default function GeneralSettings() {
         </div>
       </div>
 
+      {/* The four things every receipt, report, lease and email from this
+          account carries: theme colours (Receipts tab), logo (above),
+          letterhead and contact details (here). */}
+      <div className="glass space-y-4 p-6" id="document-identity">
+        <div>
+          <h3 className="text-base font-medium text-white">Letterhead &amp; contact details</h3>
+          <p className="mt-1 text-xs text-white/50">
+            Printed on every receipt, report and lease, and in the footer of every email your
+            tenants receive from you. Your theme colours are set under Settings → Receipts.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Input label="Contact phone" value={form.contact_phone ?? ""} onChange={update("contact_phone")}
+                 placeholder="e.g. 0712 345 678" inputMode="tel" />
+          <Input label="Contact email" type="email" value={form.contact_email ?? ""} onChange={update("contact_email")}
+                 placeholder="e.g. rent@yourcompany.co.ke" hint="Tenant replies go here" />
+          <Input label="Website" value={form.website ?? ""} onChange={update("website")} placeholder="e.g. yourcompany.co.ke" />
+        </div>
+        <BrandImageField
+          label="Letterhead banner (optional)"
+          kind="letterhead"
+          currentUrl={form.letterhead_url}
+          value={letterhead}
+          onChange={setLetterhead}
+        />
+        {form.letterhead_url && !letterhead && (
+          <label className="flex items-center gap-2 text-sm text-white/60">
+            <input type="checkbox" className="h-4 w-4 accent-secondary"
+                   checked={Boolean(form.remove_letterhead)}
+                   onChange={(e) => setForm((f) => ({ ...f, remove_letterhead: e.target.checked }))} />
+            Remove the letterhead banner and use my logo and company name instead
+          </label>
+        )}
+      </div>
+
       <div className="glass space-y-4 p-6">
         <h3 className="text-base font-medium text-white">Locale &amp; M-Pesa</h3>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Input label="Currency" value={form.currency ?? "KES"} onChange={update("currency")} />
           <Input label="Timezone" value={form.timezone ?? "Africa/Nairobi"} onChange={update("timezone")} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Select label="M-Pesa type" value={form.mpesa_type ?? ""} onChange={update("mpesa_type")} options={MPESA_TYPES.map((t) => ({ value: t, label: t }))} />
           <Input label="Paybill/till number" value={form.mpesa_number ?? ""} onChange={update("mpesa_number")} />
         </div>

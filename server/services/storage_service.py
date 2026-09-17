@@ -77,6 +77,9 @@ UPLOAD_PROFILES: dict[str, dict] = {
     # into every receipt and statement and appear on portal pages, so they are
     # optimised far harder — see IMAGE_RULES.
     "brand":     {"ext": {"png", "jpg", "jpeg", "webp"},   "max": 5 * 1024 * 1024},
+    # A full-width letterhead banner. Its own profile because it is printed
+    # across the whole page: squeezed to the logo's 600px it prints soft.
+    "letterhead": {"ext": {"png", "jpg", "jpeg", "webp"},  "max": 8 * 1024 * 1024},
     # The Co-pilot Android build. Deliberately its OWN profile rather than
     # widening "any": only .apk is accepted here, and the large ceiling applies
     # to nothing else. Release APKs routinely exceed 20MB, which is why the
@@ -131,6 +134,7 @@ IMAGE_RULES: dict[str, dict] = {
     # Logos and signatures are re-rendered into every receipt and statement and
     # sit on portal pages seen by every tenant, so they get the tightest budget.
     "brand": {"max_width": 600, "target_bytes": 80 * 1024},
+    "letterhead": {"max_width": 1800, "target_bytes": 300 * 1024},
 }
 
 # Profiles whose uploads are eligible for Cloudinary. Everything else is local.
