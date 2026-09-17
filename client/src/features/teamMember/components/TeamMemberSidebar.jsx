@@ -1,92 +1,29 @@
 import { useNavigate } from "react-router-dom";
-import {
-  LayoutDashboard,
-  Receipt,
-  Wallet,
-  Users,
-  Building2,
-  DoorOpen,
-  Gauge,
-  Wrench,
-  FolderTree,
-  BarChart3,
-  MessageSquare,
-  MessagesSquare,
-  Bell,
-  Banknote,
-  LogOut,
-  AlertTriangle,
-  FileText,
-  BookOpen,
-  GraduationCap,
-  Landmark,
-  FileSpreadsheet,
-  UploadCloud,
-} from "lucide-react";
+import { LogOut } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
+import { NewActionMenu } from "@/components/layout/PortalQuickNav";
 import { TEAM_ROUTES, AUTH_ROUTES } from "@/config/routePaths";
+import { buildPortalNav, buildNewActions, filterPortalNav } from "@/config/portalNav";
 import { useAuth } from "@/hooks/useAuth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useGetEtimsScopeQuery } from "@/features/landlord/etims/etimsApiSlice";
 
-// Items without a `module` key are ungated (dashboard, and the two help links,
-// which the server already filters by role). Every other item names the
-// permission module that governs it; buildVisibleNav hides a link entirely when
-// the team member lacks view access to that module — matching the backend's
-// @require_permission on the same routes.
-//
-// Leases, Penalties and Notifications previously borrowed `tenants`, `reports`
-// and nothing at all respectively, so the nav disagreed with what the backend
-// would actually allow. They now name their own modules.
-const NAV_ITEMS = [
-  { to: TEAM_ROUTES.dashboard, label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, end: true },
-  { to: TEAM_ROUTES.invoices, label: "Invoices", icon: <Receipt className="h-4 w-4" />, module: "invoices" },
-  { to: TEAM_ROUTES.payments, label: "Payments", icon: <Wallet className="h-4 w-4" />, module: "payments" },
-  { to: TEAM_ROUTES.expenses, label: "Expenses", icon: <Banknote className="h-4 w-4" />, module: "expenses" },
-  { to: TEAM_ROUTES.tenants, label: "Tenants", icon: <Users className="h-4 w-4" />, module: "tenants" },
-  { to: TEAM_ROUTES.properties, label: "Properties", icon: <Building2 className="h-4 w-4" />, module: "properties" },
-  { to: TEAM_ROUTES.units, label: "Units", icon: <DoorOpen className="h-4 w-4" />, module: "units" },
-  { to: TEAM_ROUTES.utilities, label: "Utilities", icon: <Gauge className="h-4 w-4" />, module: "utilities" },
-  // Gated on `tenants` EDIT — the widest thing an import can create, and this
-  // screen exists only to write. A view-only member (an owner login) would
-  // otherwise see a link that 403s on use. Each entity is additionally checked
-  // server-side against its own module.
-  { to: TEAM_ROUTES.imports, label: "Bulk import", icon: <UploadCloud className="h-4 w-4" />, module: "tenants", requires: "edit" },
-  { to: TEAM_ROUTES.maintenance, label: "Maintenance", icon: <Wrench className="h-4 w-4" />, module: "maintenance" },
-  { to: TEAM_ROUTES.groups, label: "Property Groups", icon: <FolderTree className="h-4 w-4" />, module: "groups" },
-  { to: TEAM_ROUTES.leases, label: "Leases", icon: <FileText className="h-4 w-4" />, module: "leases" },
-  { to: TEAM_ROUTES.reportsStatements, label: "Reports", icon: <BarChart3 className="h-4 w-4" />, module: "reports" },
-  { to: TEAM_ROUTES.reportsPenalties, label: "Penalties", icon: <AlertTriangle className="h-4 w-4" />, module: "penalties" },
-  { to: TEAM_ROUTES.communications, label: "Communications", icon: <MessageSquare className="h-4 w-4" />, module: "messages" },
-  { to: TEAM_ROUTES.messages, label: "Tenant Messages", icon: <MessagesSquare className="h-4 w-4" />, module: "messages" },
-  { to: TEAM_ROUTES.notifications, label: "Notifications", icon: <Bell className="h-4 w-4" />, module: "notifications" },
-  // Step-by-step product tours, filtered to the modules this member holds.
-  { to: TEAM_ROUTES.tutorials, label: "Help & Tutorials", icon: <GraduationCap className="h-4 w-4" /> },
-  // The admin-authored help library. Ungated — the server already filters
-  // articles to the caller's role.
-  { to: TEAM_ROUTES.help, label: "Guides", icon: <BookOpen className="h-4 w-4" /> },
-];
-
-// Shown only when an in-scope property has eTIMS switched on, and then still
-// subject to the member's own permissions — same rule as the landlord sidebar.
-const ETIMS_NAV_ITEMS = [
-  { to: TEAM_ROUTES.etimsRegister, label: "eTIMS Register", icon: <Landmark className="h-4 w-4" />, module: "properties" },
-  { to: TEAM_ROUTES.kraMonthly, label: "KRA Monthly Report", icon: <FileSpreadsheet className="h-4 w-4" />, module: "reports" },
-];
-
-// Renders ONLY the modules this team member can view — a hidden module never renders
-// in nav at all, even though the backend is the real enforcement boundary.
+// The same grouped navigation as the landlord's (src/config/portalNav.jsx),
+// filtered to the modules this member may see — a hidden module never renders,
+// and a group with nothing left in it disappears. The backend enforces the same
+// permissions on every route independently.
 export default function TeamMemberSidebar({ isMobileOpen, onCloseMobile }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { visibleNav } = usePermissions();
+  const { can } = usePermissions();
   const { data: etimsScope } = useGetEtimsScopeQuery();
 
-  // Slot the eTIMS links in just before Guides, so the reference material stays
-  // at the bottom of the list.
-  const items = etimsScope?.enabled
-    ? [...NAV_ITEMS.slice(0, -1), ...ETIMS_NAV_ITEMS, NAV_ITEMS[NAV_ITEMS.length - 1]]
-    : NAV_ITEMS;
+  const canView = (module, requires) => can(module, requires || "view");
+  const items = filterPortalNav(
+    buildPortalNav(TEAM_ROUTES, { etims: Boolean(etimsScope?.enabled), isLandlord: false }),
+    canView,
+  );
+  const actions = buildNewActions(TEAM_ROUTES).filter((a) => can(a.module, a.requires));
 
   const handleLogout = () => {
     logout();
@@ -95,9 +32,10 @@ export default function TeamMemberSidebar({ isMobileOpen, onCloseMobile }) {
 
   return (
     <Sidebar
-      items={visibleNav(items)}
+      items={items}
       isMobileOpen={isMobileOpen}
       onCloseMobile={onCloseMobile}
+      topSlot={actions.length ? <NewActionMenu actions={actions} /> : null}
       footer={
         <div className="space-y-2 px-1">
           <p className="truncate text-xs text-white/40">{user?.email}</p>

@@ -64,25 +64,58 @@ _MAX_PAYLOAD_BYTES = 32 * 1024
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+# Safaricom's published Daraja callback source addresses. Used when the app is
+# LIVE (simulation off) and DARAJA_ALLOWED_IPS was left empty — an empty list
+# used to mean "accept anyone", so a forged "payment received" POST from any
+# machine on the internet would have been processed. Override with
+# DARAJA_ALLOWED_IPS if Safaricom publishes new ranges.
+SAFARICOM_CALLBACK_IPS = (
+    "196.201.214.200", "196.201.214.206", "196.201.213.114", "196.201.214.207",
+    "196.201.214.208", "196.201.213.44", "196.201.212.127", "196.201.212.138",
+    "196.201.212.129", "196.201.212.136", "196.201.212.74", "196.201.212.69",
+)
+
+
+def _caller_ip() -> str:
+    """
+    The address that actually connected to our edge.
+
+    X-Forwarded-For is "client, proxy1, proxy2…" and each proxy APPENDS. Anything
+    to the left of what our own proxies added was written by the caller and can
+    be forged. With TRUSTED_PROXY_HOPS proxies we control (nginx = 1; Cloudflare
+    + nginx = 2), the real client is the entry that many places from the right.
+    Reading the FIRST entry — as this used to — let anyone claim to be Safaricom
+    by sending the header themselves.
+    """
+    if not current_app.config.get("TRUST_PROXY"):
+        return request.remote_addr or ""
+    cf = request.headers.get("CF-Connecting-IP")
+    hops = int(current_app.config.get("TRUSTED_PROXY_HOPS", 1) or 1)
+    chain = [p.strip() for p in (request.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
+    if cf and hops >= 2:
+        return cf.strip()
+    if len(chain) >= hops:
+        return chain[-hops]
+    return request.remote_addr or ""
+
+
 def _daraja_ip_allowed() -> bool:
     """
-    True if the request's origin IP is inside DARAJA_ALLOWED_IPS. An empty
-    allowlist (the default in dev/test) means "allow all" so local testing
-    isn't blocked. TRUST_PROXY controls whether X-Forwarded-For is honoured
-    (only correct behind nginx, which sets it) — otherwise remote_addr is used,
-    so a client can't spoof its way past the allowlist by forging the header.
-    """
-    allowed_ranges = [r.strip() for r in (current_app.config.get("DARAJA_ALLOWED_IPS") or "").split(",") if r.strip()]
-    if not allowed_ranges:
-        return True
+    True if the caller is an allowed Daraja source.
 
-    if current_app.config.get("TRUST_PROXY") and request.headers.get("X-Forwarded-For"):
-        remote_ip = request.headers["X-Forwarded-For"].split(",")[0].strip()
+    Configured DARAJA_ALLOWED_IPS wins. Empty + simulation (dev/test) = allow all.
+    Empty + LIVE = Safaricom's published addresses only.
+    """
+    configured = [r.strip() for r in (current_app.config.get("DARAJA_ALLOWED_IPS") or "").split(",") if r.strip()]
+    if configured:
+        allowed_ranges = configured
+    elif current_app.config.get("MPESA_SIMULATION_MODE", True):
+        return True
     else:
-        remote_ip = request.remote_addr or ""
+        allowed_ranges = list(SAFARICOM_CALLBACK_IPS)
 
     try:
-        ip = ipaddress.ip_address(remote_ip)
+        ip = ipaddress.ip_address(_caller_ip())
     except ValueError:
         return False
 
@@ -101,7 +134,7 @@ def _log_callback(kind: str, payload: dict) -> DarajaCallbackLog:
         payload = {"_truncated": True, "_original_size": len(raw)}
     entry = DarajaCallbackLog(
         kind=kind,
-        remote_ip=request.remote_addr,
+        remote_ip=_caller_ip()[:45] or request.remote_addr,
         payload_json=payload,
     )
     db.session.add(entry)
@@ -166,7 +199,7 @@ def _billing_callback():
     log_entry = _log_callback("stk", payload)
 
     if not _daraja_ip_allowed():
-        logger.warning("billing_callback: rejected IP %s (not in DARAJA_ALLOWED_IPS).", request.remote_addr)
+        logger.warning("billing_callback: rejected IP %s (not an allowed Daraja source).", _caller_ip())
         return _accepted(log_entry, error="IP not in allowlist; not processed.")
 
     try:
@@ -220,12 +253,43 @@ def _billing_callback():
                 )
                 return _accepted(log_entry, error=f"Amount mismatch: expected {txn.amount}, got {paid_amount}.")
 
+            # SECOND, INDEPENDENT CONFIRMATION. A callback is an inbound POST; the
+            # STK status query is us asking Safaricom over our authenticated API
+            # connection. Money is marked received only when both agree. If the
+            # query cannot be made right now the payment stays PENDING — the
+            # reconciliation sweep asks again every five minutes.
+            if not current_app.config.get("MPESA_SIMULATION_MODE", True):
+                from services import daraja_service
+                from services.daraja_service import DarajaError
+                try:
+                    query = daraja_service.stk_query(checkout_request_id)
+                    confirmed = str(query.get("ResultCode")) == "0"
+                except DarajaError:
+                    logger.warning("billing_callback: stk_query failed for %s — left pending.", checkout_request_id)
+                    return _accepted(log_entry, error="Could not cross-check with Safaricom; left pending.")
+                if not confirmed:
+                    logger.error("billing_callback: callback said paid but stk_query says %s for txn %s.",
+                                 query.get("ResultCode"), txn.id)
+                    _notify_all_admins(
+                        category="billing_callback_disputed", title="M-Pesa callback not confirmed",
+                        body=(f"Billing transaction #{txn.id}: a success callback arrived but Safaricom's "
+                              f"status query returned {query.get('ResultCode')}. Not finalised."),
+                        entity_type="billing", entity_id=txn.id,
+                    )
+                    return _accepted(log_entry, error="Callback not confirmed by stk_query.")
+
             if receipt:
                 txn.payment_reference = receipt
+            ctx = dict(txn.context_json or {})
+            ctx["checkout_request_id"] = checkout_request_id
+            if items.get("PhoneNumber"):
+                ctx["payer_phone"] = str(items.get("PhoneNumber"))
+            txn.context_json = ctx
 
             _finalize_billing_transaction(txn)
             db.session.commit()
             logger.info("billing_callback: txn %s verified (receipt %s).", txn.id, receipt)
+            _notify_landlord_paid(txn)
         else:
             from services.billing_service import mark_subscription_payment_failed
             mark_subscription_payment_failed(txn)
@@ -350,40 +414,113 @@ def c2b_confirmation():
             )
             return _accepted(log_entry)
 
-        c2b.landlord_id = landlord.id
-
-        matched_txn = _match_or_create_billing_transaction(landlord, kind, amount)
+        matched_txn = _apply_c2b_to_landlord(c2b, landlord, kind)
         if matched_txn is None:
             c2b.status = "unmatched"
             db.session.commit()
-            logger.warning(
-                "c2b_confirmation: no matching pending/priced txn for landlord %s kind %s amount %s.",
-                landlord.id, kind, amount,
-            )
+            logger.warning("c2b_confirmation: could not apply KES %s for landlord %s kind %s.",
+                           amount, landlord.id, kind)
             _notify_all_admins(
                 category="platform_payment_unmatched",
                 title="Unmatched paybill payment",
                 body=(
                     f"KES {amount} received from landlord #{landlord.id} ({landlord.company_name}) "
-                    f"(ref '{bill_ref}', receipt {trans_id}) — amount does not match any pending charge."
+                    f"(ref '{bill_ref}', receipt {trans_id}) — could not be applied automatically."
                 ),
                 entity_type="platform_c2b_payment", entity_id=c2b.id,
             )
             return _accepted(log_entry)
 
-        matched_txn.payment_reference = trans_id
-        _finalize_billing_transaction(matched_txn)
-        c2b.billing_transaction_id = matched_txn.id
-        c2b.status = "matched"
         db.session.commit()
         logger.info("c2b_confirmation: txn %s verified via C2B (receipt %s).", matched_txn.id, trans_id)
-
+        _notify_landlord_paid(matched_txn)
         return _accepted(log_entry)
 
     except Exception:
         db.session.rollback()
         logger.exception("c2b_confirmation: unhandled error processing payload.")
         return _accepted(error="Unhandled exception — see server logs.")
+
+
+def _apply_c2b_to_landlord(c2b, landlord, kind: str):
+    """
+    Apply a paybill payment Safaricom reported (C2B) to a landlord. Returns the
+    verified BillingTransaction, or None if it cannot be applied.
+
+    Subscription: ANY amount is an installment against the balance — a pending
+    STK transaction for exactly this amount is reused so it does not linger.
+    SMS: a pending purchase for exactly this amount, else floor(amount / price)
+    credits.
+    """
+    from services import billing_service
+
+    amount = Decimal(str(c2b.amount or 0))
+    if amount <= 0:
+        return None
+    txn_type = (BillingTransactionType.subscription.value if kind == "subscription"
+                else BillingTransactionType.sms_purchase.value)
+
+    txn = (
+        BillingTransaction.query
+        .filter_by(landlord_id=landlord.id, type=txn_type, status=BillingTransactionStatus.pending.value)
+        .filter(BillingTransaction.amount == amount, BillingTransaction.is_verified.is_(False))
+        .order_by(BillingTransaction.created_at.desc())
+        .first()
+    )
+    if txn is None and kind == "subscription":
+        if landlord.subscription is None:
+            return None
+        txn = BillingTransaction(
+            landlord_id=landlord.id, type=txn_type, amount=amount,
+            status=BillingTransactionStatus.pending.value,
+            context_json=billing_service.build_balance_context(amount, cycle=None, payer_phone=c2b.msisdn),
+        )
+        db.session.add(txn)
+        db.session.flush()
+    elif txn is None:
+        from services.sms_billing import effective_price_per_sms
+        price = effective_price_per_sms(landlord.landlord_settings, landlord=landlord)
+        credits = int(amount / price) if price and price > 0 else 0
+        if credits < 1:
+            return None
+        txn = BillingTransaction(
+            landlord_id=landlord.id, type=txn_type, amount=amount, sms_count=credits,
+            status=BillingTransactionStatus.pending.value,
+            context_json={"sms_count": credits, "unit_price": str(price), "applied": False,
+                          "payer_phone": c2b.msisdn},
+        )
+        db.session.add(txn)
+        db.session.flush()
+
+    ctx = dict(txn.context_json or {})
+    ctx.setdefault("payer_phone", c2b.msisdn)
+    ctx["paid_via"] = "paybill"
+    txn.context_json = ctx
+    txn.payment_reference = c2b.trans_id
+    _finalize_billing_transaction(txn)
+    c2b.landlord_id = landlord.id
+    c2b.billing_transaction_id = txn.id
+    c2b.status = "matched"
+    return txn
+
+
+def _notify_landlord_paid(txn) -> None:
+    """Tell the landlord their payment is confirmed (bell). Never raises."""
+    try:
+        from services.notification_service import notify
+        landlord = txn.landlord
+        if landlord is None or landlord.user_id is None:
+            return
+        what = "SMS credits" if txn.type == BillingTransactionType.sms_purchase.value else "subscription"
+        notify(recipient_user_id=landlord.user_id, category="billing",
+               title="Payment confirmed",
+               body=f"KES {txn.amount} for {what} was received (M-Pesa {txn.payment_reference}). "
+                    "Your receipt is ready in Settings → Billing.",
+               landlord_id=landlord.id, link="/landlord/settings/billing",
+               entity_type="billing", entity_id=txn.id)
+        db.session.commit()
+    except Exception:                                  # noqa: BLE001
+        db.session.rollback()
 
 
 def _parse_bill_ref(bill_ref: str):
@@ -395,55 +532,6 @@ def _parse_bill_ref(bill_ref: str):
             if suffix.isdigit():
                 return int(suffix), kind
     return None, None
-
-
-def _match_or_create_billing_transaction(landlord: Landlord, kind: str, amount: Decimal):
-    """
-    Find the landlord's pending unverified BillingTransaction of this kind
-    whose amount matches exactly, else — for subscriptions only — create one
-    on the spot if `amount` equals a valid cycle price. Amount handling is
-    server-side only (MPESA_INTEGRATION_SPEC.md §6.3): an unrecognised amount
-    never activates anything.
-    """
-    txn_type = (
-        BillingTransactionType.subscription.value if kind == "subscription"
-        else BillingTransactionType.sms_purchase.value
-    )
-
-    existing = (
-        BillingTransaction.query
-        .filter_by(landlord_id=landlord.id, type=txn_type, status=BillingTransactionStatus.pending.value)
-        .filter(BillingTransaction.amount == amount)
-        .order_by(BillingTransaction.created_at.desc())
-        .first()
-    )
-    if existing is not None:
-        return existing
-
-    if kind != "subscription":
-        return None  # SMS purchases always need a pre-created pending txn (sms_count must be known)
-
-    subscription = landlord.subscription
-    if subscription is None:
-        return None
-
-    from services import billing_service
-    for cycle in billing_service.valid_cycles():
-        try:
-            amount_due, months, discount = billing_service.preview_subscription_cost(subscription, cycle)
-        except ValueError:
-            continue
-        if amount_due == amount:
-            ctx = billing_service.build_subscription_context(cycle, months, discount, None, applied=False)
-            txn = BillingTransaction(
-                landlord_id=landlord.id, type=txn_type, amount=amount_due,
-                status=BillingTransactionStatus.pending.value, context_json=ctx,
-            )
-            db.session.add(txn)
-            db.session.flush()
-            return txn
-
-    return None
 
 
 # ---------------------------------------------------------------------------

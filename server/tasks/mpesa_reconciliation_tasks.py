@@ -115,6 +115,10 @@ def _expire_ancient_pending() -> None:
         .all()
     )
     for txn in stale:
+        # A landlord's "I paid via Paybill" claim waits for a HUMAN, however
+        # long that takes — expiring it would silently discard their payment.
+        if (txn.context_json or {}).get("mode") == "claim":
+            continue
         billing_service.mark_subscription_payment_failed(txn)
     if stale:
         db.session.commit()

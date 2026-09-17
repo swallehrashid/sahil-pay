@@ -181,8 +181,11 @@ def recompute_subscription(landlord):
     # Auto-filled only when unset, so an admin override sticks.
     if sub.next_billing_date is None:
         sub.next_billing_date = _next_billing_from_registration(landlord)
-    if sub.amount_due is None or sub.amount_due == ZERO:
-        sub.amount_due = cost
+    # amount_due is a running BALANCE (see "Balance ledger" below). It used to be
+    # refilled with the plan price whenever it read zero, so an account that had
+    # just paid in full showed as owing a month again on the next page load.
+    if sub.amount_due is None:
+        sub.amount_due = ZERO
 
     return sub
 
@@ -294,7 +297,10 @@ def finalize_subscription_payment(txn, admin_id: int | None = None):
     if not ctx.get("applied"):
         landlord     = txn.landlord
         subscription = landlord.subscription if landlord else None
-        if subscription is not None and ctx.get("billing_cycle"):
+        if ctx.get("mode") in ("balance", "ahead", "claim"):
+            apply_balance_payment(txn)
+            ctx = dict(txn.context_json or {})
+        elif subscription is not None and ctx.get("billing_cycle"):
             apply_subscription_activation(landlord, subscription, ctx)
         txn.status = BillingTransactionStatus.paid.value
         ctx["applied"] = True
@@ -369,3 +375,196 @@ def reverse_billing_transaction(txn, admin_id: int, reason: str) -> None:
 
     from services.affiliate_service import reverse_for_transaction
     reverse_for_transaction(txn)
+
+
+# ---------------------------------------------------------------------------
+# Balance ledger — installments, lock and exemption
+# ---------------------------------------------------------------------------
+#
+#   subscription.amount_due     running balance; negative = credit
+#   subscription.next_billing_date   when the next period's charge is added
+#   subscription.balance_due_since   when the oldest unpaid charge fell due
+#
+# CHARGE   a billing date passes → that period's price is added to the balance.
+# PAY      ANY verified amount is subtracted. KES 6,000 against 10,000 leaves
+#          4,000; next month's 10,000 makes it 14,000.
+# LOCK     balance > 0 for more than GRACE days → the landlord portal is locked
+#          (billing still works; tenants, webhooks and rent collection never stop).
+# OPEN     the balance reaches 0, OR an admin grants an exemption until a date
+#          ("pay 6,000 now, I'll open it, clear the rest next month").
+
+def grace_days() -> int:
+    from flask import current_app
+    try:
+        return int(current_app.config.get("SUBSCRIPTION_GRACE_DAYS", 5))
+    except (TypeError, ValueError):
+        return 5
+
+
+def period_charge(subscription) -> tuple[Decimal, int]:
+    """(price, months) of one billing period on the subscription's cycle."""
+    cycle = subscription.billing_cycle if subscription.billing_cycle in _CYCLE_MONTHS else "monthly"
+    amount, months, _ = preview_subscription_cost(subscription, cycle)
+    return amount, months
+
+
+def roll_forward(landlord, today: date | None = None) -> int:
+    """
+    Add every charge whose billing date has passed. Idempotent; returns how many
+    charges were added. Trials and demo accounts are never charged. Does not
+    commit.
+    """
+    from models import SubscriptionStatus
+
+    today = today or date.today()
+    if getattr(landlord, "is_demo", False):
+        return 0
+    sub = landlord.subscription
+    if sub is None or sub.next_billing_date is None:
+        return 0
+    if landlord.is_on_trial and landlord.trial_ends_at and landlord.trial_ends_at.date() >= today:
+        return 0
+    if sub.status == SubscriptionStatus.suspended.value:
+        return 0
+
+    added = 0
+    # Bounded: an account dormant for years must not loop forever.
+    while sub.next_billing_date <= today and added < 36:
+        charge, months = period_charge(sub)
+        if charge <= 0:
+            break
+        sub.amount_due = (Decimal(str(sub.amount_due or 0)) + charge).quantize(Decimal("0.01"))
+        if sub.amount_due > 0 and sub.balance_due_since is None:
+            sub.balance_due_since = sub.next_billing_date
+        sub.next_billing_date = sub.next_billing_date + relativedelta(months=months)
+        added += 1
+
+    _settle_status(sub, today)
+    return added
+
+
+def _settle_status(sub, today: date) -> None:
+    from models import SubscriptionStatus
+
+    if sub.status in (SubscriptionStatus.suspended.value, SubscriptionStatus.trial.value):
+        return
+    balance = Decimal(str(sub.amount_due or 0))
+    if balance <= 0:
+        sub.balance_due_since = None
+        sub.status = SubscriptionStatus.active.value
+        return
+    # An existing balance with no start date (older data) starts its clock now.
+    if sub.balance_due_since is None:
+        sub.balance_due_since = today
+    past_grace = today > sub.balance_due_since + relativedelta(days=grace_days())
+    sub.status = SubscriptionStatus.past_due.value if past_grace else SubscriptionStatus.active.value
+
+
+def access_state(landlord, today: date | None = None) -> dict:
+    """
+    Whether the landlord portal is open, and everything the lock screen needs to
+    explain why. Pure read — call roll_forward() first to be current.
+    """
+    from models import SubscriptionStatus
+
+    today = today or date.today()
+    sub = landlord.subscription
+    balance = Decimal(str(sub.amount_due or 0)) if sub else ZERO
+    due_since = sub.balance_due_since if sub else None
+    grace_until = (due_since + relativedelta(days=grace_days())) if due_since else None
+    override = sub.access_override_until if sub else None
+    override_active = bool(override and override >= today)
+    on_trial = bool(landlord.is_on_trial and landlord.trial_ends_at and landlord.trial_ends_at.date() >= today)
+
+    locked, reason = False, None
+    if getattr(landlord, "is_demo", False) or on_trial:
+        pass
+    elif sub is not None and sub.status == SubscriptionStatus.suspended.value:
+        locked, reason = True, "suspended"
+    elif balance > 0 and grace_until is not None and today > grace_until and not override_active:
+        locked, reason = True, "unpaid_balance"
+
+    return {
+        "locked": locked,
+        "reason": reason,
+        "balance": float(balance),
+        "credit": float(-balance) if balance < 0 else 0.0,
+        "balance_due_since": due_since.isoformat() if due_since else None,
+        "grace_until": grace_until.isoformat() if grace_until else None,
+        "grace_days": grace_days(),
+        "override_until": override.isoformat() if override_active else None,
+        "override_reason": sub.access_override_reason if (sub and override_active) else None,
+        "next_billing_date": sub.next_billing_date.isoformat() if sub and sub.next_billing_date else None,
+        "on_trial": on_trial,
+    }
+
+
+def pay_amount_options(subscription) -> list[dict]:
+    """The amounts the pay screen offers as one-tap choices."""
+    options = []
+    balance = Decimal(str(subscription.amount_due or 0))
+    if balance > 0:
+        options.append({"key": "balance", "label": "Outstanding balance", "amount": float(balance)})
+    for cycle, label in (("monthly", "1 month"), ("quarterly", "3 months (10% off)"), ("annual", "12 months (15% off)")):
+        try:
+            price, months, _ = preview_subscription_cost(subscription, cycle)
+        except ValueError:
+            continue
+        if price > 0:
+            ahead = max(balance, ZERO) + price
+            options.append({"key": cycle, "label": f"{label}" + (" + balance" if balance > 0 else ""),
+                            "amount": float(ahead), "cycle": cycle, "months": months})
+    return options
+
+
+def build_balance_context(amount: Decimal, *, cycle: str | None, payer_phone: str | None) -> dict:
+    """context_json for an installment/pay-ahead subscription payment."""
+    from flask import current_app
+    ctx = {
+        "mode": "ahead" if cycle else "balance",
+        "applied": False,
+        "payer_phone": payer_phone,
+        "shortcode": current_app.config.get("PLATFORM_DARAJA_SHORTCODE"),
+    }
+    if cycle:
+        ctx.update({"billing_cycle": cycle, "months": _CYCLE_MONTHS[cycle],
+                    "discount": str(_CYCLE_DISCOUNTS[cycle])})
+    return ctx
+
+
+def apply_balance_payment(txn) -> None:
+    """
+    Apply a verified subscription payment of ANY size to the balance.
+
+    Pay-ahead: the chosen cycle's price is charged first (and the billing date
+    moved past the prepaid months), then the payment is applied — so a partial
+    pay-ahead shows honestly as a remaining balance, never as a prepaid period.
+    Records balance before/after on the transaction for the receipt.
+    """
+    landlord = txn.landlord
+    sub = landlord.subscription if landlord else None
+    if sub is None:
+        return
+    ctx = dict(txn.context_json or {})
+    today = date.today()
+    roll_forward(landlord, today)
+
+    before = Decimal(str(sub.amount_due or 0))
+    if ctx.get("mode") == "ahead" and ctx.get("billing_cycle") in _CYCLE_MONTHS:
+        cycle = ctx["billing_cycle"]
+        price, months, discount = preview_subscription_cost(sub, cycle)
+        sub.billing_cycle = cycle
+        sub.discount_rate = discount
+        sub.amount_due = (Decimal(str(sub.amount_due or 0)) + price).quantize(Decimal("0.01"))
+        base = max(sub.next_billing_date or today, today)
+        sub.next_billing_date = base + relativedelta(months=months)
+        before = Decimal(str(sub.amount_due))
+
+    paid = Decimal(str(txn.amount or 0))
+    sub.amount_due = (Decimal(str(sub.amount_due or 0)) - paid).quantize(Decimal("0.01"))
+    if landlord.is_on_trial and sub.amount_due <= 0 and ctx.get("mode") == "ahead":
+        landlord.is_on_trial = False
+    _settle_status(sub, today)
+
+    ctx.update({"balance_before": str(before), "balance_after": str(sub.amount_due)})
+    txn.context_json = ctx

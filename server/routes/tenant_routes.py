@@ -828,7 +828,8 @@ def send_statement(tenant_id):
     tenant      = _get_or_404(landlord_id, tenant_id)
 
     pdf_bytes = generate_tenant_statement_pdf(tenant)
-    send_statement_email.delay(tenant.email, tenant.first_name, pdf_bytes)
+    send_statement_email.delay(tenant.email, tenant.first_name, pdf_bytes,
+                               landlord_id=landlord_id)
 
     return jsonify({"message": f"Statement sent to {tenant.email or tenant.phone}."}), 200
 

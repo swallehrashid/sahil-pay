@@ -458,6 +458,7 @@ def get_landlord_billing(landlord_id):
         "is_on_trial":       landlord.is_on_trial,
         "trial_ends_at":     landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
         "subscription":      sub.to_dict() if sub else None,
+        "access":            _access_state(landlord),
     }), 200
 
 
@@ -513,6 +514,22 @@ def update_landlord_billing(landlord_id):
     if "trial_ends_at" in data:
         landlord.trial_ends_at = _parse_date(data["trial_ends_at"]) if data["trial_ends_at"] else None
 
+    # EXEMPTION: keep the account open until a date despite a balance ("pay
+    # 6,000 now, I'll open your account, clear the rest next month"). The balance
+    # itself is untouched and carries into the next charge. Empty date clears it.
+    if "access_override_until" in data:
+        until = _parse_date(data["access_override_until"]) if data["access_override_until"] else None
+        reason = (data.get("access_override_reason") or "").strip()
+        if until and not reason:
+            return jsonify({"error": "Give a reason for the exemption — it is shown on the audit trail.",
+                            "errors": {"access_override_reason": "required"}}), 422
+        sub.access_override_until = until
+        sub.access_override_reason = reason[:255] if until else None
+        sub.access_override_by = _admin_id() if until else None
+    if "amount_due" in data and data["amount_due"] is not None:
+        from services.billing_service import _settle_status
+        _settle_status(sub, _date.today())
+
     db.session.commit()
     record_audit(
         actor_user_id=_admin_id(),
@@ -528,6 +545,8 @@ def update_landlord_billing(landlord_id):
             "status": sub.status if sub else None,
             "is_on_trial": landlord.is_on_trial,
             "trial_ends_at": landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
+            "access_override_until": str(sub.access_override_until) if sub and sub.access_override_until else None,
+            "access_override_reason": sub.access_override_reason if sub else None,
         },
     )
     db.session.commit()
@@ -669,3 +688,7 @@ def _get_pkg_or_404(package_id: int) -> Package:
     if not pkg:
         abort(404, description="Package not found.")
     return pkg
+
+def _access_state(landlord):
+    from services.billing_service import access_state
+    return access_state(landlord)

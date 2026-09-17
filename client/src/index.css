@@ -267,3 +267,72 @@ input[type="number"] {
 .table-scroll::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
 }
+
+/*
+  Document tables — reports, statements and receipts ON SCREEN. The same
+  ruled-grid shape as the PDFs: a solid header band, a hairline around every
+  cell, zebra rows, figures that never wrap, a bold totals row. Anything the
+  landlord or tenant would read as a financial document uses this, so what they
+  see on screen is what they download.
+*/
+.doc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+  color: rgba(255, 255, 255, 0.88);
+}
+.doc-table th,
+.doc-table td {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.6rem 0.85rem;
+  text-align: left;
+  vertical-align: top;
+}
+.doc-table th:first-child,
+.doc-table td:first-child {
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+}
+.doc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: rgba(32, 4, 151, 0.55);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.doc-table thead th:first-child { border-top-left-radius: 0.75rem; }
+.doc-table thead th:last-child { border-top-right-radius: 0.75rem; }
+.doc-table tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.025); }
+.doc-table tbody tr:hover td { background: rgba(255, 255, 255, 0.06); }
+.doc-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.doc-table tr.total-row td {
+  font-weight: 700;
+  color: #fff;
+  background: rgba(185, 95, 123, 0.14);
+  border-top: 2px solid rgba(185, 95, 123, 0.6);
+}
+.doc-table tr.group-row td {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.doc-table.kv td:first-child {
+  width: 42%;
+  color: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.03);
+}
+.doc-table tbody tr:last-child td:first-child { border-bottom-left-radius: 0.75rem; }
+.doc-table tbody tr:last-child td:last-child { border-bottom-right-radius: 0.75rem; }
+.doc-table.kv tbody tr:first-child td { border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.doc-table.kv tbody tr:first-child td:first-child { border-top-left-radius: 0.75rem; }
+.doc-table.kv tbody tr:first-child td:last-child { border-top-right-radius: 0.75rem; }

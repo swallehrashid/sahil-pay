@@ -65,7 +65,7 @@ export default function PaymentsPage() {
   const [sendReceipt] = useSendPaymentReceiptMutation();
 
   const [activePayment, setActivePayment] = useState(() => (tenantIdFromQuery ? { tenant_id: tenantIdFromQuery } : null));
-  const [isFormOpen, setIsFormOpen] = useState(() => Boolean(tenantIdFromQuery));
+  const [isFormOpen, setIsFormOpen] = useState(() => Boolean(tenantIdFromQuery) || searchParams.get("new") === "1");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [reassignTarget, setReassignTarget] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);

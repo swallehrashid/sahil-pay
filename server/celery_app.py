@@ -136,6 +136,10 @@ celery.conf.beat_schedule = {
         "task": "tasks.admin_tasks.check_trial_expirations",
         "schedule": crontab(hour="0", minute="30"),
     },
+    "roll-subscription-billing": {
+        "task": "tasks.admin_tasks.roll_subscription_billing",
+        "schedule": crontab(hour="0", minute="45"),
+    },
     # Every 5 minutes — sweep up STK pushes whose Daraja callback never
     # arrived and flag stuck B2C payouts. No-ops while MPESA_SIMULATION_MODE.
     "reconcile-pending-mpesa": {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Plus,
   Users,
@@ -65,7 +65,9 @@ export default function TenantsPage() {
   const [sendStatement] = useSendTenantStatementMutation();
 
   const [activeTenant, setActiveTenant] = useState(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  // "+ New" in the sidebar links here with ?new=1 to open the form directly.
+  const [searchParams] = useSearchParams();
+  const [isFormOpen, setIsFormOpen] = useState(() => searchParams.get("new") === "1");
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [shiftTenant, setShiftTenant] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);

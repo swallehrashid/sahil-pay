@@ -120,7 +120,8 @@ def test_only_image_profiles_are_cloud_eligible():
     Statements, signed leases and the APK must stay on the VPS. They are large,
     rarely viewed, and metered egress is the wrong shape for them.
     """
-    assert CLOUD_IMAGE_PROFILES == frozenset({"image", "brand"})
+    # letterhead is a brand image too (a wide banner, optimised at a larger size).
+    assert CLOUD_IMAGE_PROFILES == frozenset({"image", "brand", "letterhead"})
     for profile in ("document", "statement", "lease", "apk", "any"):
         assert profile not in CLOUD_IMAGE_PROFILES
         assert profile in UPLOAD_PROFILES

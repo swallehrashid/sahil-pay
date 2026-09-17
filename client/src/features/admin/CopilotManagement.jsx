@@ -27,7 +27,6 @@ import { formatDateTime } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
-import { env } from "@/config/env";
 import { ADMIN_ROUTES } from "@/config/routePaths";
 import {
   useGetCopilotOverviewQuery,
@@ -795,7 +794,9 @@ function ReleasesTab() {
   const [form, setForm] = useState({ version_name: "", version_code: "", release_notes: "", is_latest: true, min_supported_version_code: "" });
   const [apk, setApk] = useState(null);
 
-  const downloadUrl = `${env.apiBaseUrl}/copilot/app/download`;
+  // The branded download page, which serves the APK bundled with the website
+  // build. It works even if no release was ever uploaded here.
+  const downloadUrl = `${window.location.origin}/copilot`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(downloadUrl);
@@ -839,7 +840,7 @@ function ReleasesTab() {
       <div className="glass flex flex-wrap items-center justify-between gap-3 p-4">
         <div>
           <p className="text-sm font-medium text-white/70">Public download link</p>
-          <p className="text-xs text-white/40">Send this one link to clients — it always resolves to the latest release.</p>
+          <p className="text-xs text-white/40">Send this one link to clients. It opens the download page with a progress bar and install steps.</p>
         </div>
         <div className="flex items-center gap-2">
           <code className="rounded-lg bg-white/5 px-3 py-1.5 text-xs text-white/70">{downloadUrl}</code>

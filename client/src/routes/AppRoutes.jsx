@@ -19,6 +19,10 @@ import DemoModeBanner from "@/features/landlord/components/DemoModeBanner";
 import DemoBlockedPage from "@/features/landlord/components/DemoBlockedPage";
 import { getDemoMode } from "@/utils/demoStorage";
 import TenantNavbar from "@/features/tenant/components/TenantNavbar";
+import SubscriptionLockGate from "@/features/landlord/components/SubscriptionLockGate";
+import { PortalBottomBar } from "@/components/layout/PortalQuickNav";
+import { buildNewActions } from "@/config/portalNav";
+import { usePermissions } from "@/hooks/usePermissions";
 import AffiliateNavbar from "@/features/affiliate/components/AffiliateNavbar";
 import AffiliateSidebar from "@/features/affiliate/components/AffiliateSidebar";
 import { USER_ROLES } from "@/utils/constants";
@@ -66,7 +70,9 @@ const AllocationSettings = lazy(() => import("@/features/landlord/settings/Alloc
 const PenaltySettings = lazy(() => import("@/features/landlord/settings/PenaltySettings"));
 const PenaltiesPage = lazy(() => import("@/features/landlord/penalties/PenaltiesPage"));
 const LeasesPage = lazy(() => import("@/features/landlord/leases/LeasesPage"));
-const TenantLease = lazy(() => import("@/features/tenant/TenantLease"));
+const CopilotDownload = lazy(() => import("@/features/public/CopilotDownload"));
+const TenantLeases = lazy(() => import("@/features/tenant/TenantLeases"));
+const TenantLeaseDetail = lazy(() => import("@/features/tenant/TenantLeaseDetail"));
 const ExpensesPage = lazy(() => import("@/features/landlord/expenses/ExpensesPage"));
 const UtilitiesPage = lazy(() => import("@/features/landlord/utilities/UtilitiesPage"));
 const MaintenancePage = lazy(() => import("@/features/landlord/maintenance/MaintenancePage"));
@@ -203,14 +209,24 @@ function LandlordLayout() {
         <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
           <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
           <LandlordNavbar />
-          <main className="min-w-0 flex-1 p-4 md:p-8">
+          <main className="min-w-0 flex-1 p-4 pb-28 md:p-8 lg:pb-8">
             <AdminImpersonationBanner />
             <DemoModeBanner />
-            <Outlet />
+            <SubscriptionLockGate portal="landlord"><Outlet /></SubscriptionLockGate>
           </main>
         </div>
+        <PortalBottomBar routes={LANDLORD_ROUTES} actions={buildNewActions(LANDLORD_ROUTES)}
+                         onOpenMenu={() => setIsMobileNavOpen(true)} />
       </div>
     </TourProvider>
+  );
+}
+
+function TeamBottomBar({ onOpenMenu }) {
+  const { can } = usePermissions();
+  return (
+    <PortalBottomBar routes={TEAM_ROUTES} onOpenMenu={onOpenMenu} canView={(m) => can(m, "view")}
+                     actions={buildNewActions(TEAM_ROUTES).filter((a) => can(a.module, a.requires))} />
   );
 }
 
@@ -224,10 +240,11 @@ function TeamMemberLayout() {
       <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:pl-64">
         <MobileTopBar onOpen={() => setIsMobileNavOpen(true)} />
         <TeamMemberNavbar />
-        <main className="min-w-0 flex-1 p-4 md:p-8">
-          <Outlet />
+        <main className="min-w-0 flex-1 p-4 pb-28 md:p-8 lg:pb-8">
+          <SubscriptionLockGate portal="team"><Outlet /></SubscriptionLockGate>
         </main>
       </div>
+      <TeamBottomBar onOpenMenu={() => setIsMobileNavOpen(true)} />
     </div>
     </TourProvider>
   );
@@ -253,7 +270,8 @@ function TenantLayout() {
   return (
     <div className="app-bg min-h-screen">
       <TenantNavbar />
-      <main className="p-4 pb-10 sm:p-6">
+      {/* Bottom padding clears the phone tab bar (60px + safe area). */}
+      <main className="mx-auto w-full max-w-7xl p-4 pb-28 sm:p-6 md:pb-10">
         <Outlet />
       </main>
     </div>
@@ -281,6 +299,8 @@ export default function AppRoutes() {
     <ErrorBoundary>
       <Routes>
         {/* Public / marketing */}
+        {/* Stand-alone (no marketing chrome): one job — get the app installed. */}
+        <Route path={PUBLIC_ROUTES.copilotDownload} element={withSuspense(CopilotDownload)} />
         <Route element={<PublicLayout />}>
           <Route path={PUBLIC_ROUTES.home} element={withSuspense(Home)} />
           <Route path={PUBLIC_ROUTES.about} element={withSuspense(About)} />
@@ -465,7 +485,9 @@ export default function AppRoutes() {
             <Route path="maintenance" element={withSuspense(TenantMaintenance)} />
             <Route path="messages" element={withSuspense(TenantMessages)} />
             <Route path="profile" element={withSuspense(TenantProfile)} />
-            <Route path="lease" element={withSuspense(TenantLease)} />
+            <Route path="lease" element={<Navigate to="/portal/leases" replace />} />
+            <Route path="leases" element={withSuspense(TenantLeases)} />
+            <Route path="leases/:id" element={withSuspense(TenantLeaseDetail)} />
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
 
             {/* Help library. The seeded library ships tenant-facing articles

@@ -162,6 +162,8 @@ def _send_email(
     html_body: str,
     pdf_bytes: bytes | None = None,
     pdf_filename: str | None = None,
+    reply_to: str | None = None,
+    sender_display: str | None = None,
 ) -> bool:
     """
     Send one HTML email, optionally with a single PDF attachment. Returns
@@ -196,9 +198,11 @@ def _send_email(
     payload = {
         # Resend takes the RFC 5322 display-name form in a single field rather
         # than SendGrid's {"email": ..., "name": ...} object.
-        "from": f"{sender_name} <{sender}>",
+        # Email from a landlord's account reads as the landlord ("Acme Properties
+        # via Sahil Pay") and replies go to the landlord, not to Sahil Pay.
+        "from": f"{sender_display or sender_name} <{sender}>",
         "to": [to_email],
-        "reply_to": REPLY_TO,
+        "reply_to": reply_to or REPLY_TO,
         "subject": subject,
         "html": html_body,
         # The text/plain alternative. See the module docstring: HTML-only mail
@@ -440,43 +444,76 @@ def send_team_credentials_email(
     _send_email(email, subject, html)
 
 
+def _landlord_identity(landlord_id):
+    """(brand, reply_to, sender_display) for an email sent from a landlord's
+    account, or (None, None, None) when there is no landlord — see
+    services/document_brand.py."""
+    if not landlord_id:
+        return None, None, None
+    from extensions import db
+    from models import Landlord
+    from services.document_brand import email_brand
+
+    landlord = db.session.get(Landlord, landlord_id)
+    if landlord is None:
+        return None, None, None
+    brand = email_brand(landlord)
+    name = (brand.get("company_name") or "").replace("<", "").replace(">", "").replace('"', "")[:60]
+    return brand, (brand.get("email") or None), (f"{name} via Sahil Pay" if name else None)
+
+
 @celery.task(name="services.email_service.send_receipt_email")
-def send_receipt_email(email: str, first_name: str, pdf_bytes: bytes, payment_ref: str) -> None:
-    """Celery task — emails a payment receipt PDF."""
-    subject = f"Your Sahil Pay receipt — {payment_ref}"
+def send_receipt_email(email: str, first_name: str, pdf_bytes: bytes, payment_ref: str,
+                       landlord_id: int | None = None) -> None:
+    """Celery task — emails a payment receipt PDF, in the landlord's identity."""
+    brand, reply_to, sender = _landlord_identity(landlord_id)
+    company = (brand or {}).get("company_name") or "Sahil Pay"
+    subject = f"Your receipt from {company} — {payment_ref}"
     html = T.render_email(
+        brand=brand,
         heading="Payment received — thank you",
         intro=f"Hi {T.escape(first_name or 'there')}, we've recorded your payment. "
               f"Your receipt <strong>{T.escape(payment_ref)}</strong> is attached to this email as a PDF.",
-        preheader=f"Your Sahil Pay receipt {payment_ref} is attached.",
+        preheader=f"Your receipt {payment_ref} is attached.",
     )
-    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename=f"{payment_ref}.pdf")
+    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename=f"{payment_ref}.pdf",
+                reply_to=reply_to, sender_display=sender)
 
 
 @celery.task(name="services.email_service.send_invoice_email")
-def send_invoice_email(email: str, first_name: str, pdf_bytes: bytes, invoice_number: str) -> None:
-    """Celery task — emails an invoice PDF."""
-    subject = f"New invoice from your landlord — {invoice_number}"
+def send_invoice_email(email: str, first_name: str, pdf_bytes: bytes, invoice_number: str,
+                       landlord_id: int | None = None) -> None:
+    """Celery task — emails an invoice PDF, in the landlord's identity."""
+    brand, reply_to, sender = _landlord_identity(landlord_id)
+    company = (brand or {}).get("company_name") or "your landlord"
+    subject = f"New invoice from {company} — {invoice_number}"
     html = T.render_email(
+        brand=brand,
         heading="You have a new invoice",
         intro=f"Hi {T.escape(first_name or 'there')}, a new invoice "
               f"<strong>{T.escape(invoice_number)}</strong> has been issued to you. "
               f"It's attached as a PDF — log in to your tenant portal to view the breakdown or pay.",
         preheader=f"New invoice {invoice_number} from your landlord.",
     )
-    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename=f"{invoice_number}.pdf")
+    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename=f"{invoice_number}.pdf",
+                reply_to=reply_to, sender_display=sender)
 
 
 @celery.task(name="services.email_service.send_statement_email")
-def send_statement_email(email: str, first_name: str, pdf_bytes: bytes) -> None:
-    """Celery task — emails a tenant statement PDF."""
-    subject = "Your Sahil Pay account statement"
+def send_statement_email(email: str, first_name: str, pdf_bytes: bytes,
+                         landlord_id: int | None = None) -> None:
+    """Celery task — emails a tenant statement PDF, in the landlord's identity."""
+    brand, reply_to, sender = _landlord_identity(landlord_id)
+    company = (brand or {}).get("company_name") or "Sahil Pay"
+    subject = f"Your account statement from {company}"
     html = T.render_email(
+        brand=brand,
         heading="Your account statement",
-        intro=f"Hi {T.escape(first_name or 'there')}, your latest Sahil Pay account statement is attached as a PDF.",
-        preheader="Your Sahil Pay account statement is attached.",
+        intro=f"Hi {T.escape(first_name or 'there')}, your latest account statement is attached as a PDF.",
+        preheader="Your account statement is attached.",
     )
-    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename="statement.pdf")
+    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename="statement.pdf",
+                reply_to=reply_to, sender_display=sender)
 
 
 @celery.task(name="services.email_service.send_owner_statement_email")
@@ -487,6 +524,7 @@ def send_owner_statement_email(
     period_label: str,
     company_name: str,
     pdf_bytes: bytes,
+    landlord_id: int | None = None,
 ) -> None:
     """
     Celery task — emails a property owner their monthly property statement.
@@ -496,7 +534,9 @@ def send_owner_statement_email(
     """
     subject = f"{property_name} — statement for {period_label}"
     manager = T.escape(company_name or "Your property manager")
+    brand, reply_to, sender = _landlord_identity(landlord_id)
     html = T.render_email(
+        brand=brand,
         heading=f"{property_name} — {period_label}",
         intro=(
             f"Hi {T.escape(first_name or 'there')}, here is the statement for "
@@ -515,6 +555,7 @@ def send_owner_statement_email(
         email, subject, html,
         pdf_bytes=pdf_bytes,
         pdf_filename=f"{property_name} — {period_label}.pdf".replace("/", "-"),
+        reply_to=reply_to, sender_display=sender,
     )
 
 
@@ -525,9 +566,12 @@ def send_document_email(
     template_name: str,
     pdf_bytes: bytes | None,
     file_url: str | None,
+    landlord_id: int | None = None,
 ) -> None:
     """Celery task — emails a dispatched document template (lease, tenancy agreement, deposit, etc.)."""
-    subject = f"Document from your landlord — {template_name}"
+    brand, reply_to, sender = _landlord_identity(landlord_id)
+    company = (brand or {}).get("company_name") or "your landlord"
+    subject = f"Document from {company} — {template_name}"
     blocks = []
     if file_url and not pdf_bytes:
         # Absolute, always. Uploaded files are stored with RELATIVE urls
@@ -538,11 +582,14 @@ def send_document_email(
         # document, which is indistinguishable from the app being broken.
         blocks.append(T.button("View document", _absolute_url(file_url)))
     html = T.render_email(
-        heading="A document from your landlord",
+        brand=brand,
+        heading=f"A document from {company}",
         intro=f"Hi {T.escape(first_name or 'there')}, your landlord has sent you a document: "
               f"<strong>{T.escape(template_name)}</strong>." +
               ("" if file_url and not pdf_bytes else " It's attached to this email as a PDF."),
         blocks=blocks,
         preheader=f"{template_name} from your landlord.",
     )
-    _send_email(email, subject, html, pdf_bytes=pdf_bytes, pdf_filename=f"{template_name}.pdf" if pdf_bytes else None)
+    _send_email(email, subject, html, pdf_bytes=pdf_bytes,
+                pdf_filename=f"{template_name}.pdf" if pdf_bytes else None,
+                reply_to=reply_to, sender_display=sender)

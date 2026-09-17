@@ -26,6 +26,24 @@ export const billingApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/billing/buy-sms/stk", method: "POST", body }),
       invalidatesTags: ["Billing"],
     }),
+    // Any amount, subscription or SMS: { purpose, amount, phone, cycle? }
+    payStk: builder.mutation({
+      query: (body) => ({ url: "/billing/pay/stk", method: "POST", body }),
+      invalidatesTags: ["Billing"],
+    }),
+    confirmPaybillPayment: builder.mutation({
+      query: (body) => ({ url: "/billing/confirm-payment", method: "POST", body }),
+      invalidatesTags: ["Billing"],
+    }),
+    // Simulation only — plays Safaricom's callback through the real handler.
+    simulateConfirmation: builder.mutation({
+      query: ({ id, result = "success" }) => ({ url: `/billing/transactions/${id}/simulate-confirmation`, method: "POST", body: { result } }),
+      invalidatesTags: ["Billing"],
+    }),
+    getBillingAccess: builder.query({
+      query: () => "/billing/access",
+      providesTags: ["Billing"],
+    }),
     getTransactionStatus: builder.query({
       query: (id) => `/billing/transactions/${id}/status`,
     }),
@@ -47,6 +65,10 @@ export const {
   useBuySmsMutation,
   useBuySmsStkMutation,
   useLazyGetTransactionStatusQuery,
+  usePayStkMutation,
+  useConfirmPaybillPaymentMutation,
+  useSimulateConfirmationMutation,
+  useGetBillingAccessQuery,
   useGetBillingTransactionsQuery,
   useGenerateTaxInvoiceMutation,
 } = billingApiSlice;

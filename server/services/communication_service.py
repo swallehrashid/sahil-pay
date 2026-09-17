@@ -198,13 +198,18 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
             html_body = email_html
         else:
             sender_name = getattr(landlord_for_email, "company_name", None) or "your landlord"
+            from services.document_brand import email_brand
             html_body = render_email(
-                heading="A message from your landlord",
+                brand=email_brand(landlord_for_email),
+                heading=f"A message from {sender_name}",
                 blocks=[paragraph(escape(content).replace("\n", "<br>"))],
                 preheader=content[:90],
                 footer_note=f"Sent by {sender_name} via Sahil Pay.",
             )
-        status = "delivered" if _send_email(tenant.email, subject, html_body) else "failed"
+        from services.email_service import _landlord_identity
+        _, reply_to, sender_display = _landlord_identity(getattr(landlord_for_email, "id", None))
+        status = "delivered" if _send_email(tenant.email, subject, html_body,
+                                            reply_to=reply_to, sender_display=sender_display) else "failed"
         if status == "failed":
             failure_reason = "The email provider rejected the message."
     elif channel == "whatsapp":

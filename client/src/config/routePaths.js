@@ -11,6 +11,8 @@ export const PUBLIC_ROUTES = {
   privacy: "/privacy",
   terms: "/terms",
   becomeAffiliate: "/become-affiliate",
+  // The one link sent to clients for the Co-pilot Android app.
+  copilotDownload: "/copilot",
 };
 
 export const AUTH_ROUTES = {
@@ -153,8 +155,12 @@ export const TENANT_ROUTES = {
   // The admin-authored help library. Tenants are a first-class audience of it
   // (services/tutorial_service.py VALID_ROLES), and the seeded library ships
   // tenant-specific articles, so the portal needs its own reader.
-  // The tenant reads, signs and downloads their agreement here.
+  // Every tenancy agreement the person holds; each opens at leases/:id to be
+  // read, signed (in the portal or on paper) and downloaded. /portal/lease is
+  // the old single-lease address, redirected here.
   lease: "/portal/lease",
+  leases: "/portal/leases",
+  leaseDetailPath: (id) => `/portal/leases/${id}`,
   help: "/portal/help",
   helpArticle: (slug) => `/portal/help/${slug}`,
 };

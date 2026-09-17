@@ -167,6 +167,9 @@ def _cleanup(session, *rows_by_table):
             continue
         if table == "landlords":
             session.execute(text("DELETE FROM audit_logs WHERE landlord_id = :id"), {"id": row_id})
+            session.execute(text("DELETE FROM notifications WHERE landlord_id = :id"), {"id": row_id})
+            session.execute(text("UPDATE platform_c2b_payments SET billing_transaction_id = NULL, landlord_id = NULL WHERE landlord_id = :id"), {"id": row_id})
+            session.execute(text("DELETE FROM billing_transactions WHERE landlord_id = :id"), {"id": row_id})
             session.execute(text("DELETE FROM subscriptions WHERE landlord_id = :id"), {"id": row_id})
         if table == "users":
             session.execute(text("DELETE FROM notifications WHERE recipient_user_id = :id OR sender_user_id = :id"), {"id": row_id})
@@ -334,22 +337,32 @@ class TestC2bConfirmation:
         assert c2b.status == "unmatched"
         _cleanup(db_session, ("platform_c2b_payments", c2b.id))
 
-    def test_wrong_amount_is_unmatched_not_activated(self, app, client, db_session):
+    def test_a_partial_paybill_payment_is_an_installment(self, app, client, db_session):
+        """
+        Installments: KES 600 against a KES 1,000 balance is applied, leaving
+        400 — not bounced to an admin queue for failing to match to the shilling.
+        """
         user, landlord = make_landlord(db_session)
+        landlord.subscription.amount_due = Decimal("1000.00")
+        db_session.commit()
         txn = pending_txn(db_session, landlord, "subscription", "1000.00")
         trans_id = f"NLJ{uuid.uuid4().hex[:8].upper()}"
 
         try:
             resp = client.post("/api/webhooks/daraja/c2b/confirmation",
-                                json=self._payload(trans_id, 1, f"SUB-{landlord.id}"))
+                                json=self._payload(trans_id, 600, f"SUB-{landlord.id}"))
             assert resp.status_code == 200
 
             db_session.refresh(txn)
-            assert txn.is_verified is False
+            assert txn.is_verified is False          # the 1,000 STK attempt is untouched
+            db_session.refresh(landlord.subscription)
+            assert landlord.subscription.amount_due == Decimal("400.00")
 
             c2b = PlatformC2BPayment.query.filter_by(trans_id=trans_id).first()
-            assert c2b.status == "unmatched"
-            _cleanup(db_session, ("platform_c2b_payments", c2b.id))
+            assert c2b.status == "matched"
+            applied = db_session.get(BillingTransaction, c2b.billing_transaction_id)
+            assert applied.is_verified and applied.amount == Decimal("600.00")
+            _cleanup(db_session, ("platform_c2b_payments", c2b.id), ("billing_transactions", applied.id))
         finally:
             _cleanup(db_session, ("billing_transactions", txn.id), ("landlords", landlord.id), ("users", user.id))
 
@@ -688,8 +701,12 @@ class TestSimulationModeNeverCallsOut:
             resp = client.post("/api/billing/pay-subscription/stk",
                                 json={"billing_cycle": "monthly", "phone": "254712345678"},
                                 headers=_auth_header(user))
-            assert resp.status_code == 201
+            assert resp.status_code == 200
             assert resp.json.get("simulated") is True
+            # Simulation stops at PENDING, exactly like a real prompt: nothing is
+            # paid until a confirmation arrives.
+            assert resp.json["transaction"]["status"] == "pending"
+            assert resp.json["transaction"]["is_verified"] is False
 
             txn_id = resp.json["transaction"]["id"]
             _cleanup(db_session, ("billing_transactions", txn_id))

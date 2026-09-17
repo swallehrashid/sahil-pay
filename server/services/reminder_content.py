@@ -65,13 +65,15 @@ class ReminderContent:
 
 
 def _landlord_contact(landlord) -> dict:
-    """Company name, location, phone, email for the landlord (contact defaults)."""
-    user = getattr(landlord, "user", None)
+    """Company name, location, phone, email for the landlord — the dedicated
+    tenant-facing contact fields first, the login details as a fallback."""
+    from services.document_brand import contact_for
+    contact = contact_for(landlord)
     return {
         "name": getattr(landlord, "company_name", "") or "Your landlord",
         "location": getattr(landlord, "company_address", None) or branding.BRAND_LOCATION,
-        "phone": (getattr(user, "phone", None) if user else None) or "",
-        "email": (getattr(user, "email", None) if user else None) or "",
+        "phone": contact["phone"],
+        "email": contact["email"],
     }
 
 
@@ -156,7 +158,9 @@ def build_reminder(kind: str, tenant, landlord, *, custom_message: str | None = 
         contact_rows.append(("Email", contact["email"]))
     blocks.append(T.breakdown(contact_rows))
 
+    from services.document_brand import email_brand
     html = T.render_email(
+        brand=email_brand(landlord),
         heading=f"{title} — {contact['name']}",
         intro=f"Dear {T.escape(tenant_name)},",
         blocks=blocks,

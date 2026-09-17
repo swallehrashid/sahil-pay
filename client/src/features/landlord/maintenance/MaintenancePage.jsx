@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, AlertCircle, Loader2, Pencil, Trash2, Receipt, Eye, Paperclip } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SummaryCard from "@/components/ui/SummaryCard";
@@ -34,7 +35,9 @@ export default function MaintenancePage() {
   const [deleteRequest] = useDeleteMaintenanceRequestMutation();
 
   const [active, setActive] = useState(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  // "+ New" in the sidebar links here with ?new=1 to open the form directly.
+  const [searchParams] = useSearchParams();
+  const [isFormOpen, setIsFormOpen] = useState(() => searchParams.get("new") === "1");
   const [expenseTarget, setExpenseTarget] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   // The request being read in full — photo, description, status controls.
