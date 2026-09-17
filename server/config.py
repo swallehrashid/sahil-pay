@@ -273,6 +273,9 @@ class BaseConfig:
     # callback IP ranges. See MPESA_INTEGRATION_SPEC.md §10.
     DARAJA_ALLOWED_IPS: str = _env("DARAJA_ALLOWED_IPS", "")
     TRUST_PROXY: bool = _env("TRUST_PROXY", "false").lower() in ("1", "true", "yes", "on")
+    # How many proxies WE run in front of the app, each appending to
+    # X-Forwarded-For: 1 = nginx only, 2 = Cloudflare + nginx (production).
+    TRUSTED_PROXY_HOPS: int = int(_env("TRUSTED_PROXY_HOPS", "1") or 1)
 
     # When True (default until the paybill/initiator credentials above are fully
     # wired), STK push, C2B, and B2C are all SIMULATED: no external Daraja call is
@@ -282,6 +285,9 @@ class BaseConfig:
     # BillingTransaction — the whole affiliate pipeline is exercisable in dev/test
     # without a live paybill. Set MPESA_SIMULATION_MODE=false to switch to real
     # calls; nothing else changes. Mirrors COMMS_SIMULATION_MODE's contract exactly.
+    # Days an unpaid subscription balance may stand before the landlord portal
+    # locks (billing stays open). See services/billing_service.py.
+    SUBSCRIPTION_GRACE_DAYS: int = int(_env("SUBSCRIPTION_GRACE_DAYS", "5") or 5)
     MPESA_SIMULATION_MODE: bool = _env("MPESA_SIMULATION_MODE", "true").lower() in ("1", "true", "yes", "on")
 
     # ------------------------------------------------------------------

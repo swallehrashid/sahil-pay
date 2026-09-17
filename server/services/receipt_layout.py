@@ -346,6 +346,7 @@ def page_css(layout: dict, theme: dict | None = None) -> str:
     .receipt-header {{ width: 100%; border-bottom: 1.5px solid {secondary}; padding-bottom: 2mm; }}
     .receipt-header td {{ vertical-align: top; border-bottom: none; }}
     .receipt-logo img {{ max-height: {round(logo_px * scale)}px; max-width: 100%; object-fit: contain; }}
+    .receipt-letterhead img {{ max-height: {round(logo_px * scale)}px; max-width: 100%; object-fit: contain; }}
     .signature img {{ max-height: {round(logo_px * scale * 0.9)}px; }}
     .signature .line {{ border-top: 1px solid {primary}; padding-top: 2px; }}
     /* report_style() gives the signature block a 220px floor, which is right on
@@ -415,6 +416,9 @@ def header_html(layout: dict, meta: dict) -> str:
             url = meta.get("logo_url")
             return f'<div class="receipt-logo"><img src="{escape(str(url))}"></div>' if url else ""
         if component == "letterhead":
+            if meta.get("letterhead_url"):
+                return (f'<div class="receipt-letterhead"><img src="{escape(str(meta["letterhead_url"]))}"></div>'
+                        f'<div class="receipt-meta">{escape(str(meta.get("report_title") or "Receipt"))}</div>')
             name = escape(str(meta.get("company_name") or ""))
             title = escape(str(meta.get("report_title") or "Receipt"))
             return (
@@ -422,7 +426,8 @@ def header_html(layout: dict, meta: dict) -> str:
                 f'<div class="receipt-meta">{title}</div>'
             )
         if component == "address":
-            parts = [meta.get(k) for k in ("company_address", "phone", "email")]
+            website = (meta.get("website") or "").replace("https://", "").replace("http://", "").rstrip("/")
+            parts = [meta.get(k) for k in ("company_address", "phone", "email")] + [website]
             lines = "<br>".join(escape(str(p)) for p in parts if p)
             return f'<div class="receipt-meta">{lines}</div>' if lines else ""
         return ""

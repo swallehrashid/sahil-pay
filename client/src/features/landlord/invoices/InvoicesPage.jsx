@@ -63,7 +63,7 @@ export default function InvoicesPage() {
   const [sendInvoice] = useSendInvoiceMutation();
 
   const [activeInvoice, setActiveInvoice] = useState(() => (tenantIdFromQuery ? { tenant_id: tenantIdFromQuery } : null));
-  const [isFormOpen, setIsFormOpen] = useState(() => Boolean(tenantIdFromQuery));
+  const [isFormOpen, setIsFormOpen] = useState(() => Boolean(tenantIdFromQuery) || searchParams.get("new") === "1");
   const [pendingDelete, setPendingDelete] = useState(null);
   const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
 

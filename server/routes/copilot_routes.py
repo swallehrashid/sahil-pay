@@ -350,7 +350,9 @@ def app_download():
     """
     release = _latest_release()
     if release is None:
-        return jsonify({"error": "No Co-pilot release is available yet."}), 404
+        # No release uploaded through the admin portal: fall back to the APK
+        # bundled with the website build, so this old link never dead-ends.
+        return redirect("/downloads/sahil-pay-copilot.apk", code=302)
     return _serve_release(release)
 
 

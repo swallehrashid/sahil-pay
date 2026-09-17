@@ -824,6 +824,16 @@ class Landlord(TimestampMixin, Base):
     company_address        = Column(Text,        nullable=True)
     logo_url               = Column(String(255), nullable=True)
     signature_url          = Column(String(255), nullable=True)
+    # --- Document & email identity (receipts, reports, leases, emails) --------
+    # The four things a landlord's paperwork carries: theme colours (in
+    # landlord_settings), logo (logo_url), letterhead, and contact details.
+    # `letterhead_url` is an optional pre-designed banner image; when present it
+    # replaces the generated name/address header. Contact fields are what the
+    # TENANT should use — deliberately separate from the login email/phone.
+    letterhead_url         = Column(String(255), nullable=True)
+    contact_phone          = Column(String(30),  nullable=True)
+    contact_email          = Column(String(255), nullable=True)
+    website                = Column(String(255), nullable=True)
     invoice_title          = Column(String(150), nullable=True)
     currency               = Column(String(8),   default="KES", nullable=False)
     timezone               = Column(String(64),  default="Africa/Nairobi", nullable=False)
@@ -937,6 +947,10 @@ class Landlord(TimestampMixin, Base):
             "company_address":        self.company_address,
             "logo_url":               self.logo_url,
             "signature_url":          self.signature_url,
+            "letterhead_url":         self.letterhead_url,
+            "contact_phone":          self.contact_phone,
+            "contact_email":          self.contact_email,
+            "website":                self.website,
             "invoice_title":          self.invoice_title,
             "currency":               self.currency,
             "timezone":               self.timezone,
@@ -3407,6 +3421,20 @@ class Subscription(TimestampMixin, Base):
     amount_due        = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     next_billing_date = Column(Date, nullable=True)
     status            = Column(String(15), nullable=True)     # enum SubscriptionStatus
+    # --- Running balance (installments) --------------------------------------
+    # amount_due is a LEDGER BALANCE, not "the price": charges are added when a
+    # billing date passes, every verified payment of any size is subtracted, and
+    # a negative value is credit carried into the next charge. See
+    # services/billing_service.py "Balance ledger".
+    #
+    # balance_due_since — the date the oldest unpaid charge fell due. NULL
+    #   whenever nothing is owed. Lock = owed AND this is older than the grace.
+    # access_override_until — an admin exemption: the account stays open until
+    #   this date even with a balance ("pay 6,000 now, the rest next month").
+    balance_due_since       = Column(Date, nullable=True)
+    access_override_until   = Column(Date, nullable=True)
+    access_override_reason  = Column(String(255), nullable=True)
+    access_override_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     landlord = relationship("Landlord", back_populates="subscription")
 
@@ -3422,6 +3450,9 @@ class Subscription(TimestampMixin, Base):
             "amount_due":        _serialise(self.amount_due),
             "next_billing_date": _serialise(self.next_billing_date),
             "status":            self.status,
+            "balance_due_since": _serialise(self.balance_due_since),
+            "access_override_until":  _serialise(self.access_override_until),
+            "access_override_reason": self.access_override_reason,
             "created_at":        _serialise(self.created_at),
             "updated_at":        _serialise(self.updated_at),
         }
@@ -4877,6 +4908,28 @@ class LeaseSource(str, enum.Enum):
     uploaded = "uploaded"   # signed physically, then photographed or scanned
 
 
+class LeaseDocumentKind(str, enum.Enum):
+    """
+    WHICH agreement was sent — independent of HOW it gets signed.
+
+      standard  Sahil Pay's own Kenyan tenancy agreement
+      custom    the landlord's own wording, written in Settings → Documents
+      uploaded  a file the landlord uploaded (a scan or PDF of their paper lease)
+
+    All three carry the landlord's logo, theme colours, letterhead and contact
+    details on every page the system produces.
+    """
+    standard = "standard"
+    custom   = "custom"
+    uploaded = "uploaded"
+
+
+class LeaseSigningMethod(str, enum.Enum):
+    """How the tenant returned it. Recorded at submission."""
+    electronic = "electronic"   # typed name + consent in the portal
+    scan       = "scan"         # printed, signed by hand, photographed/scanned back
+
+
 # The statuses where the tenant may see and download their own lease. A draft
 # or a lease still in review is deliberately not among them: showing a tenant a
 # document the landlord has not accepted invites arguments about which version
@@ -4952,6 +5005,20 @@ class LeaseAgreement(TimestampMixin, Base):
     # scan for one signed on paper. Either way this is what both sides download.
     document_url = Column(String(500), nullable=True)
 
+    # Which agreement (standard / custom / uploaded) and, for an uploaded one,
+    # the landlord's original file the tenant downloads, prints and signs.
+    document_kind       = Column(String(10), nullable=False,
+                                 default=LeaseDocumentKind.standard.value,
+                                 server_default=LeaseDocumentKind.standard.value)
+    source_document_url = Column(String(500), nullable=True)
+    title               = Column(String(150), nullable=True)
+    # How the tenant signed, and — for a hand-signed copy — the pages they sent
+    # back (list of stored URLs, in page order).
+    signing_method      = Column(String(10), nullable=True)
+    tenant_scan_urls    = Column(JSON, nullable=True)
+    # First time the tenant opened it. Lets the office tell "not seen" from
+    # "seen and ignored" without phoning anyone.
+    viewed_at    = Column(DateTime, nullable=True)
     sent_at      = Column(DateTime, nullable=True)
     submitted_at = Column(DateTime, nullable=True)
     created_by   = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -5012,15 +5079,24 @@ class LeaseAgreement(TimestampMixin, Base):
             "reviewed_at":      _serialise(self.reviewed_at),
             "rejection_reason": self.rejection_reason,
             "document_url":     self.document_url,
+            "document_kind":    self.document_kind,
+            "title":            self.title or "Tenancy agreement",
+            "has_source_document": bool(self.source_document_url),
+            "signing_method":   self.signing_method,
+            "scan_page_count":  len(self.tenant_scan_urls or []),
             "is_downloadable":  self.is_downloadable,
             "awaiting_tenant":  self.awaiting_tenant,
+            "viewed_at":        _serialise(self.viewed_at),
             "sent_at":          _serialise(self.sent_at),
             "submitted_at":     _serialise(self.submitted_at),
             "created_at":       _serialise(self.created_at),
             "updated_at":       _serialise(self.updated_at),
         }
         if include_body:
-            data["body_html"] = self.body_html
+            # Sanitised on the way OUT as well as in: agreements created before
+            # sanitising existed are still served safely.
+            from services.lease_service import sanitise_html
+            data["body_html"] = sanitise_html(self.body_html) if self.body_html else None
         return data
 
     def to_audit_dict(self):

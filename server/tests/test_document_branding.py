@@ -298,6 +298,11 @@ def test_every_renderer_we_ship_is_covered_here(app):
         (receipt_service, "render_sample_receipt_pdf"),
         (payout_pdf, "render_payout_statement_pdf"),
         (lease_service, "render_pdf_bytes"),
+        # The unsigned copy a tenant prints; branding (name, contact details)
+        # asserted in test_lease_workflow.test_the_lease_pdf_carries_the_landlords_contact_details.
+        (lease_service, "render_blank_pdf"),
+        # Concatenates already-branded parts; renders nothing of its own.
+        (lease_service, "merge_pdfs"),
         # Persists what render_pdf_bytes produced; covered through it.
         (lease_service, "store_pdf"),
     }

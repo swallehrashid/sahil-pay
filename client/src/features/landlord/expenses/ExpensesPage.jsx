@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, Receipt, Pencil, Trash2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import SearchInput from "@/components/ui/SearchInput";
@@ -42,7 +43,9 @@ export default function ExpensesPage() {
   const [deleteExpense] = useDeleteExpenseMutation();
 
   const [activeExpense, setActiveExpense] = useState(null);
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  // "+ New" in the sidebar links here with ?new=1 to open the form directly.
+  const [searchParams] = useSearchParams();
+  const [isFormOpen, setIsFormOpen] = useState(() => searchParams.get("new") === "1");
   const [pendingDelete, setPendingDelete] = useState(null);
 
   const expenses = toRows(data);

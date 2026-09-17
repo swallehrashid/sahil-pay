@@ -842,7 +842,49 @@ def _local_uploads_url_fetcher(url: str):
         if os.path.isfile(disk_path):
             return default_url_fetcher("file://" + disk_path)
 
+    if url.startswith(("http://", "https://")):
+        return _cached_remote_fetch(url, default_url_fetcher)
     return default_url_fetcher(url)
+
+
+# A landlord's logo lives on the image CDN and appears on EVERY page of every
+# document. Without a cache a five-page lease fetched it five times, and one slow
+# CDN handshake turned "upload my signed lease" into a ten-second wait. Remote
+# assets are kept in memory for ten minutes (and failures for one) — a changed
+# logo gets a new URL, so staleness is not a concern.
+_REMOTE_CACHE: dict[str, tuple[float, dict | None]] = {}
+_REMOTE_TTL, _REMOTE_FAIL_TTL, _REMOTE_MAX = 600.0, 60.0, 64
+
+
+def _cached_remote_fetch(url, fetcher):
+    import time
+
+    from weasyprint.urls import URLFetcherResponse
+
+    now = time.monotonic()
+    hit = _REMOTE_CACHE.get(url)
+    if hit is not None:
+        stamp, value = hit
+        if value is not None and now - stamp < _REMOTE_TTL:
+            return URLFetcherResponse(value["url"], value["body"], value["headers"])
+        if value is None and now - stamp < _REMOTE_FAIL_TTL:
+            raise ValueError(f"Remote asset recently unavailable: {url}")
+    try:
+        response = fetcher(url, timeout=6)
+        body = response.read()
+        headers = {k: v for k, v in response.headers.items()}
+        value = {"url": getattr(response, "url", url), "body": body, "headers": headers}
+        try:
+            response.close()
+        except Exception:
+            pass
+    except Exception:
+        _REMOTE_CACHE[url] = (now, None)
+        raise
+    if len(_REMOTE_CACHE) >= _REMOTE_MAX:
+        _REMOTE_CACHE.pop(next(iter(_REMOTE_CACHE)))
+    _REMOTE_CACHE[url] = (now, value)
+    return URLFetcherResponse(value["url"], body, headers)
 
 
 def render_pdf(html: str, base_url: str | None = None) -> bytes:

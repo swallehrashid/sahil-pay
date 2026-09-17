@@ -12,7 +12,16 @@ export async function downloadFile(path, { filename, format = "pdf" } = {}) {
   });
 
   if (!response.ok) {
-    throw new Error(`Download failed (${response.status})`);
+    // Surface the server's own reason ("not signed yet", "missing from storage")
+    // instead of a bare status code the person cannot act on.
+    let message = `Download failed (${response.status})`;
+    try {
+      const body = await response.json();
+      message = body?.message || body?.error || message;
+    } catch { /* not JSON */ }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
 
   const blob = await response.blob();
@@ -24,6 +33,18 @@ export async function downloadFile(path, { filename, format = "pdf" } = {}) {
   link.click();
   link.remove();
   URL.revokeObjectURL(objectUrl);
+}
+
+/**
+ * Fetch an authenticated file and hand back an object URL to show it inline
+ * (a scanned lease page in an <img>, a PDF in a new tab). The caller revokes it.
+ */
+export async function fetchObjectUrl(path) {
+  const url = path.startsWith("http") ? path : `${env.apiBaseUrl}${path}`;
+  const token = getAccessToken();
+  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
+  if (!response.ok) throw new Error(`Could not load file (${response.status})`);
+  return URL.createObjectURL(await response.blob());
 }
 
 export default downloadFile;

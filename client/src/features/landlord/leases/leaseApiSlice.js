@@ -49,6 +49,17 @@ export const leaseApiSlice = apiSlice.injectEndpoints({
       transformResponse: unwrap,
       invalidatesTags: ["Lease"],
     }),
+    getLeaseDocumentOptions: builder.query({
+      query: () => "/leases/document-options",
+      transformResponse: unwrap,
+      providesTags: ["Lease", "DocumentTemplate"],
+    }),
+    // JSON { tenant_ids, document_kind, template_id, title } or FormData with `file`.
+    sendLeases: builder.mutation({
+      query: (body) => ({ url: "/leases/send-many", method: "POST", body }),
+      transformResponse: unwrap,
+      invalidatesTags: ["Lease", "Notification"],
+    }),
     uploadLease: builder.mutation({
       query: ({ tenantId, formData }) => ({
         url: `/tenants/${tenantId}/leases/upload`, method: "POST", body: formData,
@@ -68,6 +79,28 @@ export const leaseApiSlice = apiSlice.injectEndpoints({
       transformResponse: unwrap,
       invalidatesTags: ["Lease"],
     }),
+    // Every agreement across all the units this person rents.
+    getPortalLeases: builder.query({
+      query: () => "/portal/leases",
+      transformResponse: unwrap,
+      providesTags: ["Lease"],
+    }),
+    getPortalLeaseDetail: builder.query({
+      query: (id) => `/portal/leases/${id}`,
+      transformResponse: unwrap,
+      providesTags: (r, e, id) => ["Lease", { type: "Lease", id }],
+    }),
+    signPortalLease: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/portal/leases/${id}/sign`, method: "POST", body }),
+      transformResponse: unwrap,
+      invalidatesTags: ["Lease", "Notification"],
+    }),
+    // FormData: files (one per page), signed_name, agreed=true
+    uploadPortalLeaseScan: builder.mutation({
+      query: ({ id, formData }) => ({ url: `/portal/leases/${id}/upload`, method: "POST", body: formData }),
+      transformResponse: unwrap,
+      invalidatesTags: ["Lease", "Notification"],
+    }),
   }),
 });
 
@@ -80,6 +113,12 @@ export const {
   useApproveLeaseMutation,
   useRejectLeaseMutation,
   useUploadLeaseMutation,
+  useGetLeaseDocumentOptionsQuery,
+  useSendLeasesMutation,
   useGetPortalLeaseQuery,
   useSubmitPortalLeaseMutation,
+  useGetPortalLeasesQuery,
+  useGetPortalLeaseDetailQuery,
+  useSignPortalLeaseMutation,
+  useUploadPortalLeaseScanMutation,
 } = leaseApiSlice;

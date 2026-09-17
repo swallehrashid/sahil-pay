@@ -183,6 +183,111 @@ def steps(items: list[str]) -> str:
 
 
 # ── Page shell ───────────────────────────────────────────────────────────────
+def _recolour_for_brand(html: str, brand: dict) -> str:
+    """
+    Re-ink content blocks for a landlord's light letterhead email.
+
+    Every block builder above draws for the dark Sahil shell with the palette
+    constants inline (email clients strip <style>, so inline is the only
+    option). Rather than a second copy of every builder, the palette's exact
+    hex values are swapped for the landlord's here — they are distinctive
+    enough that nothing else in a message carries them. White text is the one
+    colour shared with buttons, so button text is protected first.
+    """
+    from services import receipt_theme
+
+    primary = brand.get("primary") or "#0f0246"
+    secondary = brand.get("secondary") or "#200497"
+    html = html.replace("color:#ffffff;text-decoration:none", "color:#FFFFFE;text-decoration:none")
+    html = html.replace("color:#ffffff", f"color:{primary}")
+    html = html.replace("#FFFFFE", "#ffffff")
+    for old, new in (
+        (TEXT, "#1f2430"),
+        (MUTED, "#5b6070"),
+        (PANEL, receipt_theme.tint(primary, 0.95)),
+        (BORDER, receipt_theme.tint(primary, 0.84)),
+        (ROSE_DK, secondary),
+        (ROSE, secondary),
+        (ACCENT, secondary),
+    ):
+        html = html.replace(old, new)
+    return html
+
+
+def _branded_shell(*, heading: str, body: str, preheader: str, footer_note: str | None,
+                   brand: dict) -> str:
+    """
+    An email sent FROM a landlord's account, in the landlord's identity: their
+    letterhead (uploaded banner, or logo + company name + address), their theme
+    colours, and their contact details in the footer. Sahil Pay appears only as
+    the small "sent via" credit — the tenant's relationship is with the landlord.
+    """
+    from services import receipt_theme
+
+    primary = brand.get("primary") or "#0f0246"
+    secondary = brand.get("secondary") or "#200497"
+    page_bg = receipt_theme.tint(primary, 0.95)
+    company = escape(brand.get("company_name") or "")
+    address = escape(brand.get("address") or "")
+
+    if brand.get("letterhead_url"):
+        head = (f'<img src="{escape(brand["letterhead_url"], quote=True)}" alt="{company}" '
+                f'width="560" style="display:block;width:100%;max-width:560px;height:auto;border:0;">')
+    else:
+        logo = (f'<td style="padding-right:12px;vertical-align:middle;" width="56">'
+                f'<img src="{escape(brand["logo_url"], quote=True)}" alt="" width="52" '
+                f'style="display:block;width:52px;height:auto;max-height:52px;border:0;"></td>'
+                if brand.get("logo_url") else "")
+        head = (
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>'
+            f'{logo}<td style="vertical-align:middle;">'
+            f'<div style="font-family:{FONT};font-size:19px;font-weight:700;color:{primary};">{company}</div>'
+            + (f'<div style="margin-top:2px;font-family:{FONT};font-size:12px;color:#5b6070;">{address}</div>' if address else "")
+            + '</td></tr></table>'
+        )
+
+    from services.document_brand import contact_line
+    contact = escape(contact_line(brand))
+    footer = escape(footer_note or f"Sent by {brand.get('company_name') or 'your landlord'} via Sahil Pay.")
+
+    return f"""\
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="color-scheme" content="light">
+<meta name="format-detection" content="telephone=no">
+<title>{escape(heading)}</title>
+<style>
+  .sp-wrap {{ padding:16px 8px !important; }}
+  .sp-card {{ padding:22px 18px !important; }}
+  @media only screen and (min-width:480px) {{
+    .sp-wrap {{ padding:28px 12px !important; }}
+    .sp-card {{ padding:32px 32px !important; }}
+  }}
+  img {{ max-width:100%; height:auto; }}
+</style>
+</head>
+<body style="margin:0;padding:0;background:{page_bg};width:100%;-webkit-text-size-adjust:100%;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;color:{page_bg};">{escape(preheader)}</span>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="sp-wrap" style="background:{page_bg};padding:20px 10px;">
+<tr><td align="center">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:16px;border-top:5px solid {secondary};">
+    <tr><td style="padding:20px 22px 14px;border-bottom:1px solid {receipt_theme.tint(primary, 0.88)};">{head}</td></tr>
+    <tr><td class="sp-card" style="padding:22px 18px;">
+      <h1 style="margin:0 0 16px;font-family:{FONT};font-size:20px;line-height:1.3;font-weight:700;color:{primary};">{escape(heading)}</h1>
+      {body}
+    </td></tr>
+    <tr><td style="padding:16px 22px 20px;background:{receipt_theme.tint(primary, 0.97)};border-radius:0 0 16px 16px;">
+      <p style="margin:0 0 4px;font-family:{FONT};font-size:13px;font-weight:600;color:{primary};">{company}</p>
+      {f'<p style="margin:0 0 4px;font-family:{FONT};font-size:12px;color:#5b6070;">{address}</p>' if address else ''}
+      {f'<p style="margin:0 0 8px;font-family:{FONT};font-size:12px;color:#5b6070;">{contact}</p>' if contact else ''}
+      <p style="margin:0;font-family:{FONT};font-size:11px;color:#8a8fa0;">{footer}</p>
+    </td></tr>
+  </table>
+</td></tr></table>
+</body></html>"""
+
+
 def render_email(
     *,
     heading: str,
@@ -190,13 +295,25 @@ def render_email(
     blocks: list[str] | None = None,
     preheader: str = "",
     footer_note: str | None = None,
+    brand: dict | None = None,
 ) -> str:
-    """Wrap content blocks in the branded SahilPay shell and return full HTML."""
+    """
+    Wrap content blocks in an email shell and return full HTML.
+
+    `brand` (services/document_brand.email_brand) makes it the LANDLORD's
+    email: their letterhead, logo, colours and contact details. Omitted, it is
+    the Sahil Pay shell — used for platform email (sign-in codes, verification,
+    billing) that Sahil Pay sends as itself.
+    """
     body = ""
     if intro:
         body += paragraph(intro)
     for b in (blocks or []):
         body += b
+
+    if brand:
+        return _branded_shell(heading=heading, body=_recolour_for_brand(body, brand),
+                              preheader=preheader, footer_note=footer_note, brand=brand)
 
     year_footer = (
         footer_note

@@ -795,9 +795,12 @@ def test_sending_a_lease_notifies_the_tenant(client, db_session, world):
             .filter_by(entity_type="lease", entity_id=lease.id)
             .order_by(Notification.id.desc()).first())
     assert note is not None, "the tenant was never told a lease had arrived"
-    assert note.recipient_user_id == tenant.user_id
+    # Addressed to the TENANT, not a User: tenants sign in by phone code and
+    # most have no User row. Keying this on user_id is exactly how every real
+    # tenant went without a notification while this test passed.
+    assert note.recipient_tenant_id == tenant.id
     assert "sign" in f"{note.title} {note.body}".lower()
-    assert note.link == "/portal/lease"
+    assert note.link == f"/portal/leases/{lease.id}"
 
 
 def test_preparing_and_sending_in_one_step_also_notifies(client, db_session, world):

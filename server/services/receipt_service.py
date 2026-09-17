@@ -251,67 +251,68 @@ def _money(value, currency="KES") -> str:
     return f"{currency} {_f(value):,.2f}"
 
 
-def _section_html(title: str, rows: list, currency: str, columns: int = 4) -> str:
-    """
-    One charge group as a table.
-
-    `columns` is how many money columns the paper can carry — see
-    receipt_layout.money_columns(). Four of them across a 99mm band leaves each
-    about two characters wide, which is not a smaller receipt but an unreadable
-    one, so a cut slip or a till roll shows the item and what was paid and puts
-    the rest in the summary.
-    """
-    if not rows:
-        return ""
-    if columns >= 4:
-        body = "".join(
-            f"<tr><td>{escape(r['description'])}</td>"
-            f"<td class='right'>{_money(r['amount_due'], currency)}</td>"
-            f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td>"
-            f"<td class='right'>{_money(r['balance_cf'], currency)}</td></tr>"
-            for r in rows
-        )
-        head = ("<th>Item</th><th class='right'>Amount due</th>"
-                "<th class='right'>Paid (this receipt)</th>"
-                "<th class='right'>Balance c/f</th>")
-    else:
-        body = "".join(
-            f"<tr><td>{escape(r['description'])}</td>"
-            f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td></tr>"
-            for r in rows
-        )
-        head = "<th>Item</th><th class='right'>Paid</th>"
-    return (
-        f"<h2>{escape(title)}</h2>"
-        f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
-    )
-
-
 def _charge_groups_html(groups, currency: str, columns: int, max_rows: int | None) -> str:
     """
-    Every charge group, trimmed to what the paper can hold.
+    Every charge group as ONE ruled table: a single header, a shaded label row
+    per group (Rent, Utilities, Deposits, Other), then its lines.
 
-    A fixed-height band cannot grow, so a tenant with a long list of charges
-    would push the receipt onto a second band — which prints as a mostly empty
-    slip and reads as a printing fault. Rather than silently dropping the
-    overflow, the receipt SAYS how many rows it folded away and where to see
+    `columns` is how many money columns the paper can carry — see
+    receipt_layout.money_columns(). Four money columns across a 99mm band leave
+    each about two characters wide, so a cut slip or a till roll shows the item
+    and what THIS payment paid, and the balance lives in the summary.
+
+    On a narrow paper, charges this payment did not touch are left out: listing
+    every open charge at "KES 0.00" filled a slip with rows that had nothing to
+    do with the money being receipted.
+
+    A fixed-height band cannot grow, so a long list is trimmed to what the paper
+    holds — and the receipt SAYS how many rows it folded away and where to see
     them, so nobody is left thinking a charge went missing.
     """
-    if max_rows is None:
-        return "".join(_section_html(title, rows, currency, columns) for title, rows in groups)
+    wide = columns >= 4
+    if wide:
+        head = ("<th>Item</th><th class='right'>Amount due</th>"
+                "<th class='right'>Paid (this receipt)</th><th class='right'>Balance c/f</th>")
+        span = 4
+    else:
+        head = "<th>Item</th><th class='right'>Paid</th>"
+        span = 2
 
-    html = ""
-    used = 0
-    hidden = 0
+    body = ""
+    used = hidden = 0
     for title, rows in groups:
+        if not wide:
+            rows = [r for r in rows if r["paid_this_receipt"] > 0]
         if not rows:
             continue
-        room = max(0, max_rows - used)
-        shown = rows[:room]
-        hidden += len(rows) - len(shown)
-        if shown:
-            html += _section_html(title, shown, currency, columns)
-            used += len(shown)
+        if max_rows is not None:
+            room = max(0, max_rows - used)
+            shown = rows[:room]
+            hidden += len(rows) - len(shown)
+        else:
+            shown = rows
+        if not shown:
+            continue
+        # Group label rows only where there is height to spend on them; a slip
+        # already names each line, and a band has no row to spare.
+        if wide:
+            body += f"<tr class='group-row'><td colspan='{span}'>{escape(title)}</td></tr>"
+        for r in shown:
+            if wide:
+                body += (f"<tr><td>{escape(r['description'])}</td>"
+                         f"<td class='right'>{_money(r['amount_due'], currency)}</td>"
+                         f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td>"
+                         f"<td class='right'>{_money(r['balance_cf'], currency)}</td></tr>")
+            else:
+                body += (f"<tr><td>{escape(r['description'])}</td>"
+                         f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td></tr>")
+        used += len(shown)
+
+    if not body:
+        body = f"<tr><td colspan='{span}'>Held as credit on the account</td></tr>"
+
+    html = (f"<h2>Charges</h2><table class='grid charges'><thead><tr>{head}</tr></thead>"
+            f"<tbody>{body}</tbody></table>")
     if hidden:
         html += (
             f"<p class='muted receipt-small'>+{hidden} more item"
@@ -347,11 +348,13 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
     )
 
     info = (
-        "<table class='kv'><tbody>"
+        "<table class='grid kv'><tbody>"
         f"<tr><td>Receipt no.</td><td class='right'>{escape(data['payment_ref'])}</td></tr>"
         f"<tr><td>Date</td><td class='right'>{escape(data.get('payment_date') or '')}</td></tr>"
         f"<tr><td>Received from</td><td class='right'>{escape(data.get('tenant_name') or '')}</td></tr>"
-        f"<tr><td>Method</td><td class='right'>{escape(str(data.get('method') or '—'))}</td></tr>"
+        + (f"<tr><td>Unit</td><td class='right'>{escape(data.get('unit_name') or '')}</td></tr>"
+           if data.get("unit_name") else "")
+        + f"<tr><td>Method</td><td class='right'>{escape(str(data.get('method') or '—'))}</td></tr>"
         f"<tr><td>Reference</td><td class='right'>{escape(str(data.get('reference') or '—'))}</td></tr>"
         "</tbody></table>"
     )
@@ -374,7 +377,7 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
         if data.get("deposit_held_total", 0) > 0 else ""
     )
     totals = (
-        "<h2>Summary</h2><table class='kv'><tbody>"
+        "<h2>Summary</h2><table class='grid kv'><tbody>"
         f"<tr><td>Total amount due</td><td class='right'>{_money(data['total_due'], currency)}</td></tr>"
         f"<tr class='total-row'><td>Amount paid (this receipt)</td><td class='right'>{_money(data['amount_paid'], currency)}</td></tr>"
         f"{advance_row}"
@@ -458,10 +461,10 @@ def render_sample_receipt_pdf(landlord, layout: dict, theme_override: dict | Non
         subject="SAMPLE — Jane Wanjiku · Unit A1",
         property_name="Sunrise Apartments",
     )
-    meta["phone"] = getattr(landlord, "mpesa_number", None)
+    meta["phone"] = meta.get("phone") or getattr(landlord, "mpesa_number", None)
 
     info = (
-        "<table class='kv'><tbody>"
+        "<table class='grid kv'><tbody>"
         "<tr><td>Receipt no.</td><td class='right'>SAMPLE-0001</td></tr>"
         "<tr><td>Date</td><td class='right'>"
         f"{date.today().isoformat()}</td></tr>"
@@ -471,17 +474,14 @@ def render_sample_receipt_pdf(landlord, layout: dict, theme_override: dict | Non
         "</tbody></table>"
     )
 
-    def rows(title, items):
-        body = "".join(
-            f"<tr><td>{escape(label)}</td><td class='right'>{_money(amount, currency)}</td></tr>"
-            for label, amount in items
-        )
-        return f"<h2>{escape(title)}</h2><table class='kv'><tbody>{body}</tbody></table>"
+    def line(label, amount):
+        return {"description": label, "amount_due": amount, "paid_this_receipt": amount, "balance_cf": 0}
 
-    sections = rows("Rent", [("Rent — this month", 25000)])
-    sections += rows("Utilities", [("Water", 1200), ("Garbage", 300)])
+    groups = [("Rent", [line("Rent — this month", 25000)]),
+              ("Utilities", [line("Water", 1200), line("Garbage", 300)])]
     if layout["sections"].get("deposits", True):
-        sections += rows("Deposits", [("Security deposit (held)", 25000)])
+        groups.append(("Deposits", [line("Security deposit (held)", 25000)]))
+    sections = _charge_groups_html(groups, currency, rl.money_columns(layout), rl.max_charge_rows(layout))
 
     totals_rows = (
         "<tr><td>Total amount due</td><td class='right'>"
@@ -494,7 +494,7 @@ def render_sample_receipt_pdf(landlord, layout: dict, theme_override: dict | Non
             "<tr class='total-row'><td>Balance remaining</td>"
             f"<td class='right'>{_money(0, currency)}</td></tr>"
         )
-    totals = f"<h2>Summary</h2><table class='kv'><tbody>{totals_rows}</tbody></table>"
+    totals = f"<h2>Summary</h2><table class='grid kv'><tbody>{totals_rows}</tbody></table>"
 
     thanks = (
         "<p class='muted'>Thank you for your payment.</p>"
@@ -643,7 +643,8 @@ def send_receipt(payment, channels, *, landlord_id: int | None = None,
             try:
                 pdf_bytes = render_receipt_pdf(payment)
                 send_receipt_email.delay(tenant.email, tenant.first_name,
-                                         pdf_bytes, payment.payment_ref)
+                                         pdf_bytes, payment.payment_ref,
+                                         landlord_id=payment.landlord_id)
                 # Stamped before the caller commits, so a second call inside the
                 # same request sees it too.
                 payment.receipt_emailed_at = datetime.utcnow()

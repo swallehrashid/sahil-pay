@@ -8,7 +8,8 @@ Put new documentation here.
 
 | Document | What it covers |
 |---|---|
-| [REDEPLOY.md](REDEPLOY.md) | **The current release** — env changes, steps, verification, rollback |
+| [REDEPLOY.md](REDEPLOY.md) | **The current release** — env changes, nginx, balances review, verification, rollback |
+| [MPESA_GO_LIVE.md](MPESA_GO_LIVE.md) | Switching M-Pesa on: what is verified, Org-portal steps, first live test |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | First-time VPS setup from scratch |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment overview |
 | [DEPLOY_RUNBOOK.md](DEPLOY_RUNBOOK.md) | General runbook, not release-specific |
@@ -55,6 +56,7 @@ Put new documentation here.
 
 | Document | What it covers |
 |---|---|
+| [QA_WALKTHROUGHS.md](QA_WALKTHROUGHS.md) | The Playwright walkthroughs that prove leases, billing, nav, branding and Co-pilot work |
 | [COPILOT_ROLLOUT_TESTING.md](COPILOT_ROLLOUT_TESTING.md) | Co-pilot rollout testing |
 | [SIMULATION_SCENARIO_CATALOGUE.md](SIMULATION_SCENARIO_CATALOGUE.md) | Simulation scenarios |
 | [LANDLORD_PORTAL_QA_REPORT.md](LANDLORD_PORTAL_QA_REPORT.md) | Landlord portal QA |
@@ -68,6 +70,7 @@ contradicts them they carry a banner at the top pointing at the current source.
 
 | Document |
 |---|
+| [REDEPLOY_2026-09_RESEND.md](REDEPLOY_2026-09_RESEND.md) |
 | [DEPLOY_THIS_RELEASE.md](DEPLOY_THIS_RELEASE.md) |
 | [REDEPLOY_2026-08.md](REDEPLOY_2026-08.md) |
 | [REDEPLOY_MAIN.md](REDEPLOY_MAIN.md) |
