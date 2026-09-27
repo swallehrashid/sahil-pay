@@ -40,24 +40,32 @@ import {
   useSendBulkReminderMutation,
   useSendTenantStatementMutation,
 } from "./tenantApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
-import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatCurrency, formatBalance } from "@/utils/currencyFormatter";
 import { downloadFile } from "@/utils/downloadFile";
 import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 import SendReminderModal from "../communications/SendReminderModal";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 import TenantScoreBadge from "@/components/ui/TenantScoreBadge";
+import { useGetPropertyOptionsQuery, useGetUnitOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function TenantsPage() {
+  const ROUTES = usePortalRoutes();
+  const { can } = usePermissions();
+  // Each action is offered only to someone who may do it; a view-only member
+  // keeps the read-only ones (transactions, downloads).
+  const canEdit = can("tenants", "edit");
+  const canMessage = can("messages", "edit");
+  const canInvoice = can("invoices", "edit");
+  const canPay = can("payments", "edit");
   const navigate = useNavigate();
   const pg = usePagination();
   const [search, setSearch] = useState("");
   const { data, isLoading, refetch } = useGetTenantsQuery({ ...pg.params, search });
-  const { data: propertiesData } = useGetPropertiesQuery();
-  const { data: unitsData } = useGetUnitsQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
+  const { data: unitsData } = useGetUnitOptionsQuery();
   const [createTenant, { isLoading: isCreating }] = useCreateTenantMutation();
   const [updateTenant, { isLoading: isUpdating }] = useUpdateTenantMutation();
   const [deleteTenant] = useDeleteTenantMutation();
@@ -109,12 +117,20 @@ export default function TenantsPage() {
         await updateTenant({ id: activeTenant.id, ...values }).unwrap();
         toast("Tenant updated.", { type: "success" });
       } else {
-        await createTenant(values).unwrap();
-        toast("Tenant added.", { type: "success" });
+        const created = await createTenant(values).unwrap();
+        if (created?.welcome_message_detail) {
+          toast(`Tenant added. ${created.welcome_message_detail}`, { type: "error", duration: 9000 });
+        } else if (created?.welcome_message === "sent") {
+          toast("Tenant added. Welcome message sent.", { type: "success" });
+        } else if (created?.welcome_message === "failed") {
+          toast("Tenant added, but the welcome message could not be sent.", { type: "error", duration: 9000 });
+        } else {
+          toast("Tenant added.", { type: "success" });
+        }
       }
       setIsFormOpen(false);
-    } catch {
-      toast("Could not save the tenant.", { type: "error" });
+    } catch (err) {
+      toast(err?.data?.error || err?.data?.message || "Could not save the tenant.", { type: "error" });
     }
   };
 
@@ -174,6 +190,7 @@ export default function TenantsPage() {
             >
               Download PDF
             </Button>
+            {canEdit && (
             <Button
               variant="ghost"
               leftIcon={<Upload className="h-4 w-4" />}
@@ -181,9 +198,12 @@ export default function TenantsPage() {
             >
               Import
             </Button>
+            )}
+            {canEdit && (
             <Button data-tour={ANCHORS.tenants.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
               Add tenant
             </Button>
+            )}
           </>
         }
       />
@@ -217,25 +237,25 @@ export default function TenantsPage() {
           rowActions={(row) => (
             <Dropdown
               items={[
-                { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
+                canEdit && { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
                 {
                   label: "View transactions",
                   icon: <Eye className="h-4 w-4" />,
-                  onClick: () => navigate(LANDLORD_ROUTES.tenantTransactionsPath(row.id)),
+                  onClick: () => navigate(ROUTES.tenantTransactionsPath(row.id)),
                 },
-                {
+                canMessage && {
                   label: "Send balance reminder",
                   icon: <Bell className="h-4 w-4" />,
                   onClick: () => setReminderTenant(row),
                 },
-                { label: "Add invoice", icon: <FileText className="h-4 w-4" />, onClick: () => navigate(`${LANDLORD_ROUTES.invoices}?tenant_id=${row.id}`) },
-                { label: "Add payment", icon: <Wallet className="h-4 w-4" />, onClick: () => navigate(`${LANDLORD_ROUTES.payments}?tenant_id=${row.id}`) },
-                {
+                canInvoice && { label: "Add invoice", icon: <FileText className="h-4 w-4" />, onClick: () => navigate(`${ROUTES.invoices}?tenant_id=${row.id}`) },
+                canPay && { label: "Add payment", icon: <Wallet className="h-4 w-4" />, onClick: () => navigate(`${ROUTES.payments}?tenant_id=${row.id}`) },
+                canMessage && {
                   label: "Send custom message",
                   icon: <MessageSquare className="h-4 w-4" />,
-                  onClick: () => navigate(`${LANDLORD_ROUTES.communications}?tenant_id=${row.id}`),
+                  onClick: () => navigate(`${ROUTES.communications}?tenant_id=${row.id}`),
                 },
-                {
+                canMessage && {
                   label: "Send statement",
                   icon: <FileDown className="h-4 w-4" />,
                   onClick: () => sendStatement(row.id).then(() => toast("Statement sent.", { type: "success" })),
@@ -250,9 +270,9 @@ export default function TenantsPage() {
                   icon: <FileDown className="h-4 w-4" />,
                   onClick: () => downloadFile(`/tenants/${row.id}/export.csv`, { filename: `${row.first_name}.csv`, format: "csv" }),
                 },
-                { label: "Shift tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setShiftTenant(row) },
-                { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
-              ]}
+                canEdit && { label: "Shift tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setShiftTenant(row) },
+                canEdit && { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
+              ].filter(Boolean)}
             />
           )}
         />

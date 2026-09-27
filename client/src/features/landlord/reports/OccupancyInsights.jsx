@@ -5,10 +5,11 @@ import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import ExportButtons from "@/components/ui/ExportButtons";
 import { useGetOccupancyInsightsQuery } from "./reportApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 
 // §4.12 — occupancy rate, days unoccupied and estimated lost rent, filterable by property.
 export default function OccupancyInsights({ propertyId }) {
+  const ROUTES = usePortalRoutes();
   const navigate = useNavigate();
   const { data, isLoading } = useGetOccupancyInsightsQuery({ property_id: propertyId });
   // Backend returns { units: [...], total }, not one of toRows()'s recognized keys.
@@ -48,7 +49,7 @@ export default function OccupancyInsights({ propertyId }) {
         isLoading={isLoading}
         rowActions={() => (
           <button
-            onClick={() => navigate(LANDLORD_ROUTES.properties)}
+            onClick={() => navigate(ROUTES.properties)}
             className="rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
           >
             <Settings2 className="h-4 w-4" />

@@ -14,8 +14,8 @@ import {
   useGetTeamMembersQuery, useCreateTeamMemberMutation, useUpdateTeamMemberMutation,
   useDeleteTeamMemberMutation, useUpdateTeamMemberPermissionsMutation, useUpdateTeamMemberPropertyAccessMutation,
 } from "./teamApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 // §4.20 — team table + add/edit/remove member.
 export default function TeamManagement() {
@@ -24,7 +24,7 @@ export default function TeamManagement() {
   // secretaries, so scrolling is not a way to find one.
   const [search, setSearch] = useState("");
   const { data, isLoading } = useGetTeamMembersQuery({ search, per_page: 100 });
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const [createMember, { isLoading: isCreating }] = useCreateTeamMemberMutation();
   const [updateMember, { isLoading: isUpdating }] = useUpdateTeamMemberMutation();
   const [deleteMember] = useDeleteTeamMemberMutation();

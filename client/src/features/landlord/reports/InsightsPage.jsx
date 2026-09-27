@@ -9,12 +9,12 @@ import Dropdown from "@/components/ui/Dropdown";
 import { toast } from "@/components/ui/Toast";
 import OccupancyInsights from "./OccupancyInsights";
 import { useGetInsightsQuery } from "./reportApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useSendTenantReminderMutation, useSendTenantStatementMutation } from "../tenants/tenantApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { downloadFile } from "@/utils/downloadFile";
 import { toRows } from "@/utils/tableAdapters";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 const SEGMENTS = [
   { key: "arrears", label: "Tenants in arrears" },
@@ -27,11 +27,12 @@ const SEGMENT_KEY = { arrears: "arrears", advances: "advances", zero: "zero_bala
 
 // §4.12 — per-property arrears/advances/zero-arrears split, plus an Occupancy tab.
 export default function InsightsPage() {
+  const ROUTES = usePortalRoutes();
   const navigate = useNavigate();
   const [tab, setTab] = useState("arrears");
   const [propertyId, setPropertyId] = useState("");
 
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   // Backend has no server-side segment filter — it always returns all three
   // segments nested per property; the tab selection is applied client-side below.
   const { data, isLoading } = useGetInsightsQuery({ property_id: propertyId }, { skip: tab === "occupancy" });
@@ -76,7 +77,7 @@ export default function InsightsPage() {
           rowActions={(row) => (
             <Dropdown
               items={[
-                { label: "View transactions", icon: <Eye className="h-4 w-4" />, onClick: () => navigate(LANDLORD_ROUTES.tenantTransactionsPath(row.tenant_id)) },
+                { label: "View transactions", icon: <Eye className="h-4 w-4" />, onClick: () => navigate(ROUTES.tenantTransactionsPath(row.tenant_id)) },
                 {
                   label: "Reminder",
                   icon: <Bell className="h-4 w-4" />,

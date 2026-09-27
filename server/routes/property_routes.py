@@ -22,7 +22,6 @@ from decorators import (
     scope_to_accessible_properties,
 )
 from services.audit_service import record_audit
-from datetime import datetime
 
 property_bp = Blueprint("properties", __name__, url_prefix="/api/properties")
 
@@ -312,9 +311,8 @@ def update_property(property_id):
 @scope_to_accessible_properties
 def delete_property(property_id):
     """
-    Soft-delete a property (sets is_deleted=True, records deleted_at).
-    Associated units and tenants are NOT automatically deleted —
-    callers should resolve occupancy first.
+    Soft-delete a property together with all of its units and every tenant
+    in them (services/cascade_delete_service.py).
     ---
     tags: [Properties]
     security:
@@ -327,8 +325,8 @@ def delete_property(property_id):
     prop        = _get_or_404(landlord_id, property_id)
     before      = prop.to_dict()
 
-    prop.is_deleted = True
-    prop.deleted_at = datetime.utcnow()
+    from services.cascade_delete_service import delete_property as cascade_delete
+    removed = cascade_delete(prop)
     db.session.commit()
 
     record_audit(
@@ -337,12 +335,18 @@ def delete_property(property_id):
         action="delete_property",
         entity_type="property",
         entity_id=prop.id,
-        description=f"Property '{prop.name}' soft-deleted.",
+        description=(f"Property '{prop.name}' deleted with {removed['units']} unit(s) "
+                     f"and {removed['tenants']} tenant(s)."),
         before_data=before,
     )
     db.session.commit()
 
-    return jsonify({"message": f"Property '{prop.name}' has been deleted."}), 200
+    return jsonify({
+        "message": (f"Property '{prop.name}' has been deleted, with its "
+                    f"{removed['units']} unit(s) and {removed['tenants']} tenant(s)."),
+        "units_deleted": removed["units"],
+        "tenants_deleted": removed["tenants"],
+    }), 200
 
 
 # ---------------------------------------------------------------------------

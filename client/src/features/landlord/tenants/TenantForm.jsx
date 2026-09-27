@@ -5,7 +5,7 @@ import DatePicker from "@/components/ui/DatePicker";
 import Textarea from "@/components/ui/Textarea";
 import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
-import { isRequired, isValidPhone, isValidEmail, isDateOnOrAfter } from "@/utils/validators";
+import { isRequired, isValidPhone, isValidEmail, isDateOnOrAfter, PHONE_ERROR, PHONE_HINT, toKenyanPhone } from "@/utils/validators";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 
 const EMPTY_FORM = {
@@ -56,7 +56,8 @@ export default function TenantForm({ initialValues, properties = [], units = [],
     if (!isRequired(form.unit_id)) nextErrors.unit_id = "Select a unit";
     if (!isRequired(form.first_name)) nextErrors.first_name = "First name is required";
     if (!isRequired(form.last_name)) nextErrors.last_name = "Last name is required";
-    if (!isValidPhone(form.phone)) nextErrors.phone = "Enter a valid phone number";
+    if (!isValidPhone(form.phone)) nextErrors.phone = PHONE_ERROR;
+    if (form.secondary_phone && !isValidPhone(form.secondary_phone)) nextErrors.secondary_phone = PHONE_ERROR;
     if (!isValidEmail(form.email)) nextErrors.email = "Enter a valid email";
     if (!isDateOnOrAfter(form.lease_expiry_date, form.lease_start_date)) {
       nextErrors.lease_expiry_date = "Must be on/after the lease start date";
@@ -98,10 +99,12 @@ export default function TenantForm({ initialValues, properties = [], units = [],
           value={form.phone}
           onChange={update("phone")}
           error={errors.phone}
+          hint={toKenyanPhone(form.phone) ? `Will be saved as ${toKenyanPhone(form.phone)}` : PHONE_HINT}
           required
           data-tour={ANCHORS.tenants.phoneField}
         />
-        <Input label="Secondary phone" value={form.secondary_phone} onChange={update("secondary_phone")} hint="Next of kin / other" />
+        <Input label="Secondary phone" value={form.secondary_phone} onChange={update("secondary_phone")}
+               error={errors.secondary_phone} hint="Next of kin / other" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Input label="Email" type="email" value={form.email} onChange={update("email")} error={errors.email} />

@@ -8,7 +8,6 @@ import Badge from "@/components/ui/Badge";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 import { toRows } from "@/utils/tableAdapters";
-import { useGetPropertiesQuery } from "@/features/landlord/properties/propertyApiSlice";
 import {
   useGetAutomationSettingsQuery,
   useUpdateAutomationSettingsMutation,
@@ -22,6 +21,7 @@ import {
   useGetPaymentSourcesQuery,
   useCreatePaymentSourceMutation,
 } from "@/features/landlord/allocation/allocationApiSlice";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 // sahilpay_payment_allocation_spec.md §7 — allocation method, tax withholding,
 // three-level commission, and the paybills money arrives through.
@@ -40,7 +40,7 @@ export default function AllocationSettings() {
   const { data: sources } = useGetPaymentSourcesQuery();
   const [createSource] = useCreatePaymentSourceMutation();
 
-  const { data: propertiesData } = useGetPropertiesQuery({ per_page: 200 });
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   // toRows() is the platform's one adapter for list responses — the API keys
   // each list by its entity name rather than a generic `items`, so guessing at
   // the shape here is how you end up calling .map on an object.

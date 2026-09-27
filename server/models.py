@@ -674,6 +674,10 @@ def _serialise(value):
     if isinstance(value, Decimal):
         return str(value)
     if isinstance(value, (datetime,)):
+        # Stored naive in UTC (datetime.utcnow). Say so, or the browser reads it
+        # in the device's own timezone and every timestamp shifts by hours.
+        if value.tzinfo is None:
+            return value.isoformat() + "Z"
         return value.isoformat()
     return value
 
@@ -3973,6 +3977,11 @@ class AutomationSettings(TimestampMixin, Base):
     landlord_id                     = Column(Integer, ForeignKey("landlords.id"), nullable=False, unique=True, index=True)
     auto_generate_recurring_invoices = Column(Boolean, default=False, nullable=False)
     auto_generate_recurring_bills    = Column(Boolean, default=False, nullable=False)
+    # On the 1st, put APPROVED queued charges (utilities a caretaker submitted and
+    # an invoices editor approved) on the month's invoice. Independent of the rent
+    # toggle above: with both on, rent + queued + any balance b/f is one invoice.
+    auto_invoice_queued_charges      = Column(Boolean, default=False, nullable=False,
+                                              server_default="false")
     alert_on_new_tenant              = Column(Boolean, default=True,  nullable=False)
     auto_send_payment_acknowledgments = Column(Boolean, default=False, nullable=False)
     # --- Receipts for payments nobody touched ------------------------------
@@ -4009,6 +4018,7 @@ class AutomationSettings(TimestampMixin, Base):
             "landlord_id":                      self.landlord_id,
             "auto_generate_recurring_invoices":  self.auto_generate_recurring_invoices,
             "auto_generate_recurring_bills":     self.auto_generate_recurring_bills,
+            "auto_invoice_queued_charges":       self.auto_invoice_queued_charges,
             "alert_on_new_tenant":               self.alert_on_new_tenant,
             "auto_send_payment_acknowledgments": self.auto_send_payment_acknowledgments,
             "auto_receipt_enabled": self.auto_receipt_enabled,
@@ -4497,9 +4507,15 @@ class QueuedCharge(TimestampMixin, Base):
     """
     __tablename__ = "queued_charges"
 
+    # pending   submitted by someone who cannot bill (a caretaker) — waits for an
+    #           invoices editor to approve it; the monthly run ignores it.
+    # queued    approved: the next invoice for the unit takes it.
+    # rejected  an invoices editor turned it down (misread meter, duplicate).
+    STATUS_PENDING = "pending"
     STATUS_QUEUED = "queued"
     STATUS_CONSUMED = "consumed"
     STATUS_CANCELLED = "cancelled"
+    STATUS_REJECTED = "rejected"
 
     id          = Column(Integer, primary_key=True, autoincrement=True)
     landlord_id = Column(Integer, ForeignKey("landlords.id"), nullable=False, index=True)
@@ -4522,6 +4538,9 @@ class QueuedCharge(TimestampMixin, Base):
     consumed_by_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
     consumed_at = Column(DateTime, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_note = Column(String(255), nullable=True)
 
     unit     = relationship("Unit")
     category = relationship("ChargeCategory")
@@ -4529,13 +4548,34 @@ class QueuedCharge(TimestampMixin, Base):
     consumed_by_invoice = relationship("Invoice", foreign_keys=[consumed_by_invoice_id])
     utility_reading = relationship("UtilityReading", foreign_keys=[utility_reading_id])
     created_by = relationship("User", foreign_keys=[created_by_user_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
+
+    @staticmethod
+    def _person(user):
+        if user is None:
+            return None
+        tm = getattr(user, "team_member_profile", None)
+        if tm is not None:
+            name = f"{tm.first_name or ''} {tm.last_name or ''}".strip()
+            return name or tm.username
+        landlord = getattr(user, "landlord_profile", None)
+        if landlord is not None:
+            return landlord.company_name or user.email
+        return user.email
 
     def to_dict(self):
         occupant = self.occupant_at_queue
+        prop = self.unit.property if self.unit else None
         return {
             "id":            self.id,
             "unit_id":       self.unit_id,
             "unit_name":     self.unit.name if self.unit else None,
+            "property_id":   prop.id if prop else None,
+            "property_name": prop.name if prop else None,
+            "submitted_by":  self._person(self.created_by),
+            "reviewed_by":   self._person(self.reviewed_by),
+            "reviewed_at":   _serialise(self.reviewed_at),
+            "review_note":   self.review_note,
             "category_id":   self.category_id,
             "category_name": self.category.name if self.category else None,
             "subcategory":   self.subcategory,

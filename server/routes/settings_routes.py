@@ -22,7 +22,7 @@ from flask import Blueprint, request, jsonify, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 
-from extensions import db
+from extensions import db, limiter
 from models import (
     Landlord, User, LandlordSettings, AutomationSettings,
     AlertSetting, Backup, BackupScopeType, BackupFormat,
@@ -460,6 +460,7 @@ def automation_settings():
     if aut:
         for field in [
             "auto_generate_recurring_invoices", "auto_generate_recurring_bills",
+            "auto_invoice_queued_charges",
             "alert_on_new_tenant", "auto_send_payment_acknowledgments",
             "monthly_reminders_enabled", "monthly_reminder_day",
             "lease_expiry_notifications", "lease_expiry_range_days",
@@ -1351,3 +1352,165 @@ def _onboarding_counts(landlord_id: int) -> dict:
             landlord_id=landlord_id,
         ).count(),
     }
+
+# ---------------------------------------------------------------------------
+# Backup & Delete — start the account over (account owner only)
+#
+#   GET  /api/settings/wipe                   what would be deleted + the phrase
+#   POST /api/settings/wipe/verify-password   step 2: password → short-lived token
+#   POST /api/settings/wipe                   step 4: backup, then delete
+#   GET  /api/settings/backup/<id>/download   the backup file (owner only)
+#
+# Four deliberate steps in the UI: "are you sure", the account password, typing
+# DELETE ACCOUNT <account number> exactly, and a final "this is permanent".
+# The server enforces the three that carry information: the password (via a
+# token that expires in ten minutes), the typed phrase, and the owner check.
+# ---------------------------------------------------------------------------
+
+_WIPE_TOKEN_MAX_AGE = 600
+
+
+def _wipe_owner():
+    """The signed-in ACCOUNT OWNER and their real landlord row. Team members,
+    admins (impersonating or not) and demo mode are all refused."""
+    user = get_jwt_user()
+    if user.role not in ("landlord", "property_manager"):
+        raise ApiError("Only the account owner can back up and delete the account's records.",
+                       status=403, code="owner_only")
+    landlord = user.landlord_profile
+    if landlord is None or landlord.is_demo:
+        raise ApiError("Only the account owner can back up and delete the account's records.",
+                       status=403, code="owner_only")
+    if request.headers.get("X-Demo-Mode") or request.headers.get("X-Impersonate-Landlord"):
+        raise ApiError("Leave demo mode before deleting the account's records.", status=403, code="owner_only")
+    return user, landlord
+
+
+def _wipe_serializer():
+    from flask import current_app
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="account-wipe")
+
+
+def _backup_dir(landlord_id: int) -> str:
+    import os
+    from flask import current_app
+    path = os.path.join(current_app.root_path, "private_backups", str(landlord_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+@settings_bp.route("/wipe", methods=["GET"])
+@jwt_required()
+def wipe_info():
+    from services.account_wipe_service import account_number, confirmation_phrase, record_counts
+    _, landlord = _wipe_owner()
+    return jsonify({
+        "account_number": account_number(landlord),
+        "phrase": confirmation_phrase(landlord),
+        "counts": record_counts(landlord.id),
+    }), 200
+
+
+@settings_bp.route("/wipe/verify-password", methods=["POST"])
+@jwt_required()
+@limiter.limit("5 per minute; 20 per hour")
+def wipe_verify_password():
+    from services.account_wipe_service import confirmation_phrase
+    user, landlord = _wipe_owner()
+    password = (request.get_json(silent=True) or {}).get("password") or ""
+    if not password or not check_password_hash(user.password_hash or "", password):
+        record_audit(actor_user_id=user.id, landlord_id=landlord.id, action="wipe_password_failed",
+                     entity_type="landlord", entity_id=landlord.id,
+                     description="Wrong password entered on Backup & Delete.")
+        db.session.commit()
+        return jsonify({"error": "That password is not correct."}), 403
+    token = _wipe_serializer().dumps({"u": user.id, "l": landlord.id})
+    return jsonify({"wipe_token": token, "phrase": confirmation_phrase(landlord),
+                    "expires_in_seconds": _WIPE_TOKEN_MAX_AGE}), 200
+
+
+@settings_bp.route("/wipe", methods=["POST"])
+@jwt_required()
+def wipe_account_records():
+    import os
+    from datetime import datetime as _dt
+    from itsdangerous import BadSignature, SignatureExpired
+
+    from services.account_wipe_service import (
+        build_full_backup, confirmation_phrase, record_counts, wipe_records,
+    )
+
+    user, landlord = _wipe_owner()
+    data = request.get_json(silent=True) or {}
+
+    try:
+        claims = _wipe_serializer().loads(data.get("wipe_token") or "", max_age=_WIPE_TOKEN_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({"error": "The password check has expired. Start again."}), 403
+    except BadSignature:
+        return jsonify({"error": "Confirm your password first."}), 403
+    if claims.get("u") != user.id or claims.get("l") != landlord.id:
+        return jsonify({"error": "Confirm your password first."}), 403
+
+    if (data.get("phrase") or "").strip() != confirmation_phrase(landlord):
+        return jsonify({"error": f"Type {confirmation_phrase(landlord)} exactly to continue."}), 400
+    if data.get("confirm") is not True:
+        return jsonify({"error": "Final confirmation is required."}), 400
+
+    before = record_counts(landlord.id)
+
+    # 1. The backup. If this fails nothing is deleted.
+    content = build_full_backup(landlord)
+    stamp = _dt.utcnow().strftime("%Y%m%d-%H%M%S")
+    filename = f"sahilpay-backup-{landlord.id}-{stamp}.xlsx"
+    path = os.path.join(_backup_dir(landlord.id), filename)
+    with open(path, "wb") as fh:
+        fh.write(content)
+    backup = Backup(landlord_id=landlord.id, scope_type="full_account", format="excel",
+                    file_url=f"private:{filename}")
+    db.session.add(backup)
+    db.session.flush()
+
+    # 2. The wipe — one transaction; any failure rolls all of it back.
+    try:
+        deleted = wipe_records(landlord.id)
+        record_audit(
+            actor_user_id=user.id, landlord_id=landlord.id, action="backup_and_delete_account",
+            entity_type="landlord", entity_id=landlord.id,
+            description=(f"Account records backed up to {filename} and deleted: "
+                         f"{before['properties']} properties, {before['units']} units, "
+                         f"{before['tenants']} tenants, {before['invoices']} invoices, "
+                         f"{before['payments']} payments."),
+            after_data={"deleted": deleted, "backup_id": backup.id},
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+    return jsonify({
+        "message": "Your records were backed up and deleted. The account is now empty.",
+        "backup_id": backup.id,
+        "download_url": f"/api/settings/backup/{backup.id}/download",
+        "deleted": before,
+        "remaining": record_counts(landlord.id),
+    }), 200
+
+
+@settings_bp.route("/backup/<int:backup_id>/download", methods=["GET"])
+@jwt_required()
+def download_full_backup(backup_id):
+    import os
+    from flask import send_file
+
+    _, landlord = _wipe_owner()
+    backup = Backup.query.filter_by(id=backup_id, landlord_id=landlord.id).first()
+    if backup is None or not (backup.file_url or "").startswith("private:"):
+        return jsonify({"error": "Backup not found."}), 404
+    filename = backup.file_url.split(":", 1)[1]
+    path = os.path.join(_backup_dir(landlord.id), os.path.basename(filename))
+    if not os.path.exists(path):
+        return jsonify({"error": "The backup file is no longer on the server."}), 404
+    return send_file(path, as_attachment=True, download_name=filename,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

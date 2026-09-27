@@ -779,6 +779,8 @@ def update_profile():
     data   = request.get_json(silent=True) or {}
     before = tenant.to_dict()
 
+    from services.phone_service import canonical_phone, INVALID_MESSAGE
+
     # Strictly allow only safe self-service fields
     for field in ("first_name", "last_name", "phone", "secondary_phone", "email"):
         if field in data:
@@ -786,6 +788,12 @@ def update_profile():
             # Normalise email to lowercase
             if field == "email" and val:
                 val = val.strip().lower()
+            if field in ("phone", "secondary_phone") and (val or "").strip():
+                val = canonical_phone(val)
+                if val is None:
+                    return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+            elif field == "phone":
+                return jsonify({"error": "Phone is required."}), 400
             setattr(tenant, field, val)
 
     if "kra_pin" in data:

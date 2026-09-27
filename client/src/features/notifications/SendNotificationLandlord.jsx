@@ -7,10 +7,8 @@ import Textarea from "@/components/ui/Textarea";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useSendNotificationMutation, useGetNotificationTemplatesQuery } from "./notificationApiSlice";
-import { useGetPropertiesQuery } from "@/features/landlord/properties/propertyApiSlice";
-import { useGetTenantsQuery } from "@/features/landlord/tenants/tenantApiSlice";
-import { useGetTeamMembersQuery } from "@/features/landlord/settings/teamApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetPropertyOptionsQuery, useGetTenantOptionsQuery, useGetTeamMemberOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
 
 const AUDIENCES = [
   { value: "all_tenants", label: "All my tenants" },
@@ -25,9 +23,9 @@ const AUDIENCES = [
 export default function SendNotificationLandlord() {
   const [sendNotification, { isLoading }] = useSendNotificationMutation();
   const { data: templatesData } = useGetNotificationTemplatesQuery();
-  const { data: propertiesData } = useGetPropertiesQuery();
-  const { data: tenantsData } = useGetTenantsQuery();
-  const { data: teamData } = useGetTeamMembersQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
+  const { data: teamData } = useGetTeamMemberOptionsQuery();
 
   const properties = toRows(propertiesData);
   const tenants = toRows(tenantsData);
@@ -103,7 +101,7 @@ export default function SendNotificationLandlord() {
               onChange={(e) => setForm((f) => ({ ...f, target_id: e.target.value }))}
               options={
                 form.target_type === "tenant"
-                  ? tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))
+                  ? tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))
                   : teamMembers.map((m) => ({ value: m.id, label: m.username }))
               }
               required

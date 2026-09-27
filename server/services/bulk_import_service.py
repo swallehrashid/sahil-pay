@@ -371,24 +371,10 @@ def apply_mapping(entity: str, rows: list[dict], mapping: dict) -> list[dict]:
 # --------------------------------------------------------------------------
 
 def canonical_phone(raw) -> str | None:
-    """
-    A Kenyan number in the one form the rest of the system stores: +2547XXXXXXXX.
+    """The stored form of a Kenyan number, 254XXXXXXXXX — see services/phone_service.py."""
+    from services.phone_service import canonical_phone as _canonical
 
-    normalise_phone() from tenant_identity_service is deliberately a COMPARISON
-    key — it keeps the last nine digits so "+254712345678", "0712345678" and
-    "0712 345 678" collapse to one person. That is the right thing to match on
-    and the wrong thing to store: writing "712345678" onto the tenant row leaves
-    it unlike every other tenant in the database and unusable for SMS, which
-    needs a dialable number.
-
-    So: match on the nine-digit key, store the full international form.
-    """
-    from services.tenant_identity_service import normalise_phone
-
-    key = normalise_phone(raw)
-    if not key or len(key) < 9:
-        return None
-    return f"+254{key}"
+    return _canonical(raw)
 
 
 def derive_prefix(property_name: str) -> str:

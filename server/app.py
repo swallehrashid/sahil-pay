@@ -36,7 +36,7 @@ import logging
 import os
 
 import redis
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_jwt_extended import JWTManager
 from sqlalchemy.exc import IntegrityError
 
@@ -235,6 +235,20 @@ def create_app(config_name: str | None = None) -> Flask:
     # ------------------------------------------------------------------
     # Step 10 — Return
     # ------------------------------------------------------------------
+    @app.after_request
+    def _persist_sms_charges(response):
+        # See services/communication_service._mark_sms_charged: an SMS that was
+        # handed to the provider must never have its charge rolled back because
+        # the route that sent it did not commit.
+        from flask import g
+        if g.get("sms_charged") and response.status_code < 400:
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                app.logger.exception("Could not persist SMS charges for %s", request.path)
+        return response
+
     return app
 
 

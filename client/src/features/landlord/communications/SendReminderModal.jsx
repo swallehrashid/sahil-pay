@@ -59,10 +59,11 @@ function ReminderForm({ tenant, onClose, defaultChannels }) {
     }
     try {
       const res = await sendReminder({ id: tenant.id, channels, message: message.trim() || undefined }).unwrap();
-      toast(res?.message || "Reminder sent.", { type: "success" });
+      // Some channels can go while another is refused (no SMS credits, no email).
+      toast(res?.message || "Reminder sent.", { type: res?.failed?.length ? "error" : "success", duration: res?.failed?.length ? 9000 : 4000 });
       onClose();
     } catch (err) {
-      toast(err?.data?.error || "Could not send the reminder.", { type: "error" });
+      toast(err?.data?.message || err?.data?.error || "Could not send the reminder.", { type: "error", duration: 9000 });
     }
   };
 

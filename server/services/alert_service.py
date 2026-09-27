@@ -85,7 +85,15 @@ def dispatch_alert(
     elif channel == "email":
         delivered = _deliver_email(user, email_subject or title, body, current_app)
     elif channel == "sms":
-        delivered = _deliver_sms(user, sms_text or f"{title}: {body}", current_app)
+        delivered = _deliver_sms(landlord, user, sms_text or f"{title}: {body}")
+        if delivered is None:
+            # No credits (or no phone): never send it free — reach them by email,
+            # and the in-app notification below always records it.
+            delivered = _deliver_email(user, email_subject or title, body, current_app) or "dashboard"
+            if delivered == "dashboard" and user:
+                notify(recipient_user_id=user.id, category=f"alert_{alert_type}", title=title,
+                       body=body, landlord_id=landlord_id, link=link,
+                       entity_type=entity_type, entity_id=entity_id)
 
     # Always keep an in-app trail even for email/sms channels, so the landlord's
     # notification center still reflects that the alert fired.
@@ -118,15 +126,18 @@ def _deliver_email(user, subject: str, body: str, app) -> str | None:
     return "email" if _send_email(user.email, subject, f"<p>{body}</p>") else None
 
 
-def _deliver_sms(user, text: str, app) -> str | None:
+def _deliver_sms(landlord, user, text: str) -> str | None:
+    """Alert SMS are paid from the landlord's own SMS balance, like every other
+    SMS sent on their account. Returns None when it could not be sent."""
     if not user or not user.phone:
         return None
-    if app.config.get("COMMS_SIMULATION_MODE", True) or _is_demo_user(user):
-        logger.info("SIMULATED alert SMS to %s | %s", user.phone, text)
-        return "sms"
-    from services.sms_service import send_sms
+    from services.communication_service import send_account_sms
 
-    return "sms" if send_sms(user.phone, text) else None
+    status, reason = send_account_sms(landlord, user.phone, text, label="landlord")
+    if status != "delivered":
+        logger.info("Alert SMS to landlord %s not sent (%s)", landlord.id, reason)
+        return None
+    return "sms"
 
 
 def _is_demo_user(user) -> bool:

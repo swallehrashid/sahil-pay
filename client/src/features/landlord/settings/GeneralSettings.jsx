@@ -210,11 +210,28 @@ export default function GeneralSettings() {
             Run scheduled automations now
           </Button>
         </div>
-        <Checkbox
-          label="Automatically generate recurring rent invoices"
-          checked={Boolean(automationForm.auto_generate_recurring_invoices)}
-          onChange={updateAuto("auto_generate_recurring_invoices")}
-        />
+        {/* The 1st-of-month run. Both ticked: ONE invoice per tenant with the
+            month's rent, the approved queued charges and any unpaid balance
+            carried forward. Neither ticked: nothing is invoiced automatically. */}
+        <div className="space-y-2 rounded-xl border border-white/10 p-3">
+          <p className="text-xs uppercase tracking-wide text-white/40">On the 1st of every month</p>
+          <Checkbox
+            label="Automatically invoice rent (and other fixed monthly charges)"
+            checked={Boolean(automationForm.auto_generate_recurring_invoices)}
+            onChange={updateAuto("auto_generate_recurring_invoices")}
+            data-testid="auto-invoice-rent"
+          />
+          <Checkbox
+            label="Automatically invoice approved queued charges (utilities etc.)"
+            checked={Boolean(automationForm.auto_invoice_queued_charges)}
+            onChange={updateAuto("auto_invoice_queued_charges")}
+            data-testid="auto-invoice-queued"
+          />
+          <p className="text-xs text-white/40">
+            With both ticked each tenant gets one invoice: this month's rent, their approved utilities
+            and any unpaid balance carried forward.
+          </p>
+        </div>
         <Checkbox
           label="Automatically generate other recurring bills"
           checked={Boolean(automationForm.auto_generate_recurring_bills)}

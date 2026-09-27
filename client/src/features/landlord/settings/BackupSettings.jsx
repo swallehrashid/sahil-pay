@@ -3,10 +3,11 @@ import Select from "@/components/ui/Select";
 import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
 import ReportView from "@/features/landlord/reports/ReportView";
+import BackupAndDelete from "./BackupAndDelete";
 import { useGetBackupPreviewQuery } from "./settingsApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetPropertyGroupsQuery } from "../groups/groupApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 // §4.15 — detailed, downloadable backups. Pick a scope, generate an on-screen
 // preview, choose exactly which columns to back up, then download Excel/PDF.
@@ -24,7 +25,7 @@ export default function BackupSettings() {
   const [scopeId, setScopeId] = useState("");
   const [submitted, setSubmitted] = useState(null);
 
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const { data: groupsData } = useGetPropertyGroupsQuery();
   const properties = toRows(propertiesData);
   const groups = toRows(groupsData);
@@ -72,6 +73,7 @@ export default function BackupSettings() {
           <ReportView document={data} endpoint="/settings/backup/generate" params={submitted} filenameBase={`backup-${scopeType}`} />
         </div>
       )}
+      <BackupAndDelete />
     </div>
   );
 }

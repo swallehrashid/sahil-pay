@@ -7,10 +7,11 @@ import { useGetDeletedTenantsQuery } from "./tenantApiSlice";
 import { formatBalance } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 
 // Deleted tenants still surface here (and in reports) per the soft-delete rule — never hard-deleted.
 export default function DeletedTenants() {
+  const ROUTES = usePortalRoutes();
   const { data, isLoading } = useGetDeletedTenantsQuery();
   const rows = toRows(data);
 
@@ -27,9 +28,9 @@ export default function DeletedTenants() {
       <PageHeader
         title="Deleted tenants"
         subtitle="Soft-deleted tenants — kept for record-keeping and reporting"
-        breadcrumbs={[{ label: "Tenants", to: LANDLORD_ROUTES.tenants }, { label: "Deleted" }]}
+        breadcrumbs={[{ label: "Tenants", to: ROUTES.tenants }, { label: "Deleted" }]}
         actions={
-          <Link to={LANDLORD_ROUTES.tenants}>
+          <Link to={ROUTES.tenants}>
             <Button variant="ghost" leftIcon={<ArrowLeft className="h-4 w-4" />}>
               Back to tenants
             </Button>

@@ -226,7 +226,7 @@ def run_recurring_invoices(landlord) -> dict:
     Both no-op when their toggle is off. Returns per-toggle created counts.
     """
     aut = _automation(landlord)
-    result = {"rent_invoices_created": 0, "recurring_bills_created": 0}
+    result = {"rent_invoices_created": 0, "invoices_updated": 0, "recurring_bills_created": 0}
     if not aut:
         return result
 
@@ -234,9 +234,13 @@ def run_recurring_invoices(landlord) -> dict:
     from tasks.invoice_tasks import run_monthly_billing_task, generate_recurring_invoices_task
 
     issue = _date.today().isoformat()
-    if getattr(aut, "auto_generate_recurring_invoices", False):
-        tally = run_monthly_billing_task(landlord.id, issue_date=issue)
+    include_rent = bool(getattr(aut, "auto_generate_recurring_invoices", False))
+    include_queued = bool(getattr(aut, "auto_invoice_queued_charges", False))
+    if include_rent or include_queued:
+        tally = run_monthly_billing_task.run(landlord.id, issue_date=issue,
+                                             include_rent=include_rent, include_queued=include_queued)
         result["rent_invoices_created"] = tally.get("created", 0)
+        result["invoices_updated"] = tally.get("updated", 0)
     if getattr(aut, "auto_generate_recurring_bills", False):
         res = generate_recurring_invoices_task(landlord.id, issue_date=issue)
         result["recurring_bills_created"] = res.get("created", 0)

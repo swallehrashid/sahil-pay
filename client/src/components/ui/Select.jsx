@@ -78,9 +78,12 @@ const Select = forwardRef(function Select(
   );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => String(o.label ?? o.value ?? "").toLowerCase().includes(q));
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return options;
+    return options.filter((o) => {
+      const hay = String(o.label ?? o.value ?? "").toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    });
   }, [options, query]);
 
   const place = useCallback(() => {

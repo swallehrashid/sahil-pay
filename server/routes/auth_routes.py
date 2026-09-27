@@ -72,6 +72,11 @@ def register():
     password     = data.get("password", "")
     company_name = (data.get("company_name") or "").strip()
     phone        = (data.get("phone") or "").strip() or None
+    if phone:
+        from services.phone_service import canonical_phone, INVALID_MESSAGE
+        phone = canonical_phone(phone)
+        if phone is None:
+            return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
     account_type = data.get("account_type", "landlord")
     referral_code = data.get("referral_code")
 

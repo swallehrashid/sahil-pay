@@ -34,7 +34,6 @@ from decorators import (
 )
 from services.audit_service   import record_audit
 from services.pdf_service     import generate_tenant_statement_pdf
-from services.sms_service     import send_sms
 from services.email_service   import send_statement_email
 from services.storage_service import upload_to_s3
 
@@ -70,6 +69,13 @@ def list_tenants():
     search      = request.args.get("search", "").strip()
 
     query = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+    # A tenant exists only inside a live unit of a live property.
+    live_unit_ids = (
+        db.session.query(Unit.id)
+        .join(Property, Property.id == Unit.property_id)
+        .filter(Unit.is_deleted.is_(False), Property.is_deleted.is_(False))
+    )
+    query = query.filter(Tenant.unit_id.in_(live_unit_ids))
 
     # Property-scoped team members only see tenants in units under their
     # assigned properties. Tenant has no property_id directly, so scope via
@@ -87,13 +93,17 @@ def list_tenants():
         query = query.filter(Tenant.unit_id == unit_id)
     if search:
         like = f"%{search}%"
-        query = query.filter(
-            db.or_(
-                Tenant.first_name.ilike(like),
-                Tenant.last_name.ilike(like),
-                Tenant.phone.ilike(like),
-            )
-        )
+        clauses = [
+            Tenant.first_name.ilike(like),
+            Tenant.last_name.ilike(like),
+            Tenant.phone.ilike(like),
+        ]
+        # Phones are stored as 254…; someone typing "0712 43" means the same digits.
+        digits = "".join(ch for ch in search if ch.isdigit())
+        if len(digits) >= 3 and digits == search.replace(" ", "").lstrip("+"):
+            tail = digits[1:] if digits.startswith("0") else digits
+            clauses.append(db.func.regexp_replace(Tenant.phone, r"\D", "", "g").ilike(f"%{tail}%"))
+        query = query.filter(db.or_(*clauses))
 
     # THE SUMMARY DESCRIBES WHAT THE TABLE IS SHOWING, and is computed in SQL.
     #
@@ -198,6 +208,16 @@ def create_tenant():
     if not all([unit_id, first_name, last_name, phone]):
         return jsonify({"error": "unit_id, first_name, last_name, and phone are required."}), 400
 
+    from services.phone_service import canonical_phone, INVALID_MESSAGE
+    phone = canonical_phone(phone)
+    if phone is None:
+        return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+    secondary_phone = None
+    if (data.get("secondary_phone") or "").strip():
+        secondary_phone = canonical_phone(data["secondary_phone"])
+        if secondary_phone is None:
+            return jsonify({"error": f"Secondary phone: {INVALID_MESSAGE}"}), 400
+
     unit = Unit.query.join(Property).filter(
         Unit.id == unit_id,
         Property.landlord_id == landlord_id,
@@ -215,7 +235,7 @@ def create_tenant():
         first_name           = first_name,
         last_name            = last_name,
         phone                = phone,
-        secondary_phone      = data.get("secondary_phone"),
+        secondary_phone      = secondary_phone,
         email                = (data.get("email") or "").lower() or None,
         national_id          = data.get("national_id"),
         kra_pin              = data.get("kra_pin"),
@@ -269,12 +289,13 @@ def create_tenant():
 
     # Optional welcome message — opt-in per tenant, because sending costs the
     # landlord SMS credits and should never be a surprise.
-    welcome_status = "skipped"
+    welcome_status, welcome_detail = "skipped", None
     if data.get("send_welcome_message"):
-        welcome_status = _send_welcome_message(landlord, tenant)
+        welcome_status, welcome_detail = _send_welcome_message(landlord, tenant)
 
     payload = tenant.to_dict()
     payload["welcome_message"] = welcome_status
+    payload["welcome_message_detail"] = welcome_detail
 
     # Not a warning — a heads-up. One person legitimately renting several units
     # is normal and fully supported; each unit keeps its own account number and
@@ -295,14 +316,15 @@ def create_tenant():
     return jsonify(payload), 201
 
 
-def _send_welcome_message(landlord, tenant) -> str:
+def _send_welcome_message(landlord, tenant) -> tuple[str, str | None]:
     """
     Send the tenant their welcome message: SMS always, plus an email copy when
     we have an address.
 
-    Returns "sent", "failed" or "skipped". A messaging failure must NEVER undo
-    the tenant creation — the tenant record is the important thing, and the
-    landlord can always resend from the Communications page.
+    Returns (status, detail). status is "sent" when at least one channel went
+    out, else "failed"; detail says why the SMS did not go (e.g. no credits).
+    A messaging failure must NEVER undo the tenant creation — the landlord can
+    always resend from the Communications page.
     """
     from services.communication_service import dispatch_message
     from services.message_variables import render_message, welcome_body_for
@@ -313,29 +335,25 @@ def _send_welcome_message(landlord, tenant) -> str:
         current_app.logger.warning(
             "welcome message render failed for tenant %s", tenant.id, exc_info=True
         )
-        return "failed"
+        return "failed", "The welcome message template could not be filled in."
 
-    status = "skipped"
     try:
-        if tenant.phone:
-            dispatch_message(
-                landlord_id=landlord.id, tenant=tenant, channel="sms", content=body,
-            )
-            status = "sent"
-        if tenant.email:
-            dispatch_message(
-                landlord_id=landlord.id, tenant=tenant, channel="email", content=body,
-            )
-            status = "sent"
+        logs = [dispatch_message(landlord_id=landlord.id, tenant=tenant, channel=ch, content=body)
+                for ch, dest in (("sms", tenant.phone), ("email", tenant.email)) if dest]
         db.session.commit()
     except Exception:
         db.session.rollback()
         current_app.logger.warning(
             "welcome message dispatch failed for tenant %s", tenant.id, exc_info=True
         )
-        return "failed"
+        return "failed", None
 
-    return status
+    if not logs:
+        return "skipped", None
+    sent = any(log.status in ("delivered", "pending") for log in logs)
+    sms_failure = next((log.failure_reason for log in logs
+                        if log.message_type == "sms" and log.status == "failed"), None)
+    return ("sent" if sent else "failed"), (f"SMS not sent — {sms_failure}" if sms_failure else None)
 
 
 # ---------------------------------------------------------------------------
@@ -461,6 +479,18 @@ def update_tenant(tenant_id):
         "deposit_paid", "deposit_returned", "rent_payment_penalty",
         "bank_payer_name", "notes",
     ]
+    from services.phone_service import canonical_phone, INVALID_MESSAGE
+    if "phone" in data:
+        data["phone"] = canonical_phone(data["phone"])
+        if data["phone"] is None:
+            return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+    if "secondary_phone" in data and (data["secondary_phone"] or "").strip():
+        data["secondary_phone"] = canonical_phone(data["secondary_phone"])
+        if data["secondary_phone"] is None:
+            return jsonify({"error": f"Secondary phone: {INVALID_MESSAGE}"}), 400
+    elif "secondary_phone" in data:
+        data["secondary_phone"] = None
+
     for field in editable:
         if field in data:
             setattr(tenant, field, data[field])
@@ -507,25 +537,8 @@ def delete_tenant(tenant_id):
     tenant      = _get_or_404(landlord_id, tenant_id)
     before      = tenant.to_dict()
 
-    tenant.is_deleted  = True
-    tenant.deleted_at  = datetime.utcnow()
-    tenant.move_out_date = date.today()
-
-    # Free the unit
-    unit = tenant.unit
-    if unit:
-        unit.is_occupied = False
-
-    # Close unit history entry
-    history = (
-        TenantUnitHistory.query
-        .filter_by(tenant_id=tenant.id, unit_id=tenant.unit_id)
-        .filter(TenantUnitHistory.moved_out_at.is_(None))
-        .first()
-    )
-    if history:
-        history.moved_out_at = date.today()
-
+    from services.cascade_delete_service import delete_tenant as soft_delete_tenant
+    soft_delete_tenant(tenant)
     db.session.commit()
 
     record_audit(
@@ -741,7 +754,7 @@ def send_reminder(tenant_id):
     kind = kind_map.get(data.get("kind"), KIND_PAYMENT)
     rc = build_reminder(kind, tenant, landlord, custom_message=data.get("message"))
 
-    sent = []
+    sent, failed = [], []
     for channel in channels:
         if channel == "in_app":
             # In-app notification — addressed by tenant id so OTP-only tenants
@@ -761,16 +774,24 @@ def send_reminder(tenant_id):
             db.session.commit()  # notify() only flushes — persist the notification row
             sent.append("in_app")
         else:
-            dispatch_message(
+            log = dispatch_message(
                 landlord_id=landlord_id, tenant=tenant, channel=channel,
                 content=rc.text, email_subject=rc.subject, email_html=rc.html,
             )
-            sent.append(channel)
+            if log.status in ("delivered", "pending"):
+                sent.append(channel)
+            else:
+                failed.append(f"{channel}: {log.failure_reason or 'not sent'}")
+    # The message log and the SMS charge are only real once committed. This
+    # commit was missing, so a reminder SMS left the provider while its charge
+    # and its log row were rolled back — sent free on Sahil Pay's pool.
+    db.session.commit()
 
-    return jsonify({
-        "message": f"Reminder sent to {tenant.first_name} via {', '.join(sent) or 'no channel'}.",
-        "channels": sent,
-    }), 200
+    message = f"Reminder sent to {tenant.first_name} via {', '.join(sent)}." if sent else \
+        f"Reminder to {tenant.first_name} was not sent."
+    if failed:
+        message += " Not sent — " + "; ".join(failed)
+    return jsonify({"message": message, "channels": sent, "failed": failed}), 200 if sent else 422
 
 
 # ---------------------------------------------------------------------------

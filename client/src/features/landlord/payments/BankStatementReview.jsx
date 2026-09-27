@@ -14,11 +14,11 @@ import {
   useImportBankStatementTransactionsMutation,
   useLazyGetTenantOutstandingItemsQuery,
 } from "./paymentApiSlice";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
+import { useGetTenantOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
 
 const STEPS = ["Select", "Match", "Allocate"];
 
@@ -28,10 +28,11 @@ const STEPS = ["Select", "Match", "Allocate"];
 // line) before saving. Unmatched rows still import — as pending payments that
 // show up with the "Review" action on the Payments page for later matching.
 export default function BankStatementReview() {
+  const ROUTES = usePortalRoutes();
   const { id } = useParams();
   const navigate = useNavigate();
   const { data, isLoading } = useGetBankStatementTransactionsQuery(id);
-  const { data: tenantsData } = useGetTenantsQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
   const tenants = toRows(tenantsData);
   const [importTransactions, { isLoading: isSaving }] = useImportBankStatementTransactionsMutation();
   const [fetchOutstanding] = useLazyGetTenantOutstandingItemsQuery();
@@ -164,7 +165,7 @@ export default function BankStatementReview() {
         allocations,
       }).unwrap();
       toast(`${result?.payments?.length ?? selectedIds.length} payment(s) imported.`, { type: "success" });
-      navigate(LANDLORD_ROUTES.payments);
+      navigate(ROUTES.payments);
     } catch (err) {
       toast(err?.data?.error || "Could not import the selected transactions.", { type: "error" });
     }
@@ -180,9 +181,9 @@ export default function BankStatementReview() {
       <PageHeader
         title="Review bank statement"
         subtitle={`Step ${step + 1} of 3 — ${STEPS[step]}`}
-        breadcrumbs={[{ label: "Payments", to: LANDLORD_ROUTES.payments }, { label: "Statement review" }]}
+        breadcrumbs={[{ label: "Payments", to: ROUTES.payments }, { label: "Statement review" }]}
         actions={
-          <Link to={LANDLORD_ROUTES.payments}>
+          <Link to={ROUTES.payments}>
             <Button variant="ghost" leftIcon={<ArrowLeft className="h-4 w-4" />}>
               Back to payments
             </Button>
@@ -257,7 +258,7 @@ export default function BankStatementReview() {
                       <Select
                         value={matches[row.id] || ""}
                         onChange={(e) => setMatch(row.id, e.target.value)}
-                        options={tenants.map((t) => ({ value: String(t.id), label: `${t.first_name} ${t.last_name}${t.account_number ? ` (${t.account_number})` : ""}` }))}
+                        options={tenants.map((t) => ({ value: String(t.id), label: `${tenantOptionLabel(t)}${t.account_number ? ` (${t.account_number})` : ""}` }))}
                         placeholder="Unmatched"
                         className="min-w-[220px]"
                       />

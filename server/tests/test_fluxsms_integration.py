@@ -127,7 +127,7 @@ class TestSmsServiceSend:
                 result = sms_service.send_sms("0712345678", "Hello")
                 assert result == "MSGID123"
                 body = mock_post.call_args[0][1]
-                assert body["phone"] == "0712345678"
+                assert body["phone"] == "254712345678"
                 assert body["sender_id"] == "SAHILPAY"
                 assert body["api_key"] == "test-key"
 
@@ -149,7 +149,7 @@ class TestSmsServiceSend:
     def test_normalize_phone_strips_non_digits(self):
         from services.sms_service import _normalize_phone
         assert _normalize_phone("+254 711 234 567") == "254711234567"
-        assert _normalize_phone("0712-345-678") == "0712345678"
+        assert _normalize_phone("0712-345-678") == "254712345678"
 
     def test_check_sms_balance_success(self, app):
         from services import sms_service

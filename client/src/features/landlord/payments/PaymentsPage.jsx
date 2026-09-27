@@ -26,8 +26,6 @@ import CopilotInboxTab from "./CopilotInboxTab";
 import SendReminderModal from "../communications/SendReminderModal";
 import { useGetPaymentsQuery, useGetPaymentQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
 import { useGetCopilotInboxSummaryQuery } from "./copilotInboxApiSlice";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
-import { useGetInvoicesQuery } from "../invoices/invoiceApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
@@ -36,10 +34,16 @@ import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { PAYMENT_STATUSES, PAYMENT_SOURCES, PAYMENT_SOURCE_LABELS } from "@/utils/constants";
 import { Smartphone } from "lucide-react";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { useGetTenantOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function PaymentsPage() {
+  const ROUTES = usePortalRoutes();
+  const { can } = usePermissions();
+  const canEdit = can("payments", "edit");
+  const canMessage = can("messages", "edit");
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
@@ -57,8 +61,7 @@ export default function PaymentsPage() {
 
   const pg = usePagination();
   const { data, isLoading } = useGetPaymentsQuery({ ...appliedFilters, ...pg.params, search });
-  const { data: tenantsData } = useGetTenantsQuery();
-  const { data: invoicesData } = useGetInvoicesQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
   const [createPayment, { isLoading: isCreating }] = useCreatePaymentMutation();
   const [updatePayment, { isLoading: isUpdating }] = useUpdatePaymentMutation();
   const [deletePayment] = useDeletePaymentMutation();
@@ -89,7 +92,6 @@ export default function PaymentsPage() {
   const payments = toRows(data);
   const meta = toPaginationMeta(data);
   const tenants = toRows(tenantsData);
-  const invoices = toRows(invoicesData);
 
   // Total received = CONFIRMED payments only (the backend's summary.total_confirmed
   // already excludes pending/declined and co-pilot payments that haven't been
@@ -184,12 +186,16 @@ export default function PaymentsPage() {
               <Button variant="ghost" leftIcon={<FileBarChart className="h-4 w-4" />} onClick={() => downloadFile("/payments/report", { filename: "payments-report.pdf" })}>
                 Report
               </Button>
+              {canEdit && (
               <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setIsUploadOpen(true)}>
                 Upload statement
               </Button>
+              )}
+              {canEdit && (
               <Button data-tour={ANCHORS.payments.recordButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
                 Record payment
               </Button>
+              )}
             </>
           )
         }
@@ -261,33 +267,33 @@ export default function PaymentsPage() {
                 rowActions={(row) => (
                   <Dropdown
                     items={[
-                      ...(row.status === "pending"
+                      ...(row.status === "pending" && canEdit
                         ? [{ label: "Review & confirm", icon: <CheckCircle2 className="h-4 w-4" />, onClick: () => setReviewPayment(row) }]
                         : []),
-                      { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
-                      { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => sendReceipt(row.id).then(() => toast("Receipt sent.", { type: "success" })) },
+                      canEdit && { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
+                      canEdit && { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => sendReceipt(row.id).then(() => toast("Receipt sent.", { type: "success" })) },
                       {
                         label: "Download receipt",
                         icon: <Download className="h-4 w-4" />,
                         onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
                       },
-                      { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
-                      ...(etimsPropertyIds.has(row.property_id)
+                      canEdit && { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
+                      ...(etimsPropertyIds.has(row.property_id) && canEdit
                         ? [{
                             label: row.etims_invoice_number ? "Edit eTIMS invoice" : "Record eTIMS invoice",
                             icon: <Landmark className="h-4 w-4" />,
                             onClick: () => setEtimsPayment(row),
                           }]
                         : []),
-                      ...(row.tenant_id
+                      ...(row.tenant_id && canMessage
                         ? [{
                             label: "Remind tenant",
                             icon: <Send className="h-4 w-4" />,
                             onClick: () => setReminderTenant({ id: row.tenant_id, first_name: (row.tenant_name || "").split(" ")[0] || "Tenant", last_name: (row.tenant_name || "").split(" ").slice(1).join(" ") }),
                           }]
                         : []),
-                      { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
-                    ]}
+                      canEdit && { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
+                    ].filter(Boolean)}
                   />
                 )}
               />
@@ -301,7 +307,6 @@ export default function PaymentsPage() {
         <RecordPaymentForm
           initialValues={activePayment}
           tenants={tenants}
-          invoices={invoices}
           onSubmit={handleSubmit}
           onCancel={() => setIsFormOpen(false)}
           isSubmitting={isCreating || isUpdating}
@@ -311,7 +316,7 @@ export default function PaymentsPage() {
       <BankStatementUpload
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
-        onUploaded={(id) => id && navigate(LANDLORD_ROUTES.bankStatementReviewPath(id))}
+        onUploaded={(id) => id && navigate(ROUTES.bankStatementReviewPath(id))}
       />
       <ReassignTenantModal payment={reassignTarget} tenants={tenants} onClose={() => setReassignTarget(null)} />
       {reviewPayment && <ConfirmPaymentModal payment={reviewPayment} onClose={() => setReviewPayment(null)} />}

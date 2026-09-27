@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { Upload } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Button from "@/components/ui/Button";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import Tabs from "@/components/ui/Tabs";
@@ -44,6 +44,7 @@ function currentMonth() {
 }
 
 export default function EtimsRegisterPage() {
+  const ROUTES = usePortalRoutes();
   const { data: scope, isLoading: scopeLoading } = useGetEtimsScopeQuery();
 
   const [tab, setTab] = useState("payments");
@@ -215,7 +216,7 @@ export default function EtimsRegisterPage() {
         actions={
           /* Typing four hundred of these by hand is a morning's work and a
              morning's chance to put one on the wrong payment. */
-          <Link to={LANDLORD_ROUTES.etimsImport}>
+          <Link to={ROUTES.etimsImport}>
             <Button variant="ghost" leftIcon={<Upload className="h-4 w-4" />}>
               Import from a file
             </Button>

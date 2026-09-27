@@ -16,9 +16,21 @@ export function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+// Mirrors server/services/phone_service.py: 07…, 01…, 7…, 1…, 254… and +254… are
+// one number, stored as 254XXXXXXXXX. Returns null for anything that is not a
+// Kenyan mobile number.
+export function toKenyanPhone(value) {
+  let digits = String(value ?? "").replace(/\D/g, "");
+  if (digits.length === 10 && digits.startsWith("0")) digits = `254${digits.slice(1)}`;
+  else if (digits.length === 9 && /^[17]/.test(digits)) digits = `254${digits}`;
+  return /^254[17]\d{8}$/.test(digits) ? digits : null;
+}
+
+export const PHONE_HINT = "07XX XXX XXX or 254 7XX XXX XXX — saved as 2547XXXXXXXX";
+export const PHONE_ERROR = "Enter a Kenyan mobile number, e.g. 0712 345 678 or 254712345678";
+
 export function isValidPhone(value) {
-  if (!value) return false;
-  return /^\+?[0-9]{9,15}$/.test(String(value).replace(/\s/g, ""));
+  return toKenyanPhone(value) !== null;
 }
 
 export function isDateOnOrAfter(laterDate, earlierDate) {
@@ -44,6 +56,7 @@ export default {
   isNonNegativeAmount,
   isValidEmail,
   isValidPhone,
+  toKenyanPhone,
   isDateOnOrAfter,
   validateMoneyField,
   validateRequired,

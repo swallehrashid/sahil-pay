@@ -157,7 +157,7 @@ def test_phones_are_stored_in_one_dialable_form(app, raw):
     leave imported tenants unlike every other row and unusable for SMS.
     """
     with app.app_context():
-        assert bulk.canonical_phone(raw) == "+254712345678"
+        assert bulk.canonical_phone(raw) == "254712345678"
 
 
 def test_an_unusable_phone_becomes_none(app):
@@ -410,7 +410,7 @@ def test_a_tenant_is_matched_to_a_unit_by_account_number(app, stocked):
 
     assert result["created"] == 1
     tenant = Tenant.query.filter_by(landlord_id=stocked.id).first()
-    assert tenant.phone == "+254712345678"
+    assert tenant.phone == "254712345678"
     assert tenant.unit.name == "A1"
 
 

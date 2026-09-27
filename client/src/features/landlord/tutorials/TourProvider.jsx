@@ -47,11 +47,14 @@ export default function TourProvider({ children }) {
 
   const startTutorial = useCallback(
     (id, opts = {}) => {
-      if (!onboarding.isEligible) return;
+      // Team members used to be stopped right here, so "Start" did nothing at all
+      // in the team portal. The prerequisite check stays owner-only: it reads the
+      // account's onboarding counts, which a team member does not load.
+      if (!onboarding.canRunTours) return;
       const tutorial = getTutorial(id);
       if (!tutorial) return;
 
-      if (!opts.skipPrerequisiteCheck && tutorial.prerequisite && !tutorial.prerequisite.soft) {
+      if (onboarding.isEligible && !opts.skipPrerequisiteCheck && tutorial.prerequisite && !tutorial.prerequisite.soft) {
         const have = onboarding.counts[tutorial.prerequisite.count] ?? 0;
         if (have === 0) {
           dispatch(prerequisiteDialogShown({ tutorialId: id, prerequisiteTutorialId: tutorial.prerequisite.tutorialId }));

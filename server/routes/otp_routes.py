@@ -51,13 +51,20 @@ def _find_tenant_by_identifier(identifier: str):
     this is a public, unauthenticated lookup, so a demo tenant (even with its
     obviously-fake seeded phone/email) must never be reachable here.
     """
+    from services.phone_service import phone_matches
+
     identifier = identifier.strip()
-    tenant = (
-        Tenant.query
-        .join(Landlord, Landlord.id == Tenant.landlord_id)
-        .filter(Tenant.phone == identifier, Tenant.is_deleted.is_(False), Landlord.is_demo.is_(False))
-        .first()
-    )
+    tenant = None
+    if "@" not in identifier:
+        # 07…, 7…, 254… and +254… are one number — match on the subscriber digits.
+        tenant = (
+            Tenant.query
+            .join(Landlord, Landlord.id == Tenant.landlord_id)
+            .filter(db.or_(phone_matches(Tenant.phone, identifier), Tenant.phone == identifier),
+                    Tenant.is_deleted.is_(False), Landlord.is_demo.is_(False))
+            .order_by(Tenant.id)
+            .first()
+        )
     if not tenant:
         tenant = (
             Tenant.query
@@ -66,6 +73,16 @@ def _find_tenant_by_identifier(identifier: str):
             .first()
         )
     return tenant
+
+
+def _clean_identifier(raw) -> str:
+    """An email lowercased, or a phone in its one stored form (254XXXXXXXXX), so
+    the code requested as "0712 430 742" is the code verified as "254712430742"."""
+    value = (raw or "").strip()
+    if not value or "@" in value:
+        return value.lower()
+    from services.phone_service import canonical_phone
+    return canonical_phone(value) or value
 
 
 def _detect_channel(identifier: str) -> str:
@@ -99,7 +116,7 @@ def request_otp():
         description: Rate limit exceeded.
     """
     data       = request.get_json(silent=True) or {}
-    identifier = (data.get("identifier") or "").strip()
+    identifier = _clean_identifier(data.get("identifier"))
 
     if not identifier:
         return jsonify({"error": "identifier (phone or email) is required."}), 400
@@ -182,7 +199,7 @@ def verify_otp():
       429: {description: Too many attempts or rate limit.}
     """
     data       = request.get_json(silent=True) or {}
-    identifier = (data.get("identifier") or "").strip()
+    identifier = _clean_identifier(data.get("identifier"))
     code       = (data.get("code") or "").strip()
 
     if not identifier or not code:
@@ -282,7 +299,7 @@ def resend_otp():
       200: {description: OTP resent or cooldown in effect.}
     """
     data       = request.get_json(silent=True) or {}
-    identifier = (data.get("identifier") or "").strip()
+    identifier = _clean_identifier(data.get("identifier"))
 
     if not identifier:
         return jsonify({"error": "identifier is required."}), 400

@@ -21,7 +21,7 @@ export const unitApiSlice = apiSlice.injectEndpoints({
     }),
     deleteUnit: builder.mutation({
       query: (id) => ({ url: `/units/${id}`, method: "DELETE" }),
-      invalidatesTags: ["Unit", "Property"],
+      invalidatesTags: ["Unit", "Property", "Tenant"],
     }),
   }),
 });

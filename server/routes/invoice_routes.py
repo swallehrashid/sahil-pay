@@ -432,8 +432,10 @@ def send_invoice(invoice_id):
     data        = request.get_json(silent=True) or {}
     channel     = data.get("channel", "email")
 
-    dispatch_invoice(inv, channel)
-
+    log = dispatch_invoice(inv, channel)
+    db.session.commit()   # persist the message log and the SMS charge
+    if log is not None and log.status not in ("delivered", "pending"):
+        return jsonify({"error": f"Invoice {inv.invoice_number} was not sent: {log.failure_reason or 'unknown reason'}."}), 422
     return jsonify({"message": f"Invoice {inv.invoice_number} sent via {channel}."}), 200
 
 

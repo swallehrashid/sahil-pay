@@ -5,6 +5,7 @@ import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
 import ReportView from "./ReportView";
 import { useGetTenantStatementQuery } from "./reportApiSlice";
+import { tenantOptionLabel } from "@/store/lookupApiSlice";
 
 // Tenant statement: transaction date, item, description, money due, money paid,
 // running balance — generated on screen first, columns editable, then downloaded.
@@ -25,7 +26,7 @@ export default function TenantStatement({ tenants = [] }) {
           label="Tenant"
           value={tenantId}
           onChange={(e) => setTenantId(e.target.value)}
-          options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+          options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
           required
         />
         <DatePicker label="From" value={range.start_date} onChange={(e) => setRange((r) => ({ ...r, start_date: e.target.value }))} />

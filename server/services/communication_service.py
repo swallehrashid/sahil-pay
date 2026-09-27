@@ -20,6 +20,16 @@ logger = logging.getLogger(__name__)
 _SMS_UNIT_CHARGE = Decimal("1.00")
 
 
+def _mark_sms_charged() -> None:
+    """Flag the request: credits were charged for an SMS that has left (or will
+    leave) the provider. app.py commits at the end of any successful request
+    carrying this flag, so a route that forgets its own commit can no longer roll
+    the charge back while the SMS still goes out free."""
+    from flask import g, has_request_context
+    if has_request_context():
+        g.sms_charged = True
+
+
 def _no_destination_reason(channel: str) -> str:
     """Say WHICH detail is missing. "Failed" alone sends people looking at the
     provider when the actual problem is a blank phone number on the tenancy."""
@@ -58,7 +68,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
     from extensions import db
     from models import CommunicationLog, Landlord, SmsPricingConfig
     from services.email_service import _send_email
-    from services.sms_service import send_sms
+    from services.sms_service import ACCEPTED_NO_ID, send_sms
     from services.sms_billing import price_sms, load_rates
     from utils import decrement_sms_balance
 
@@ -184,7 +194,12 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         failure_reason = _no_destination_reason(channel)
     elif channel == "sms":
         provider_message_id = send_sms(tenant.phone, content, sender_id=sender_id, api_key=sms_api_key)
-        status = "delivered" if provider_message_id else "failed"
+        if provider_message_id == ACCEPTED_NO_ID:
+            # Accepted and billed to Sahil Pay by the provider, delivery unconfirmed.
+            provider_message_id = None
+            status = "pending"
+        else:
+            status = "delivered" if provider_message_id else "failed"
         if status == "failed":
             failure_reason = ("The SMS provider did not accept the message. "
                               "Check the sender ID is approved on the network.")
@@ -222,7 +237,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
     # Charge/decrement only AFTER the outcome is known, and only when the SMS
     # actually went out (or was simulated as delivered) — a failed send never
     # burns credits or records platform cost.
-    if channel == "sms" and not blocked and status == "delivered":
+    if channel == "sms" and not blocked and status in ("delivered", "pending"):
         if not is_demo:
             sms_charge    = econ["charge"]
             platform_cost = econ["platform_cost"]
@@ -235,6 +250,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
             # Branded senders included — the credits left SahilPay's FluxSMS
             # account regardless of the name printed on the message.
             cfg.pool_balance = max(0, cfg.pool_balance - sms_credits)
+        _mark_sms_charged()
 
     is_team_member = recipient_type == "team_member"
     unit = None if is_team_member else getattr(tenant, "unit", None)
@@ -281,3 +297,83 @@ def dispatch_invoice(invoice, channel: str):
         landlord_id=invoice.landlord_id, tenant=tenant, channel=channel,
         content=rc.text, email_subject=rc.subject, email_html=rc.html,
     )
+
+
+def send_account_sms(landlord, phone: str | None, content: str, *, label: str = "account") -> tuple[str, str | None]:
+    """
+    Send an SMS to someone on the landlord's own side (the landlord, a team
+    member) — alert texts, not tenant messages — and bill it exactly like a
+    tenant message: gated on the landlord's SMS balance and the platform pool,
+    decremented only after it is delivered, logged in communication_logs.
+
+    Returns (status, reason): status is "delivered", "failed" or "blocked".
+    A "blocked" send means the landlord has no credits; the caller should reach
+    the person another way instead of sending it for free.
+    """
+    from flask import current_app
+
+    from extensions import db
+    from models import CommunicationLog, SmsPricingConfig
+    from services.sms_billing import load_rates, price_sms
+    from services.sms_service import ACCEPTED_NO_ID, send_sms
+    from utils import decrement_sms_balance
+
+    if not phone:
+        return "failed", "No phone number is recorded for this person."
+
+    settings = landlord.landlord_settings
+    rates = load_rates()
+    econ = price_sms(content, settings, rates)
+    credits = econ["credits"]
+    simulate = current_app.config.get("COMMS_SIMULATION_MODE", True) or landlord.is_demo
+
+    reason = None
+    if not landlord.is_demo:
+        cfg = SmsPricingConfig.get_singleton()
+        if (landlord.sms_balance or 0) < credits:
+            reason = "Insufficient SMS balance — top up to keep sending."
+        elif not econ["uses_own_sender_id"] and not rates["shared_enabled"]:
+            reason = "Shared-sender sending is disabled by the administrator."
+        elif cfg.pool_balance < credits:
+            reason = "Sahil Pay SMS pool is exhausted."
+    else:
+        cfg = None
+
+    provider_id = None
+    if reason:
+        status = "blocked"
+    elif simulate:
+        status = "delivered"
+        logger.info("SIMULATED %s SMS to %s (landlord %s)", label, phone, landlord.id)
+    else:
+        provider_id = send_sms(phone, content, sender_id=econ["sender_id"])
+        if provider_id == ACCEPTED_NO_ID:
+            provider_id = None
+            status = "delivered"
+        else:
+            status = "delivered" if provider_id else "failed"
+        if status == "failed":
+            reason = "The SMS provider did not accept the message."
+
+    charged = status == "delivered" and not landlord.is_demo
+    if charged:
+        decrement_sms_balance(landlord, credits)
+        cfg.pool_balance = max(0, cfg.pool_balance - credits)
+        _mark_sms_charged()
+
+    db.session.add(CommunicationLog(
+        landlord_id=landlord.id,
+        message_type="sms",
+        recipient_type=label[:15],
+        content=content,
+        sms_charge=econ["charge"] if charged else Decimal("0.00"),
+        sms_segments=econ["segments"],
+        uses_own_sender=econ["uses_own_sender_id"],
+        platform_cost=econ["platform_cost"] if charged else Decimal("0.00"),
+        status="delivered" if status == "delivered" else "failed",
+        failure_reason=reason,
+        provider_message_id=provider_id,
+        sent_at=datetime.utcnow(),
+    ))
+    db.session.flush()
+    return status, reason

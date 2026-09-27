@@ -4,7 +4,7 @@ import { Mail, Lock, User, Phone, TrendingUp, Users, Wallet, CheckCircle2 } from
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
-import { isRequired, isValidEmail, isValidPhone } from "@/utils/validators";
+import { isRequired, isValidEmail, isValidPhone, PHONE_ERROR } from "@/utils/validators";
 import { AUTH_ROUTES } from "@/config/routePaths";
 import Section from "./components/Section";
 import Reveal from "./components/Reveal";
@@ -38,7 +38,7 @@ export default function AffiliateSignup() {
     const nextErrors = {};
     if (!isRequired(form.full_name)) nextErrors.full_name = "Your name is required";
     if (!isRequired(form.email) || !isValidEmail(form.email)) nextErrors.email = "Enter a valid email";
-    if (!isValidPhone(form.phone)) nextErrors.phone = "Enter a valid phone number";
+    if (!isValidPhone(form.phone)) nextErrors.phone = PHONE_ERROR;
     if (!form.password || form.password.length < 8) nextErrors.password = "Use at least 8 characters";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;

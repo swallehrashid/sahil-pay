@@ -29,7 +29,13 @@ export const utilityApiSlice = apiSlice.injectEndpoints({
     }),
     addReadingToInvoice: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/utilities/${id}/add-to-invoice`, method: "POST", body }),
-      invalidatesTags: ["Utility", "Invoice"],
+      invalidatesTags: ["Utility", "Invoice", "InvoiceQueue"],
+    }),
+    // Queue readings for the next invoice. A caretaker's go in as "waiting for
+    // review"; an invoices editor's are approved straight away.
+    queueUtilityReadings: builder.mutation({
+      query: (body) => ({ url: "/utilities/queue", method: "POST", body }),
+      invalidatesTags: ["Utility", "InvoiceQueue"],
     }),
     // The landlord utility catalogue now lives in chargeCategoryApiSlice
     // (/charge-categories?kind=utility) — see ChargeCategoryManager.
@@ -44,4 +50,5 @@ export const {
   useBulkUploadUtilitiesMutation,
   useGenerateUtilityInvoicesMutation,
   useAddReadingToInvoiceMutation,
+  useQueueUtilityReadingsMutation,
 } = utilityApiSlice;
