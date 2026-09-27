@@ -8,8 +8,8 @@ import Badge from "@/components/ui/Badge";
 import { toRows } from "@/utils/tableAdapters";
 import { formatDate } from "@/utils/dateFormatter";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { useGetPropertiesQuery } from "@/features/landlord/properties/propertyApiSlice";
 import { useGetPenaltyReportQuery } from "@/features/landlord/penalties/penaltyApiSlice";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 // The penalties report — the same shape as the other money reports, because a
 // manager reconciling a month should not have to learn a new layout for this
@@ -30,7 +30,7 @@ export default function PenaltiesReport({ embedded = false }) {
     source: "", min_amount: "", max_amount: "",
   });
 
-  const { data: propertiesData } = useGetPropertiesQuery({ per_page: 200 });
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const properties = useMemo(() => toRows(propertiesData), [propertiesData]);
 
   // Drop empty filters so the API sees "unset" rather than an empty string it

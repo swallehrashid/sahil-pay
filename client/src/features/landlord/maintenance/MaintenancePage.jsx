@@ -21,15 +21,17 @@ import {
   useUpdateMaintenanceRequestMutation,
   useDeleteMaintenanceRequestMutation,
 } from "./maintenanceApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
-import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatDate } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetPropertyOptionsQuery, useGetUnitOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function MaintenancePage() {
+  const { can } = usePermissions();
+  const canEdit = can("maintenance", "edit");
   const { data, isLoading } = useGetMaintenanceRequestsQuery();
-  const { data: propertiesData } = useGetPropertiesQuery();
-  const { data: unitsData } = useGetUnitsQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
+  const { data: unitsData } = useGetUnitOptionsQuery();
   const [createRequest, { isLoading: isCreating }] = useCreateMaintenanceRequestMutation();
   const [updateRequest, { isLoading: isUpdating }] = useUpdateMaintenanceRequestMutation();
   const [deleteRequest] = useDeleteMaintenanceRequestMutation();
@@ -122,7 +124,7 @@ export default function MaintenancePage() {
       <PageHeader
         title="Maintenance"
         subtitle="Repair and maintenance requests across your portfolio"
-        actions={
+        actions={canEdit && (
           <Button
             leftIcon={<Plus className="h-4 w-4" />}
             onClick={() => {
@@ -132,7 +134,7 @@ export default function MaintenancePage() {
           >
             Add request
           </Button>
-        }
+        )}
       />
 
       {isLoading ? (
@@ -157,7 +159,7 @@ export default function MaintenancePage() {
                   icon: <Eye className="h-4 w-4" />,
                   onClick: () => setViewing(row),
                 },
-                {
+                canEdit && {
                   label: "Edit",
                   icon: <Pencil className="h-4 w-4" />,
                   onClick: () => {
@@ -165,8 +167,8 @@ export default function MaintenancePage() {
                     setIsFormOpen(true);
                   },
                 },
-                { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
-              ]}
+                canEdit && { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
+              ].filter(Boolean)}
             />
           )}
         />

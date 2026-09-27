@@ -14,18 +14,22 @@ import Badge from "@/components/ui/Badge";
 import { toast } from "@/components/ui/Toast";
 import UnitForm from "./UnitForm";
 import { useGetUnitsQuery, useCreateUnitMutation, useUpdateUnitMutation, useDeleteUnitMutation } from "./unitApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function UnitsPage() {
+  const { can } = usePermissions();
+  // View-only members see the list; only editors get the write actions.
+  const canEdit = can("units", "edit");
   const pg = usePagination();
   const [search, setSearch] = useState("");
   const { data, isLoading } = useGetUnitsQuery({ ...pg.params, search });
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const [createUnit, { isLoading: isCreating }] = useCreateUnitMutation();
   const [updateUnit, { isLoading: isUpdating }] = useUpdateUnitMutation();
   const [deleteUnit] = useDeleteUnitMutation();
@@ -79,8 +83,8 @@ export default function UnitsPage() {
 
   const handleDelete = async () => {
     try {
-      await deleteUnit(pendingDelete.id).unwrap();
-      toast("Unit deleted.", { type: "success" });
+      const res = await deleteUnit(pendingDelete.id).unwrap();
+      toast(res?.message || "Unit deleted.", { type: "success" });
     } catch {
       toast("Could not delete the unit.", { type: "error" });
     } finally {
@@ -105,11 +109,11 @@ export default function UnitsPage() {
       <PageHeader
         title="Units"
         subtitle="Every unit across your properties"
-        actions={
+        actions={canEdit && (
           <Button data-tour={ANCHORS.units.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
             Add unit
           </Button>
-        }
+        )}
       />
 
       {/* Server-side search. At this scale filtering the twenty rows already
@@ -138,14 +142,14 @@ export default function UnitsPage() {
           columns={columns}
           rows={units}
           isLoading={isLoading}
-          rowActions={(row) => (
+          rowActions={canEdit ? (row) => (
             <Dropdown
               items={[
                 { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
                 { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
               ]}
             />
-          )}
+          ) : undefined}
         />
         <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
       </div>
@@ -159,7 +163,7 @@ export default function UnitsPage() {
         onClose={() => setPendingDelete(null)}
         onConfirm={handleDelete}
         title="Delete unit?"
-        description={`"${pendingDelete?.name}" will be soft-deleted.`}
+        description={`"${pendingDelete?.name}" will be deleted${pendingDelete?.is_occupied ? ", together with the tenant living in it" : ""}. The property stays. Past invoices and payments stay in your reports.`}
       />
     </div>
   );

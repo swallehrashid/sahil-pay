@@ -4,24 +4,27 @@ import Select from "@/components/ui/Select";
 import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
-import { useBulkUploadUtilitiesMutation, useGenerateUtilityInvoicesMutation } from "./utilityApiSlice";
+import { useBulkUploadUtilitiesMutation, useGenerateUtilityInvoicesMutation, useQueueUtilityReadingsMutation } from "./utilityApiSlice";
 import { useGetChargeCategoriesQuery } from "../chargeCategoryApiSlice";
 import { currentMonth } from "@/utils/dateFormatter";
 
 const STEP_TITLES = {
   1: "Step 1 of 3 · Set filters",
   2: "Step 2 of 3 · Record readings",
-  3: "Step 3 of 3 · Create invoices",
+  3: "Step 3 of 3 · Bill them",
 };
 
 // Three-page bulk utilities flow:
 //   1) Filters    — who you're recording for (property + month).
 //   2) Record     — pick the utility, then enter each unit's previous (past month)
 //                   and current (this month) readings.
-//   3) Invoices   — bill the batch: add to each tenant's current invoice, or raise new ones.
-export default function BulkUploadUtilities({ isOpen, onClose, properties = [], units = [] }) {
+//   3) Bill       — queue the batch for next month's invoice (a caretaker's goes to
+//                   the office for review first), or, for someone who can bill,
+//                   add to each tenant's current invoice / raise new ones.
+export default function BulkUploadUtilities({ isOpen, onClose, properties = [], units = [], canBill = true }) {
   const [bulkUpload, { isLoading: isUploading }] = useBulkUploadUtilitiesMutation();
   const [generateInvoices, { isLoading: isGenerating }] = useGenerateUtilityInvoicesMutation();
+  const [queueReadings, { isLoading: isQueueing }] = useQueueUtilityReadingsMutation();
   const { data: catData } = useGetChargeCategoriesQuery({ kind: "utility", include_inactive: 0 });
   const categories = catData?.categories ?? [];
 
@@ -84,6 +87,16 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
       setStep(3);
     } catch {
       toast("Could not save the readings.", { type: "error" });
+    }
+  };
+
+  const handleQueue = async () => {
+    try {
+      const res = await queueReadings(scope).unwrap();
+      toast(res.message, { type: res.queued ? "success" : "info", duration: 7000 });
+      handleClose();
+    } catch (err) {
+      toast(err?.data?.error || "Could not queue the readings.", { type: "error" });
     }
   };
 
@@ -217,6 +230,23 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
           <div className="space-y-3">
             <button
               type="button"
+              disabled={isQueueing}
+              onClick={handleQueue}
+              data-testid="bulk-queue"
+              className="glass w-full rounded-xl border border-secondary/40 p-4 text-left transition-colors hover:bg-white/10 disabled:opacity-50"
+            >
+              <p className="font-medium text-white">
+                {canBill ? "Queue for next month's invoice (recommended)" : "Submit for review"}
+              </p>
+              <p className="text-sm text-white/50">
+                {canBill
+                  ? "Each charge goes onto the unit's next monthly invoice with the rent, instead of a separate bill."
+                  : "Sends these charges to the office. Once approved they go onto each unit's next monthly invoice."}
+              </p>
+            </button>
+            {canBill && (<>
+            <button
+              type="button"
               disabled={isGenerating}
               onClick={() => handleGenerate(true)}
               className="glass w-full rounded-xl p-4 text-left transition-colors hover:bg-white/10 disabled:opacity-50"
@@ -233,6 +263,7 @@ export default function BulkUploadUtilities({ isOpen, onClose, properties = [], 
               <p className="font-medium text-white">Create new invoices</p>
               <p className="text-sm text-white/50">Raise a separate utility invoice for each reading.</p>
             </button>
+            </>)}
           </div>
           <div className="flex justify-end gap-3">
             <Button variant="ghost" onClick={handleClose}>Not now</Button>

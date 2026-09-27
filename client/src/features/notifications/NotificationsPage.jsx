@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCheck, Send, ExternalLink } from "lucide-react";
 import clsx from "clsx";
 import PageHeader from "@/components/layout/PageHeader";
@@ -20,6 +20,7 @@ import { ADMIN_ROUTES, LANDLORD_ROUTES } from "@/config/routePaths";
 // a "Send" shortcut — team members and tenants can only receive.
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [searchParams] = useSearchParams();
   const focusId = searchParams.get("focus");
   const { role } = useAuth();
@@ -106,7 +107,7 @@ export default function NotificationsPage() {
               {note.link && (
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); if (!note.is_read) markRead(note.id); navigate(note.link); }}
+                  onClick={(e) => { e.stopPropagation(); if (!note.is_read) markRead(note.id); navigate(pathname.startsWith("/team") ? note.link.replace(/^\/landlord\//, "/team/") : note.link); }}
                   title="Open related page"
                   className="mt-0.5 flex-shrink-0 rounded-lg p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white"
                 >

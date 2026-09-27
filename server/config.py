@@ -427,6 +427,12 @@ class TestingConfig(BaseConfig):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+
+    # Same for SMS and email: the developer .env can carry a live FluxSMS key
+    # with COMMS_SIMULATION_MODE=false, and a test creating a tenant with a
+    # random phone number would then text a stranger on Sahil Pay's account.
+    COMMS_SIMULATION_MODE: bool = True
+    FLUXSMS_API_KEY: str | None = None
     CLOUDINARY_URL: str = ""
 
     # Short token windows to test expiry in a single test run.

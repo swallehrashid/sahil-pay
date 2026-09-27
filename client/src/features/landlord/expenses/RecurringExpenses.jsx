@@ -20,6 +20,7 @@ import { EXPENSE_CATEGORIES } from "@/utils/constants";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import { validateMoneyField } from "@/utils/validators";
+import { usePermissions } from "@/hooks/usePermissions";
 
 function RecurringExpenseForm({ initialValues, properties, units, onSubmit, onCancel, isSubmitting }) {
   const [form, setForm] = useState({
@@ -73,6 +74,8 @@ function RecurringExpenseForm({ initialValues, properties, units, onSubmit, onCa
 
 // Recurring expense templates — Celery Beat instantiates each into a real expense on the 1st of every month.
 export default function RecurringExpenses({ properties = [], units = [] }) {
+  const { can } = usePermissions();
+  const canEdit = can("expenses", "edit");
   const { data, isLoading } = useGetRecurringExpensesQuery();
   const [createTemplate, { isLoading: isCreating }] = useCreateRecurringExpenseMutation();
   const [updateTemplate, { isLoading: isUpdating }] = useUpdateRecurringExpenseMutation();
@@ -126,6 +129,7 @@ export default function RecurringExpenses({ properties = [], units = [] }) {
     <div>
       <div className="mb-4 flex items-center justify-between">
         <p className="text-sm text-white/50">Auto-instantiated into an expense on the 1st of each month.</p>
+        {canEdit && (
         <Button
           size="sm"
           leftIcon={<Plus className="h-4 w-4" />}
@@ -136,12 +140,13 @@ export default function RecurringExpenses({ properties = [], units = [] }) {
         >
           Add recurring expense
         </Button>
+        )}
       </div>
       <ResponsiveTable
         columns={columns}
         rows={templates}
         isLoading={isLoading}
-        rowActions={(row) => (
+        rowActions={canEdit ? (row) => (
           <Dropdown
             items={[
               {
@@ -155,7 +160,7 @@ export default function RecurringExpenses({ properties = [], units = [] }) {
               { label: "Deactivate", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
             ]}
           />
-        )}
+        ) : undefined}
       />
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={active ? "Edit recurring expense" : "Add recurring expense"}>
         <RecurringExpenseForm

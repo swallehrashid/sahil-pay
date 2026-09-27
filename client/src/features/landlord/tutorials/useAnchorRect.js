@@ -52,7 +52,10 @@ export function useAnchorRect(anchorId) {
       const el = elRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      setRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+      setRect((prev) =>
+        prev && prev.top === r.top && prev.left === r.left && prev.width === r.width && prev.height === r.height
+          ? prev
+          : { top: r.top, left: r.left, width: r.width, height: r.height });
     };
 
     const poll = () => {
@@ -98,6 +101,10 @@ export function useAnchorRect(anchorId) {
     const watchdog = window.setInterval(() => {
       if (cancelled) return;
       const el = elRef.current;
+      // The page can move under a resolved anchor without any scroll or resize —
+      // the sidebar expands its groups when a tour starts — so keep re-measuring,
+      // or the highlight stays on whatever used to be there.
+      if (el && el.isConnected && isVisible(el)) measure();
       if (el && (!el.isConnected || !isVisible(el))) {
         elRef.current = null;
         setRect(null);

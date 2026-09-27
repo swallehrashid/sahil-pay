@@ -14,20 +14,24 @@ import {
   useGetTenantMessageThreadQuery,
   useReplyTenantMessageMutation,
 } from "./tenantMessagesApiSlice";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetTenantOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
+import { parseApiDate } from "@/utils/dateFormatter";
+import { usePermissions } from "@/hooks/usePermissions";
 
 // Landlord/team inbox for the tenant↔landlord conversation. Mounted at both
 // /landlord/messages and /team/messages — the API scopes to the caller.
 // Deep-linked from the notification bell via ?tenant=<id>.
 function formatWhen(iso) {
   if (!iso) return "";
-  return new Date(iso).toLocaleString(undefined, {
-    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  return parseApiDate(iso).toLocaleString("en-KE", {
+    timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   });
 }
 
 export default function TenantMessagesInbox() {
+  const { can } = usePermissions();
+  const canReply = can("messages", "edit");
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedId = searchParams.get("tenant");
 
@@ -57,7 +61,7 @@ export default function TenantMessagesInbox() {
   const [isComposeOpen, setIsComposeOpen] = useState(false);
   const [composeTenant, setComposeTenant] = useState("");
   const [composeBody, setComposeBody] = useState("");
-  const { data: tenantsData } = useGetTenantsQuery(undefined, { skip: !isComposeOpen });
+  const { data: tenantsData } = useGetTenantOptionsQuery(undefined, { skip: !isComposeOpen });
   const allTenants = toRows(tenantsData);
 
   const handleCompose = async () => {
@@ -101,9 +105,11 @@ export default function TenantMessagesInbox() {
           <h1 className="text-2xl font-light tracking-wide text-white">Tenant messages</h1>
           <p className="text-sm text-white/50">In-app conversations with your tenants — start one or reply.</p>
         </div>
+        {canReply && (
         <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setIsComposeOpen(true)}>
           New message
         </Button>
+        )}
       </div>
 
       <Modal isOpen={isComposeOpen} onClose={() => setIsComposeOpen(false)} title="New message">
@@ -112,7 +118,7 @@ export default function TenantMessagesInbox() {
             label="Tenant"
             value={composeTenant}
             onChange={(e) => setComposeTenant(e.target.value)}
-            options={allTenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+            options={allTenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
             required
           />
           <Textarea
@@ -213,7 +219,7 @@ export default function TenantMessagesInbox() {
                   <div ref={bottomRef} />
                 </div>
 
-                <form onSubmit={handleReply} className="space-y-2 border-t border-white/10 pt-3">
+                {canReply && <form onSubmit={handleReply} className="space-y-2 border-t border-white/10 pt-3">
                   <Textarea
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
@@ -225,7 +231,7 @@ export default function TenantMessagesInbox() {
                       Reply
                     </Button>
                   </div>
-                </form>
+                </form>}
               </>
             )}
           </div>

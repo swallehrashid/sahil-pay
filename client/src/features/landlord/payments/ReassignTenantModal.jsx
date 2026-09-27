@@ -1,3 +1,4 @@
+import { tenantOptionLabel } from "@/store/lookupApiSlice";
 import { useState } from "react";
 import Modal from "@/components/ui/Modal";
 import Select from "@/components/ui/Select";
@@ -41,7 +42,7 @@ export default function ReassignTenantModal({ payment, tenants = [], onClose }) 
           value={tenantId}
           onChange={(e) => setTenantId(e.target.value)}
           error={error}
-          options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+          options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
           required
         />
         <div className="flex justify-end gap-3 pt-2">

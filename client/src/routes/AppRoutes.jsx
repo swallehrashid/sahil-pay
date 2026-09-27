@@ -222,6 +222,17 @@ function LandlordLayout() {
   );
 }
 
+function TeamHelpGate({ children }) {
+  const { canEditSomething } = usePermissions();
+  if (canEditSomething) return children;
+  return (
+    <div className="glass max-w-xl p-6 text-sm text-white/60">
+      Help &amp; tutorials are available once the account owner gives you edit access to part of
+      the system. You currently have view-only access.
+    </div>
+  );
+}
+
 function TeamBottomBar({ onOpenMenu }) {
   const { can } = usePermissions();
   return (
@@ -429,6 +440,13 @@ export default function AppRoutes() {
             <Route element={<ProtectedRoutes requiredPermission={{ module: "payments", level: "view" }} />}>
               <Route path="payments" element={withSuspense(PaymentsPage)} />
               <Route path="payments/bank-statement/:id" element={withSuspense(BankStatementReview)} />
+              {/* Unmatched M-Pesa payments and owner payouts — the server gates
+                  both on the payments module, so a member holding it gets them. */}
+              <Route path="payments/review-queue" element={withSuspense(ReviewQueuePage)} />
+              <Route path="payouts" element={withSuspense(PayoutsLayout)}>
+                <Route index element={withSuspense(PayoutsPage)} />
+                <Route path="ledger" element={withSuspense(OwnerPayoutsPage)} />
+              </Route>
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "expenses", level: "view" }} />}>
               <Route path="imports" element={withSuspense(BulkImportPage)} />
@@ -453,14 +471,14 @@ export default function AppRoutes() {
               <Route path="messages" element={withSuspense(TenantMessagesInbox)} />
             </Route>
             <Route path="notifications" element={withSuspense(NotificationsPage)} />
-            {/* The product tour. Ungated: the page itself only offers the
-                tutorials whose module this member holds. */}
-            <Route path="tutorials" element={withSuspense(TutorialsPage)} />
+            {/* Help & tutorials are for members who can change something; the
+                tutorials page itself only offers modules the member can EDIT. */}
+            <Route path="tutorials" element={<TeamHelpGate>{withSuspense(TutorialsPage)}</TeamHelpGate>} />
 
             {/* Help library — the server filters articles to the caller's role,
                 so a team member sees the team_member/caretaker material. */}
-            <Route path="help" element={withSuspense(HelpPage, { basePath: TEAM_ROUTES.help })} />
-            <Route path="help/:slug" element={withSuspense(HelpPage, { basePath: TEAM_ROUTES.help })} />
+            <Route path="help" element={<TeamHelpGate>{withSuspense(HelpPage, { basePath: TEAM_ROUTES.help })}</TeamHelpGate>} />
+            <Route path="help/:slug" element={<TeamHelpGate>{withSuspense(HelpPage, { basePath: TEAM_ROUTES.help })}</TeamHelpGate>} />
 
             {/* eTIMS. Every /api/etims/* route is require_landlord_or_team()
                 and permission-gated server-side, so a member with the rights

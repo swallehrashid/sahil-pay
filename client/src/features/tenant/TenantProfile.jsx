@@ -4,7 +4,7 @@ import Button from "@/components/ui/Button";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 import { useGetPortalProfileQuery, useUpdatePortalProfileMutation } from "./tenantPortalApiSlice";
-import { isValidEmail, isValidPhone } from "@/utils/validators";
+import { isValidEmail, isValidPhone, PHONE_ERROR } from "@/utils/validators";
 
 // §6.6 — profile edits write straight to the same tenants row the landlord sees.
 export default function TenantProfile() {
@@ -28,7 +28,7 @@ export default function TenantProfile() {
     e.preventDefault();
     const nextErrors = {};
     if (!isValidEmail(form.email)) nextErrors.email = "Enter a valid email";
-    if (!isValidPhone(form.phone)) nextErrors.phone = "Enter a valid phone number";
+    if (!isValidPhone(form.phone)) nextErrors.phone = PHONE_ERROR;
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
     try {

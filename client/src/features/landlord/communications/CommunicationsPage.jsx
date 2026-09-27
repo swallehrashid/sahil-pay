@@ -18,16 +18,18 @@ import { toast } from "@/components/ui/Toast";
 import MessageTemplates from "./MessageTemplates";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { useGetCommunicationsQuery, useSendCommunicationMutation, useResendCommunicationMutation, useQuoteCommunicationMutation, useGetSmsBalanceQuery } from "./communicationApiSlice";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
-import { useGetTeamMembersQuery } from "../settings/teamApiSlice";
 import { MESSAGE_CHANNELS, MESSAGE_CHANNEL_LABELS, COMMUNICATION_STATUSES } from "@/utils/constants";
 import { formatDateTime } from "@/utils/dateFormatter";
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { useGetTenantOptionsQuery, useGetTeamMemberOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function CommunicationsPage() {
+  const { can } = usePermissions();
+  const canSend = can("messages", "edit");
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
   const composeFromQuery = searchParams.get("compose"); // #2 — pill deep-links "?compose=sms"
@@ -52,10 +54,10 @@ export default function CommunicationsPage() {
 
   const pg = usePagination();
   const { data, isLoading } = useGetCommunicationsQuery({ ...appliedFilters, ...pg.params });
-  const { data: tenantsData } = useGetTenantsQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
   // Team members are a first-class audience: the backend accepts
   // team_member_ids and scopes them to the caller's own properties.
-  const { data: teamData } = useGetTeamMembersQuery();
+  const { data: teamData } = useGetTeamMemberOptionsQuery();
   const [sendCommunication, { isLoading: isSending }] = useSendCommunicationMutation();
   const [resend] = useResendCommunicationMutation();
 
@@ -139,7 +141,7 @@ export default function CommunicationsPage() {
         title="Communications"
         subtitle="Every message sent through Sahil Pay"
         actions={
-          tab === "log" && (
+          tab === "log" && canSend && (
             <Button data-tour={ANCHORS.communications.composeButton} leftIcon={<Send className="h-4 w-4" />} onClick={() => setIsComposeOpen(true)}>
               Send message
             </Button>
@@ -216,7 +218,7 @@ export default function CommunicationsPage() {
                 rows={logs}
                 isLoading={isLoading}
                 rowActions={(row) =>
-                  row.status === "failed" && (
+                  row.status === "failed" && canSend && (
                     <button
                       onClick={() => resend(row.id).then(() => toast("Message resent.", { type: "success" }))}
                       className="rounded-lg p-1.5 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
@@ -250,7 +252,7 @@ export default function CommunicationsPage() {
             label={compose.audience === "tenants" ? "Tenants" : "Team members"}
             options={
               compose.audience === "tenants"
-                ? tenants.map((t) => ({ id: t.id, label: `${t.first_name} ${t.last_name}` }))
+                ? tenants.map((t) => ({ id: t.id, label: tenantOptionLabel(t) }))
                 : teamMembers.map((m) => ({
                     id: m.id,
                     label: [m.first_name, m.last_name].filter(Boolean).join(" ") || m.username,

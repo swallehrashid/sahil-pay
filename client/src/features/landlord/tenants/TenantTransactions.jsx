@@ -8,9 +8,10 @@ import { useGetTenantQuery, useGetTenantTransactionsQuery } from "./tenantApiSli
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { toRows } from "@/utils/tableAdapters";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 
 export default function TenantTransactions() {
+  const ROUTES = usePortalRoutes();
   const { id } = useParams();
   const { data: tenant } = useGetTenantQuery(id);
   const { data, isLoading } = useGetTenantTransactionsQuery(id);
@@ -30,9 +31,9 @@ export default function TenantTransactions() {
       <PageHeader
         title={tenant ? `${tenant.first_name} ${tenant.last_name} — Transactions` : "Tenant transactions"}
         subtitle="Full invoice & payment ledger for this tenant"
-        breadcrumbs={[{ label: "Tenants", to: LANDLORD_ROUTES.tenants }, { label: "Transactions" }]}
+        breadcrumbs={[{ label: "Tenants", to: ROUTES.tenants }, { label: "Transactions" }]}
         actions={
-          <Link to={LANDLORD_ROUTES.tenants}>
+          <Link to={ROUTES.tenants}>
             <Button variant="ghost" leftIcon={<ArrowLeft className="h-4 w-4" />}>
               Back to tenants
             </Button>

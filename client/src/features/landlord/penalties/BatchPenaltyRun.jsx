@@ -11,11 +11,11 @@ import { toast } from "@/components/ui/Toast";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { toRows } from "@/utils/tableAdapters";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useGetPropertiesQuery } from "@/features/landlord/properties/propertyApiSlice";
 import {
   useGetPenaltyCandidatesQuery,
   useRunBatchPenaltiesMutation,
 } from "./penaltyApiSlice";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 /**
  * Charge a penalty to many tenants at once, deliberately.
@@ -41,7 +41,7 @@ export default function BatchPenaltyRun() {
   const { can } = usePermissions();
   const canCharge = can("penalties", "edit");
 
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const properties = toRows(propertiesData);
 
   const [filters, setFilters] = useState({

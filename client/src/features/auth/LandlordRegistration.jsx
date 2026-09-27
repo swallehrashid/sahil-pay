@@ -8,7 +8,7 @@ import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useRegisterMutation } from "./authApiSlice";
 import { AUTH_ROUTES } from "@/config/routePaths";
-import { isRequired, isValidEmail, isValidPhone } from "@/utils/validators";
+import { isRequired, isValidEmail, isValidPhone, PHONE_ERROR } from "@/utils/validators";
 import { captureReferralFromUrl, getStoredReferral } from "@/utils/referralStorage";
 
 // Self-signup — creates users + landlords and starts the free trial.
@@ -33,7 +33,7 @@ export default function LandlordRegistration() {
     const nextErrors = {};
     if (!isRequired(form.company_name)) nextErrors.company_name = "Company name is required";
     if (!isRequired(form.email) || !isValidEmail(form.email)) nextErrors.email = "Enter a valid email";
-    if (!isValidPhone(form.phone)) nextErrors.phone = "Enter a valid phone number";
+    if (!isValidPhone(form.phone)) nextErrors.phone = PHONE_ERROR;
     if (!form.password || form.password.length < 8) nextErrors.password = "Use at least 8 characters";
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;

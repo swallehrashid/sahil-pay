@@ -7,11 +7,11 @@ import ResponsiveTable from "@/components/tables/ResponsiveTable";
 import Pagination from "@/components/ui/Pagination";
 import Modal from "@/components/ui/Modal";
 import { useGetAuditLogsQuery } from "./auditApiSlice";
-import { useGetTeamMembersQuery } from "./teamApiSlice";
 import { AUDIT_ENTITY_TYPES } from "@/utils/constants";
 import { formatDateTime } from "@/utils/dateFormatter";
 import { toRows, toPaginationMeta } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
+import { useGetTeamMemberOptionsQuery } from "@/store/lookupApiSlice";
 
 // §4.23 — filterable audit trail with an expandable before/after detail view.
 export default function AuditTrail() {
@@ -21,7 +21,7 @@ export default function AuditTrail() {
   const pg = usePagination();
 
   const { data, isLoading } = useGetAuditLogsQuery({ ...appliedFilters, ...pg.params });
-  const { data: teamData } = useGetTeamMembersQuery();
+  const { data: teamData } = useGetTeamMemberOptionsQuery();
 
   const logs = toRows(data);
   const meta = toPaginationMeta(data);

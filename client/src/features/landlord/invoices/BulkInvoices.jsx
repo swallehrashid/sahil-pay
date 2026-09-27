@@ -6,6 +6,7 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useBulkAddInvoicesMutation } from "./invoiceApiSlice";
+import { tenantOptionLabel } from "@/store/lookupApiSlice";
 
 const EMPTY_ROW = { tenant_id: "", item: "rent", amount: "" };
 
@@ -57,7 +58,7 @@ export default function BulkInvoices({ isOpen, onClose, tenants = [] }) {
                   label={index === 0 ? "Tenant" : undefined}
                   value={row.tenant_id}
                   onChange={(e) => updateRow(index, "tenant_id", e.target.value)}
-                  options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+                  options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
                 />
               </div>
               <div className="col-span-3">

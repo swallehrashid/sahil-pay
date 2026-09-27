@@ -19,16 +19,18 @@ import { toast } from "@/components/ui/Toast";
 import ExpenseForm from "./ExpenseForm";
 import RecurringExpenses from "./RecurringExpenses";
 import { useGetExpensesQuery, useCreateExpenseMutation, useUpdateExpenseMutation, useDeleteExpenseMutation } from "./expenseApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
-import { useGetUnitsQuery } from "../units/unitApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { EXPENSE_CATEGORIES, EXPENSE_STATUSES } from "@/utils/constants";
+import { useGetPropertyOptionsQuery, useGetUnitOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function ExpensesPage() {
+  const { can } = usePermissions();
+  const canEdit = can("expenses", "edit");
   const [tab, setTab] = useState("expenses");
   const [filters, setFilters] = useState({ property_id: "", category: "", status: "", date_from: "", date_to: "" });
   const [appliedFilters, setAppliedFilters] = useState({});
@@ -36,8 +38,8 @@ export default function ExpensesPage() {
 
   const pg = usePagination();
   const { data, isLoading } = useGetExpensesQuery({ ...appliedFilters, ...pg.params, search });
-  const { data: propertiesData } = useGetPropertiesQuery();
-  const { data: unitsData } = useGetUnitsQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
+  const { data: unitsData } = useGetUnitOptionsQuery();
   const [createExpense, { isLoading: isCreating }] = useCreateExpenseMutation();
   const [updateExpense, { isLoading: isUpdating }] = useUpdateExpenseMutation();
   const [deleteExpense] = useDeleteExpenseMutation();
@@ -102,7 +104,7 @@ export default function ExpensesPage() {
         title="Expenses"
         subtitle="Every cost incurred against your portfolio"
         actions={
-          tab === "expenses" && (
+          tab === "expenses" && canEdit && (
             <Button
               leftIcon={<Plus className="h-4 w-4" />}
               onClick={() => {
@@ -184,7 +186,7 @@ export default function ExpensesPage() {
                 columns={columns}
                 rows={expenses}
                 isLoading={isLoading}
-                rowActions={(row) => (
+                rowActions={canEdit ? (row) => (
                   <Dropdown
                     items={[
                       {
@@ -198,7 +200,7 @@ export default function ExpensesPage() {
                       { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
                     ]}
                   />
-                )}
+                ) : undefined}
               />
               <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
             </div>

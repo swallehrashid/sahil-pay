@@ -64,11 +64,15 @@ def list_audit_logs():
 
     query = AuditLog.query.filter_by(landlord_id=landlord_id)
 
-    if v := request.args.get("start_date"):
-        query = query.filter(AuditLog.created_at >= v)
-    if v := request.args.get("end_date"):
-        # Include the full end day
-        query = query.filter(AuditLog.created_at < f"{v} 23:59:59")
+    # The dates the user picks are Nairobi calendar days; created_at is UTC.
+    from utils import nairobi_day_start_utc
+    try:
+        if v := request.args.get("start_date"):
+            query = query.filter(AuditLog.created_at >= nairobi_day_start_utc(v))
+        if v := request.args.get("end_date"):
+            query = query.filter(AuditLog.created_at < nairobi_day_start_utc(v, days_after=1))
+    except ValueError:
+        return jsonify({"error": "Dates must be in YYYY-MM-DD format."}), 400
     if v := request.args.get("actor_user_id", type=int):
         query = query.filter(AuditLog.actor_user_id == v)
     if v := request.args.get("action"):

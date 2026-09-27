@@ -6,7 +6,6 @@ CRUD for Unit records.  Soft-delete only.
 tax_rate is optional on create — when NULL it inherits from the parent Property.
 """
 
-from datetime import datetime
 
 from flask import Blueprint, request, jsonify, abort, g
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -287,7 +286,7 @@ def update_unit(unit_id):
 @require_permission("units", "edit")
 def delete_unit(unit_id):
     """
-    Soft-delete a unit.
+    Soft-delete a unit and every tenant in it. The property stays.
     ---
     tags: [Units]
     security:
@@ -300,9 +299,8 @@ def delete_unit(unit_id):
     unit        = _get_or_404(landlord_id, unit_id)
     before      = unit.to_dict()
 
-    unit.is_deleted = True
-    unit.deleted_at = datetime.utcnow()
-    db.session.flush()
+    from services.cascade_delete_service import delete_unit as cascade_delete
+    tenants_removed = cascade_delete(unit)
     # A deleted unit is not a unit the landlord has. Without this the count
     # only ever went up.
     recount([unit.property_id])
@@ -314,12 +312,16 @@ def delete_unit(unit_id):
         action="delete_unit",
         entity_type="unit",
         entity_id=unit.id,
-        description=f"Unit '{unit.name}' soft-deleted.",
+        description=f"Unit '{unit.name}' deleted with {tenants_removed} tenant(s).",
         before_data=before,
     )
     db.session.commit()
 
-    return jsonify({"message": f"Unit '{unit.name}' has been deleted."}), 200
+    return jsonify({
+        "message": f"Unit '{unit.name}' has been deleted"
+                   + (f", with its {tenants_removed} tenant(s)." if tenants_removed else "."),
+        "tenants_deleted": tenants_removed,
+    }), 200
 
 
 # ---------------------------------------------------------------------------

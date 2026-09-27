@@ -44,12 +44,17 @@ def queue_charge(landlord_id: int, unit, *, item: str, amount,
                  category_id: int | None = None, subcategory: str | None = "current",
                  description: str | None = None,
                  utility_reading_id: int | None = None,
-                 actor_user_id: int | None = None):
+                 actor_user_id: int | None = None,
+                 needs_review: bool = False):
     """
     Hold a charge against *unit* until its next invoice.
 
-    Flushes but does not commit — the caller owns the transaction, matching
-    every other service here.
+    needs_review=True files it as PENDING: somebody who cannot bill (a
+    caretaker) submitted it, and an invoices editor must approve it before any
+    invoice will take it.
+
+    Returns None for a zero amount, or when the reading is already waiting.
+    Flushes but does not commit — the caller owns the transaction.
     """
     from extensions import db
     from models import QueuedCharge
@@ -57,6 +62,18 @@ def queue_charge(landlord_id: int, unit, *, item: str, amount,
     amount = Decimal(str(amount or 0))
     if amount <= ZERO:
         return None
+
+    if utility_reading_id is not None:
+        already = (
+            db.session.query(QueuedCharge.id)
+            .filter(QueuedCharge.utility_reading_id == utility_reading_id,
+                    QueuedCharge.status.in_([QueuedCharge.STATUS_PENDING,
+                                             QueuedCharge.STATUS_QUEUED,
+                                             QueuedCharge.STATUS_CONSUMED]))
+            .first()
+        )
+        if already:
+            return None
 
     occupant = None
     tenants = [t for t in (unit.tenants or []) if not t.is_deleted]
@@ -73,7 +90,7 @@ def queue_charge(landlord_id: int, unit, *, item: str, amount,
         description=description,
         amount=amount,
         utility_reading_id=utility_reading_id,
-        status=QueuedCharge.STATUS_QUEUED,
+        status=QueuedCharge.STATUS_PENDING if needs_review else QueuedCharge.STATUS_QUEUED,
         created_by_user_id=actor_user_id,
     )
     db.session.add(row)
@@ -98,15 +115,17 @@ def pending_total_for_unit(unit_id: int) -> Decimal:
     return sum((Decimal(str(c.amount)) for c in pending_for_unit(unit_id)), ZERO)
 
 
-def pending_for_landlord(landlord_id: int, *, unit_ids=None) -> list:
-    """Everything waiting across the account — the queue screen's data."""
+def pending_for_landlord(landlord_id: int, *, unit_ids=None, status: str | None = None) -> list:
+    """Everything waiting across the account — the queue screen's data.
+    *status* defaults to approved (queued) charges; pass STATUS_PENDING for the
+    ones waiting for review."""
     from extensions import db
     from models import QueuedCharge
 
     query = (
         db.session.query(QueuedCharge)
         .filter(QueuedCharge.landlord_id == landlord_id,
-                QueuedCharge.status == QueuedCharge.STATUS_QUEUED)
+                QueuedCharge.status == (status or QueuedCharge.STATUS_QUEUED))
     )
     if unit_ids is not None:
         query = query.filter(QueuedCharge.unit_id.in_(unit_ids))
@@ -137,6 +156,11 @@ def consume_into_invoice(invoice, charges, *, tenant=None) -> Decimal:
         amount = Decimal(str(charge.amount or 0))
         if amount <= ZERO:
             continue
+
+        # The reading is billed now; without this it still read "Not invoiced"
+        # and could be queued a second time.
+        if charge.utility_reading is not None and charge.utility_reading.invoice_id is None:
+            charge.utility_reading.invoice_id = invoice.id
 
         db.session.add(InvoiceLineItem(
             invoice_id=invoice.id,
@@ -195,8 +219,34 @@ def cancel(charge, *, actor_user_id: int | None = None) -> None:
     db.session.flush()
 
 
+def review(charges, *, approve: bool, actor_user_id: int | None, note: str | None = None) -> int:
+    """
+    Approve (-> queued, billable) or reject PENDING charges. Anything not
+    pending is left alone, so two reviewers clicking at once cannot flip a
+    charge twice. Returns how many changed.
+    """
+    from extensions import db
+    from models import QueuedCharge
+
+    now = datetime.utcnow()
+    changed = 0
+    for charge in charges:
+        if charge.status != QueuedCharge.STATUS_PENDING:
+            continue
+        charge.status = QueuedCharge.STATUS_QUEUED if approve else QueuedCharge.STATUS_REJECTED
+        charge.reviewed_by_user_id = actor_user_id
+        charge.reviewed_at = now
+        charge.review_note = (note or None) and note[:255]
+        changed += 1
+    db.session.flush()
+    return changed
+
+
 def summary_for_landlord(landlord_id: int, *, unit_ids=None) -> dict:
     """Counts and totals for the queue screen and the dashboard nudge."""
+    from models import QueuedCharge
+
+    waiting = pending_for_landlord(landlord_id, unit_ids=unit_ids, status=QueuedCharge.STATUS_PENDING)
     charges = pending_for_landlord(landlord_id, unit_ids=unit_ids)
     by_unit: dict[int, dict] = {}
     for charge in charges:
@@ -210,6 +260,8 @@ def summary_for_landlord(landlord_id: int, *, unit_ids=None) -> dict:
         bucket["total"] += Decimal(str(charge.amount or 0))
 
     return {
+        "review_count": len(waiting),
+        "review_total": float(sum((Decimal(str(c.amount)) for c in waiting), ZERO)),
         "count": len(charges),
         "total": float(sum((Decimal(str(c.amount)) for c in charges), ZERO)),
         "units": [

@@ -56,6 +56,7 @@ from .penalty_routes          import penalty_bp
 from .lease_routes            import lease_bp
 from .tutorial_routes         import tutorial_bp
 from .admin_tutorial_routes   import admin_tutorial_bp
+from .lookup_routes           import lookup_bp
 
 
 def register_blueprints(app):
@@ -96,6 +97,7 @@ def register_blueprints(app):
     app.register_blueprint(allocation_bp)         # /api/payments/review-queue, /api/payouts, …
     app.register_blueprint(penalty_bp)            # /api/properties/<id>/penalty-policy, /api/reports/penalties
     app.register_blueprint(lease_bp)              # /api/leases, /api/tenants/<id>/leases, /api/portal/lease
+    app.register_blueprint(lookup_bp)             # /api/lookups (unpaginated dropdown options)
 
     # ── Team Member portal (thin — session / permissions only) ─────────────────
     app.register_blueprint(teammember_bp)         # /api/team-member

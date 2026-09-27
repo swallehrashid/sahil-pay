@@ -92,6 +92,7 @@ function buildPortalRoutes(rootPrefix) {
     routes[key] = `${rootPrefix}/${suffix}`;
   }
   routes.tenantTransactionsPath = (id) => `${rootPrefix}/tenants/${id}/transactions`;
+  routes.bankStatementReviewPath = (id) => `${rootPrefix}/payments/bank-statement/${id}`;
   // Help articles are addressed by SLUG, which stays stable when the admin
   // rewrites a title — so dashboard nudges and settings links never rot.
   routes.helpArticle = (slug) => `${rootPrefix}/help/${slug}`;

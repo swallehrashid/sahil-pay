@@ -7,14 +7,16 @@ import Button from "@/components/ui/Button";
 import Spinner from "@/components/ui/Spinner";
 import { toast } from "@/components/ui/Toast";
 import { useGetPortalMessagesQuery, useSendPortalMessageMutation } from "./tenantPortalApiSlice";
+import { parseApiDate } from "@/utils/dateFormatter";
 
 // A conversation between the tenant and their landlord/team. The tenant raises
 // what they want (tagged with a topic); the landlord and any team member with
 // the `messages` permission reply, and those replies land here + in the bell.
 function formatWhen(iso) {
   if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return parseApiDate(iso).toLocaleString("en-KE", {
+    timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
 }
 
 export default function TenantMessages() {

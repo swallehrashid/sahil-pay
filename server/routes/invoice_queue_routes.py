@@ -2,7 +2,11 @@
 routes/invoice_queue_routes.py — charges waiting for an invoice.
 Blueprint: invoice_queue_bp  |  Prefix: /api/invoice-queue
 
-    GET    /                     everything waiting, grouped by unit
+    GET    /                     everything waiting, grouped by unit (?status=pending
+                                 for charges a caretaker submitted for review)
+    POST   /review               approve / reject pending charges (some or all)
+    POST   /run-monthly          raise this month's invoices now: rent and/or
+                                 approved queued charges, balance b/f included
     GET    /units/<id>           what is waiting for one unit
     POST   /units/<id>/apply     put it on an invoice now
     DELETE /<id>                 cancel one without billing it
@@ -63,14 +67,108 @@ def _unit_or_404(landlord_id: int, unit_id: int) -> Unit:
 @require_landlord_or_team()
 @require_permission("invoices", "view")
 def list_queue():
-    """Everything waiting to be billed, grouped by unit."""
+    """Everything waiting to be billed (approved), or ?status=pending for the
+    charges waiting for review. Also says whether the 1st-of-month run is on."""
+    from models import Landlord
+
     landlord_id = get_current_landlord_id()
     unit_ids = _scoped_unit_ids()
+    status = QueuedCharge.STATUS_PENDING if request.args.get("status") == "pending" else None
+    aut = db.session.get(Landlord, landlord_id).automation_settings
     return success({
         **queue.summary_for_landlord(landlord_id, unit_ids=unit_ids),
+        "status": status or QueuedCharge.STATUS_QUEUED,
         "charges": [c.to_dict() for c in
-                    queue.pending_for_landlord(landlord_id, unit_ids=unit_ids)],
+                    queue.pending_for_landlord(landlord_id, unit_ids=unit_ids, status=status)],
+        "automation": {
+            "auto_invoice_rent": bool(aut and aut.auto_generate_recurring_invoices),
+            "auto_invoice_queued": bool(aut and aut.auto_invoice_queued_charges),
+        },
     })
+
+
+@invoice_queue_bp.route("/review", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "edit")
+def review_queue():
+    """
+    Approve or reject charges waiting for review.
+    Body: { action: "approve" | "reject", charge_ids?: [int], all?: bool, note?: str }
+    `all` takes every pending charge the caller can see.
+    """
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    if action not in ("approve", "reject"):
+        raise ApiError("action must be 'approve' or 'reject'.", status=400)
+
+    unit_ids = _scoped_unit_ids()
+    pending = queue.pending_for_landlord(landlord_id, unit_ids=unit_ids,
+                                         status=QueuedCharge.STATUS_PENDING)
+    if not data.get("all"):
+        wanted = {int(x) for x in (data.get("charge_ids") or [])}
+        if not wanted:
+            raise ApiError("Choose at least one charge, or pass all: true.", status=400)
+        pending = [c for c in pending if c.id in wanted]
+
+    actor = int(get_jwt_identity())
+    changed = queue.review(pending, approve=(action == "approve"), actor_user_id=actor,
+                           note=data.get("note"))
+    total = sum(float(c.amount or 0) for c in pending)
+    record_audit(
+        actor_user_id=actor,
+        landlord_id=landlord_id,
+        action=f"{action}_queued_charges",
+        entity_type="queued_charge",
+        entity_id=None,
+        description=(f"{changed} queued charge(s) totalling {total:,.2f} "
+                     f"{'approved for the next invoice' if action == 'approve' else 'rejected'}."),
+    )
+    db.session.commit()
+    verb = "approved" if action == "approve" else "rejected"
+    return success({"changed": changed}, message=f"{changed} charge(s) {verb}.")
+
+
+@invoice_queue_bp.route("/run-monthly", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "edit")
+def run_monthly_now():
+    """
+    Raise this month's invoices now, the same way the 1st-of-month run does.
+    Body: { include_rent: bool, include_queued: bool, issue_date?: YYYY-MM-DD,
+            property_ids?: [int] }
+    One invoice per tenant per month: rent (and other fixed monthly charges),
+    approved queued charges and any unpaid balance carried forward. A tenant who
+    already has this month's invoice gets the approved queued charges added to it.
+    """
+    from tasks.invoice_tasks import run_monthly_billing_task
+
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    include_rent = bool(data.get("include_rent", True))
+    include_queued = bool(data.get("include_queued", True))
+    if not (include_rent or include_queued):
+        raise ApiError("Choose rent, queued charges, or both.", status=400)
+
+    property_ids = data.get("property_ids") or None
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        property_ids = [p for p in (property_ids or allowed) if p in allowed]
+        if not property_ids:
+            raise ApiError("You do not have access to those properties.", status=403)
+
+    task = run_monthly_billing_task.delay(
+        landlord_id, data.get("issue_date"), property_ids, None, int(get_jwt_identity()),
+        include_rent, include_queued,
+    )
+    tally = task.result if isinstance(task.result, dict) else None
+    message = "Monthly invoicing started."
+    if tally:
+        message = (f"{tally.get('created', 0)} invoice(s) created, "
+                   f"{tally.get('updated', 0)} updated with queued charges.")
+    return success({"task_id": task.id, "result": tally}, message=message, status=202)
 
 
 @invoice_queue_bp.route("/units/<int:unit_id>", methods=["GET"])

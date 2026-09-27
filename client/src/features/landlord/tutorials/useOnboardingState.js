@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useGetOnboardingQuery, useUpdateOnboardingMutation } from "./tutorialsApiSlice";
 
@@ -8,11 +8,22 @@ const DEFAULT_COUNTS = {
 
 // Landlord/PM only, and never while an admin is impersonating (ONBOARDING_TUTORIALS_SPEC.md
 // §4.5) — the admin poking around must not consume the landlord's one-time welcome or write
-// progress on their behalf. Team members never reach this hook (TourProvider isn't mounted
-// for them at all — see AppRoutes.jsx).
+// progress on their behalf.
 function useIsEligible() {
   const { role, impersonating } = useAuth();
   return (role === "landlord" || role === "property_manager") && !impersonating;
+}
+
+// Team members run the same tours but have no server-side progress blob (that is
+// the account owner's). Their "Completed" badges are kept on their own device.
+const teamKey = (userId) => `sp_team_tutorials_${userId}`;
+
+function readTeamProgress(userId) {
+  try {
+    return JSON.parse(localStorage.getItem(teamKey(userId)) || "{}");
+  } catch {
+    return {};
+  }
 }
 
 // Reads/writes the landlord's onboarding+tutorials progress blob (ONBOARDING_TUTORIALS_SPEC.md
@@ -20,8 +31,11 @@ function useIsEligible() {
 // decision never has to wait on a network round trip; the live RTK Query value takes over once
 // it resolves.
 export function useOnboardingState() {
-  const { user } = useAuth();
+  const { user, role } = useAuth();
   const isEligible = useIsEligible();
+  const isTeam = role === "team_member";
+  const userId = user?.id;
+  const [teamProgress, setTeamProgress] = useState(() => (isTeam && user?.id ? readTeamProgress(user.id) : {}));
   const seedState = user?.profile?.onboarding_state ?? null;
 
   const { data, isLoading, isFetching } = useGetOnboardingQuery(undefined, { skip: !isEligible });
@@ -65,6 +79,16 @@ export function useOnboardingState() {
 
   const markTutorial = useCallback(
     (tutorialId, status) => {
+      if (isTeam && userId) {
+        const next = { ...readTeamProgress(userId), [tutorialId]: { status, at: new Date().toISOString() } };
+        try {
+          localStorage.setItem(teamKey(userId), JSON.stringify(next));
+        } catch {
+          // storage unavailable — the badge just won't persist
+        }
+        setTeamProgress(next);
+        return;
+      }
       if (!isEligible) return;
       write({
         version: 1,
@@ -76,14 +100,19 @@ export function useOnboardingState() {
         },
       });
     },
-    [isEligible, state, write]
+    [isEligible, isTeam, userId, state, write]
   );
 
-  const tutorialStatus = useCallback((tutorialId) => state?.tutorials?.[tutorialId]?.status ?? null, [state]);
+  const tutorialStatus = useCallback(
+    (tutorialId) => (isTeam ? teamProgress[tutorialId]?.status : state?.tutorials?.[tutorialId]?.status) ?? null,
+    [isTeam, teamProgress, state]
+  );
 
   return useMemo(
     () => ({
       isEligible,
+      // Who may start a tour at all: the account owner, or a team member.
+      canRunTours: isEligible || isTeam,
       isHydrated,
       state,
       counts,
@@ -92,7 +121,7 @@ export function useOnboardingState() {
       markTutorial,
       tutorialStatus,
     }),
-    [isEligible, isHydrated, state, counts, markWelcomeSeen, dismissChecklist, markTutorial, tutorialStatus]
+    [isEligible, isTeam, isHydrated, state, counts, markWelcomeSeen, dismissChecklist, markTutorial, tutorialStatus]
   );
 }
 

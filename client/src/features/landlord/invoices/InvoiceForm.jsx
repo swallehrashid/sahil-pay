@@ -10,6 +10,7 @@ import { isRequired } from "@/utils/validators";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { useGetChargeCategoriesQuery } from "../chargeCategoryApiSlice";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { tenantOptionLabel } from "@/store/lookupApiSlice";
 
 // Charge-category restructure (§5.2): every line targets a (category, subcategory)
 // pair — "Rent — Deposit", "Rent — Balance", "Rent — This month", "Water — Deposit"…
@@ -160,7 +161,7 @@ export default function InvoiceForm({ initialValues, tenants = [], onSubmit, onC
           value={form.tenant_id}
           onChange={update("tenant_id")}
           error={errors.tenant_id}
-          options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+          options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
           required
           data-tour={ANCHORS.invoices.tenantSelect}
         />

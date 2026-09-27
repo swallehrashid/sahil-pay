@@ -10,6 +10,7 @@ import { isRequired, validateMoneyField } from "@/utils/validators";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { useGetTenantOutstandingItemsQuery } from "../chargeCategoryApiSlice";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { tenantOptionLabel } from "@/store/lookupApiSlice";
 
 // "Jun 2026" from an issue date (handles ISO + RFC date strings the API returns).
 function monthLabel(d) {
@@ -103,7 +104,7 @@ export default function RecordPaymentForm({ initialValues, tenants = [], onSubmi
         value={form.tenant_id}
         onChange={update("tenant_id")}
         error={errors.tenant_id}
-        options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+        options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
         required
         data-tour={ANCHORS.payments.tenantSelect}
       />
