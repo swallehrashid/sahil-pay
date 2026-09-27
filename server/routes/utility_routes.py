@@ -22,6 +22,7 @@ from decorators import (
     scope_to_accessible_properties,
 )
 from services.audit_service import record_audit
+from utils import accessible_property_ids
 
 utility_bp = Blueprint("utilities", __name__, url_prefix="/api/utilities")
 
@@ -70,14 +71,30 @@ def list_readings():
         query = query.filter(UtilityReading.utility_item == v)
     if v := request.args.get("reading_month"):
         query = query.filter(UtilityReading.reading_month == v)
+    if request.args.get("billing") == "unbilled":
+        query = query.filter(UtilityReading.invoice_id.is_(None))
 
     paginated = query.order_by(
         UtilityReading.reading_month.desc(), UtilityReading.id.desc()
     ).paginate(page=page, per_page=per_page, error_out=False)
 
+    # Where each reading stands in the review → invoice flow: the latest queued
+    # charge made from it, if any.
+    from models import QueuedCharge
+    queue_status = {}
+    ids = [r.id for r in paginated.items]
+    if ids:
+        for rid, status in (
+            db.session.query(QueuedCharge.utility_reading_id, QueuedCharge.status)
+            .filter(QueuedCharge.utility_reading_id.in_(ids))
+            .order_by(QueuedCharge.id.asc())
+        ):
+            queue_status[rid] = status
+
     items = []
     for r in paginated.items:
         d = r.to_dict()
+        d["queue_status"]   = queue_status.get(r.id)
         d["property_name"]  = r.property.name if r.property else None
         d["unit_name"]      = r.unit.name     if r.unit     else None
         d["invoice_number"] = r.invoice.invoice_number if r.invoice else None
@@ -440,6 +457,154 @@ def bulk_generate_utility_invoices():
     return jsonify({"task_id": task.id, "message": "Utility invoice generation queued."}), 202
 
 
+def _reading_amount(reading, override=None):
+    """(amount, None) for a reading, or (None, reason) when it cannot be priced.
+    An explicit override wins; then a flat amount; then consumption × rate
+    (the category's default rate, else the property's water/electricity rate)."""
+    if override not in (None, ""):
+        amount = Decimal(str(override))
+    elif reading.amount not in (None, ""):
+        amount = Decimal(str(reading.amount))
+    else:
+        rate = None
+        item_lower = (reading.utility_item or "").lower()
+        if reading.category and reading.category.default_rate is not None:
+            rate = reading.category.default_rate
+        elif item_lower == "water":
+            rate = reading.property.water_rate if reading.property else None
+        elif item_lower == "electricity":
+            rate = reading.property.electricity_rate if reading.property else None
+        if rate is None:
+            return None, f"No rate configured for {reading.utility_item}; pass an explicit amount."
+        amount = Decimal(str(reading.consumption or 0)) * Decimal(str(rate))
+    if amount <= 0:
+        return None, "Computed amount is zero — set a consumption/rate or pass an amount."
+    return amount, None
+
+
+def _queue_label(reading):
+    cat = reading.category
+    sub = reading.subcategory or "current"
+    return (cat.subcategory_display().get(sub, cat.name) if cat
+            else (reading.utility_item or "Utility").capitalize()), sub
+
+
+# ---------------------------------------------------------------------------
+# POST /api/utilities/queue — submit readings for the next invoice
+# ---------------------------------------------------------------------------
+@utility_bp.route("/queue", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("utilities", "edit")
+def queue_readings():
+    """
+    Queue readings for their unit's next invoice.
+
+    Body: { reading_ids?: [int] } or a scope { property_id?, category_id?,
+    utility_item?, reading_month? } — every unbilled, not-yet-queued reading in it.
+
+    Somebody who can bill (the owner, or a member with Invoices → Edit) queues
+    them as approved. Anyone else — a caretaker who only holds Utilities —
+    submits them for review: they wait as PENDING until an invoices editor
+    approves them, and no invoice will take them before that.
+    """
+    from models import QueuedCharge
+    from services import invoice_queue_service as queue
+    from utils import can_edit_module
+
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    actor_id = int(get_jwt_identity())
+    needs_review = not can_edit_module("invoices")
+
+    query = UtilityReading.query.filter(UtilityReading.landlord_id == landlord_id,
+                                        UtilityReading.invoice_id.is_(None))
+    allowed = accessible_property_ids()
+    if allowed is not None:
+        query = query.filter(UtilityReading.property_id.in_(allowed))
+    if data.get("reading_ids"):
+        query = query.filter(UtilityReading.id.in_([int(x) for x in data["reading_ids"]]))
+    else:
+        if not (data.get("property_id") or data.get("reading_month")):
+            return jsonify({"error": "Pass reading_ids, or a property_id / reading_month scope."}), 400
+        if v := data.get("property_id"):
+            query = query.filter(UtilityReading.property_id == int(v))
+        if v := data.get("category_id"):
+            query = query.filter(UtilityReading.category_id == int(v))
+        if v := data.get("utility_item"):
+            query = query.filter(UtilityReading.utility_item == v)
+        if v := data.get("reading_month"):
+            query = query.filter(UtilityReading.reading_month == v)
+
+    queued, skipped = 0, []
+    total = Decimal("0")
+    for reading in query.all():
+        amount, error = _reading_amount(reading)
+        if error:
+            skipped.append({"reading_id": reading.id, "unit": reading.unit.name if reading.unit else None,
+                            "reason": error})
+            continue
+        label, sub = _queue_label(reading)
+        charge = queue.queue_charge(
+            landlord_id, reading.unit, item=label, amount=amount,
+            category_id=reading.category_id, subcategory=sub,
+            description=f"{reading.reading_month} — {reading.previous_reading or 0} to {reading.current_reading}"
+                        if reading.current_reading is not None else reading.reading_month,
+            utility_reading_id=reading.id, actor_user_id=actor_id, needs_review=needs_review,
+        )
+        if charge is None:
+            continue   # already waiting or billed
+        queued += 1
+        total += amount
+
+    if queued:
+        verb = "submitted for review" if needs_review else "queued for the next invoice"
+        record_audit(
+            actor_user_id=actor_id, landlord_id=landlord_id, action="queue_utility_readings",
+            entity_type="queued_charge", entity_id=None,
+            description=f"{queued} utility charge(s) totalling {total:,.2f} {verb}.",
+        )
+        if needs_review:
+            _notify_reviewers(landlord_id, actor_id, queued, total)
+    db.session.commit()
+
+    status = QueuedCharge.STATUS_PENDING if needs_review else QueuedCharge.STATUS_QUEUED
+    message = (f"{queued} charge(s) sent for review." if needs_review
+               else f"{queued} charge(s) queued for the next invoice.")
+    if skipped:
+        message += f" {len(skipped)} could not be priced."
+    return jsonify({"queued": queued, "status": status, "total": float(total),
+                    "skipped": skipped, "message": message}), 201
+
+
+def _notify_reviewers(landlord_id, actor_id, count, total):
+    """Tell the owner and every member who can approve that charges are waiting."""
+    from models import Landlord, TeamMember, TeamMemberPermission, User
+    from services.notification_service import notify
+
+    actor = db.session.get(User, actor_id)
+    tm = getattr(actor, "team_member_profile", None)
+    who = (f"{tm.first_name or ''} {tm.last_name or ''}".strip() or tm.username) if tm else "A team member"
+    recipients = set()
+    landlord = db.session.get(Landlord, landlord_id)
+    if landlord and landlord.user_id:
+        recipients.add(landlord.user_id)
+    for (uid,) in (
+        db.session.query(TeamMember.user_id)
+        .join(TeamMemberPermission, TeamMemberPermission.team_member_id == TeamMember.id)
+        .filter(TeamMember.landlord_id == landlord_id, TeamMember.is_active.is_(True),
+                TeamMemberPermission.module == "invoices", TeamMemberPermission.can_edit.is_(True))
+    ):
+        recipients.add(uid)
+    recipients.discard(actor_id)
+    for uid in recipients:
+        notify(recipient_user_id=uid, category="queue_review",
+               title="Charges waiting for your review",
+               body=f"{who} submitted {count} utility charge(s) totalling KES {total:,.2f}.",
+               landlord_id=landlord_id, link="/landlord/invoices?tab=queue",
+               entity_type="queued_charge", entity_id=None)
+
+
 # ---------------------------------------------------------------------------
 # POST /api/utilities/<id>/add-to-invoice
 # ---------------------------------------------------------------------------
@@ -482,33 +647,13 @@ def add_reading_to_invoice(reading_id):
     if reading.invoice_id:
         return jsonify({"error": "This reading is already on an invoice."}), 400
 
-    tenant = reading.unit.tenants[0] if reading.unit and reading.unit.tenants else None
+    tenant = next((t for t in (reading.unit.tenants if reading.unit else []) if not t.is_deleted), None)
     if tenant is None:
         return jsonify({"error": "This unit has no active tenant to bill."}), 400
 
-    # Resolve the amount to bill.
-    if data.get("amount") not in (None, ""):
-        amount = Decimal(str(data["amount"]))
-    elif reading.amount not in (None, ""):
-        # #8 — flat (non-metered) utility recorded with an explicit amount.
-        amount = Decimal(str(reading.amount))
-    else:
-        # Metered: consumption × rate. Prefer the catalogue default_rate, then the
-        # property's water/electricity rate.
-        rate = None
-        item_lower = (reading.utility_item or "").lower()
-        if reading.category and reading.category.default_rate is not None:
-            rate = reading.category.default_rate
-        elif item_lower == "water":
-            rate = reading.property.water_rate if reading.property else None
-        elif item_lower == "electricity":
-            rate = reading.property.electricity_rate if reading.property else None
-        if rate is None:
-            return jsonify({"error": f"No rate configured for {reading.utility_item}; pass an explicit amount."}), 400
-        amount = Decimal(str(reading.consumption or 0)) * Decimal(str(rate))
-
-    if amount <= 0:
-        return jsonify({"error": "Computed amount is zero — set a consumption/rate or pass an amount."}), 400
+    amount, error = _reading_amount(reading, data.get("amount"))
+    if error:
+        return jsonify({"error": error}), 400
 
     description = f"{reading.reading_month} — {reading.previous_reading or 0} to {reading.current_reading}"
 
@@ -517,10 +662,7 @@ def add_reading_to_invoice(reading_id):
     if mode == "queue":
         from services import invoice_queue_service as queue
 
-        cat = reading.category
-        sub = reading.subcategory or "current"
-        label = (cat.subcategory_display().get(sub, cat.name) if cat
-                 else (reading.utility_item or "Utility").capitalize())
+        label, sub = _queue_label(reading)
         charge = queue.queue_charge(
             landlord_id, reading.unit,
             item=label,

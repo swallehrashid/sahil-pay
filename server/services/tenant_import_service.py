@@ -312,9 +312,11 @@ def validate_rows(landlord_id: int, rows: list[dict]) -> dict:
             if err:
                 errors.append(err)
 
+        from services.phone_service import canonical_phone, INVALID_MESSAGE
         phone = normalise_phone(cleaned["phone"])
-        if cleaned["phone"] and not phone:
-            errors.append(f"phone doesn't look like a number ('{cleaned['phone']}').")
+        if cleaned["phone"] and not canonical_phone(cleaned["phone"]):
+            errors.append(f"phone '{cleaned['phone']}': {INVALID_MESSAGE}")
+            phone = None
 
         # Property / unit existence
         if property_key and property_key not in existing_properties:
@@ -406,6 +408,7 @@ def commit_rows(landlord, rows: list[dict], actor_user_id: int | None = None) ->
     )
     from services.category_service import rent_category_id, seed_default_categories
     from services.tenant_identity_service import link_tenant_to_user
+    from services.phone_service import canonical_phone
     from utils import gen_reference
 
     validation = validate_rows(landlord.id, rows)
@@ -487,7 +490,7 @@ def commit_rows(landlord, rows: list[dict], actor_user_id: int | None = None) ->
         tenant = Tenant(
             landlord_id=landlord.id, unit_id=unit.id,
             first_name=data["first_name"].strip(), last_name=data["last_name"].strip(),
-            phone=data["phone"].strip(),
+            phone=canonical_phone(data["phone"]) or data["phone"].strip(),
             email=(data["email"].strip().lower() or None),
             national_id=data["national_id"].strip() or None,
             account_number=account_number,

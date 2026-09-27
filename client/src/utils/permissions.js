@@ -10,6 +10,13 @@ export function can(permissions, module, level = "view") {
   return Boolean(entry.can_view || entry.can_edit);
 }
 
+// True when the caller may change something somewhere. Help & tutorials teach how
+// to DO things, so a view-only team member is not offered them at all.
+export function hasAnyEdit(permissions) {
+  if (!permissions) return true;
+  return Object.values(permissions).some((entry) => entry?.can_edit);
+}
+
 // A hidden module must never render in nav at all — not merely disabled.
 //
 // `item.requires` lets a link demand EDIT rather than view. Most nav entries
@@ -25,4 +32,4 @@ export function buildVisibleNav(navItems, permissions) {
   );
 }
 
-export default { can, buildVisibleNav };
+export default { can, hasAnyEdit, buildVisibleNav };

@@ -46,10 +46,16 @@ export const ANCHORS = {
     tenantSelect: "invoices-tenant-select",
     lineItemsArea: "invoices-line-items-area",
     saveButton: "invoices-save",
+    queueTab: "invoices-queue-tab",
+    reviewSection: "invoices-review-section",
+    approvedSection: "invoices-approved-section",
+    runMonthly: "invoices-run-monthly",
   },
   utilities: {
     categoriesButton: "utilities-categories-button",
     recordButton: "utilities-record-button",
+    bulkButton: "utilities-bulk-button",
+    queueButton: "utilities-queue-button",
   },
   payments: {
     recordButton: "payments-record-button",

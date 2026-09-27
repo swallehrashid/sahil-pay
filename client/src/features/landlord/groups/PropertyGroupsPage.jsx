@@ -10,14 +10,16 @@ import { toast } from "@/components/ui/Toast";
 import GroupForm from "./GroupForm";
 import AssignManagerModal from "./AssignManagerModal";
 import { useGetPropertyGroupsQuery, useCreatePropertyGroupMutation, useUpdatePropertyGroupMutation, useDeletePropertyGroupMutation } from "./groupApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
-import { useGetTeamMembersQuery } from "../settings/teamApiSlice";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetPropertyOptionsQuery, useGetTeamMemberOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function PropertyGroupsPage() {
+  const { can } = usePermissions();
+  const canEdit = can("groups", "edit");
   const { data, isLoading } = useGetPropertyGroupsQuery();
-  const { data: propertiesData } = useGetPropertiesQuery();
-  const { data: teamData } = useGetTeamMembersQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
+  const { data: teamData } = useGetTeamMemberOptionsQuery();
   const [createGroup, { isLoading: isCreating }] = useCreatePropertyGroupMutation();
   const [updateGroup, { isLoading: isUpdating }] = useUpdatePropertyGroupMutation();
   const [deleteGroup] = useDeletePropertyGroupMutation();
@@ -68,7 +70,7 @@ export default function PropertyGroupsPage() {
       <PageHeader
         title="Property Groups"
         subtitle="Organize properties for reporting and manager assignment"
-        actions={
+        actions={canEdit && (
           <Button
             leftIcon={<Plus className="h-4 w-4" />}
             onClick={() => {
@@ -78,7 +80,7 @@ export default function PropertyGroupsPage() {
           >
             Add group
           </Button>
-        }
+        )}
       />
 
       <ResponsiveTable
@@ -86,7 +88,7 @@ export default function PropertyGroupsPage() {
         rows={groups}
         isLoading={isLoading}
         emptyState={<p className="text-sm text-white/50">No property groups yet.</p>}
-        rowActions={(row) => (
+        rowActions={canEdit ? (row) => (
           <Dropdown
             items={[
               { label: "Assign manager", icon: <UserCog className="h-4 w-4" />, onClick: () => setAssignTarget(row) },
@@ -101,7 +103,7 @@ export default function PropertyGroupsPage() {
               { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
             ]}
           />
-        )}
+        ) : undefined}
       />
 
       <Modal isOpen={isFormOpen} onClose={() => setIsFormOpen(false)} title={active ? "Edit group" : "Add group"}>

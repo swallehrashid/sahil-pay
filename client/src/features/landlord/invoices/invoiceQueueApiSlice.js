@@ -7,9 +7,21 @@ const unwrap = (response) => response?.data ?? response;
 export const invoiceQueueApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getInvoiceQueue: builder.query({
-      query: () => "/invoice-queue/",
+      query: (params) => ({ url: "/invoice-queue/", params }),
       transformResponse: unwrap,
       providesTags: ["InvoiceQueue"],
+    }),
+    reviewQueuedCharges: builder.mutation({
+      query: (body) => ({ url: "/invoice-queue/review", method: "POST", body }),
+      transformResponse: (response) => ({ ...(response?.data ?? {}), message: response?.message }),
+      invalidatesTags: ["InvoiceQueue", "Utility"],
+    }),
+    // Raise this month's invoices now: rent and/or approved queued charges,
+    // with any unpaid balance carried forward onto the same invoice.
+    runMonthlyInvoicing: builder.mutation({
+      query: (body) => ({ url: "/invoice-queue/run-monthly", method: "POST", body }),
+      transformResponse: (response) => ({ ...(response?.data ?? {}), message: response?.message }),
+      invalidatesTags: ["InvoiceQueue", "Invoice", "Tenant", "Utility", "Dashboard"],
     }),
     // Asked by the invoice form before saving, so it can warn that a unit has
     // charges waiting rather than letting somebody raise a bill that silently
@@ -31,7 +43,7 @@ export const invoiceQueueApiSlice = apiSlice.injectEndpoints({
     }),
     cancelQueuedCharge: builder.mutation({
       query: (id) => ({ url: `/invoice-queue/${id}`, method: "DELETE" }),
-      invalidatesTags: ["InvoiceQueue"],
+      invalidatesTags: ["InvoiceQueue", "Utility"],
     }),
   }),
 });
@@ -41,4 +53,6 @@ export const {
   useGetUnitInvoiceQueueQuery,
   useApplyQueuedChargesMutation,
   useCancelQueuedChargeMutation,
+  useReviewQueuedChargesMutation,
+  useRunMonthlyInvoicingMutation,
 } = invoiceQueueApiSlice;

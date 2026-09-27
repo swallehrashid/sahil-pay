@@ -8,7 +8,7 @@ Put new documentation here.
 
 | Document | What it covers |
 |---|---|
-| [REDEPLOY.md](REDEPLOY.md) | **The current release** — env changes, nginx, balances review, verification, rollback |
+| [REDEPLOY.md](REDEPLOY.md) | **The current release** — dropdowns, backup & delete, cascade deletes, SMS billing, phone format, team tutorials, audit time, team members + queued invoices |
 | [MPESA_GO_LIVE.md](MPESA_GO_LIVE.md) | Switching M-Pesa on: what is verified, Org-portal steps, first live test |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | First-time VPS setup from scratch |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment overview |
@@ -70,6 +70,7 @@ contradicts them they carry a banner at the top pointing at the current source.
 
 | Document |
 |---|
+| [REDEPLOY_2026-09_NINE_ITEMS.md](REDEPLOY_2026-09_NINE_ITEMS.md) |
 | [REDEPLOY_2026-09_RESEND.md](REDEPLOY_2026-09_RESEND.md) |
 | [DEPLOY_THIS_RELEASE.md](DEPLOY_THIS_RELEASE.md) |
 | [REDEPLOY_2026-08.md](REDEPLOY_2026-08.md) |

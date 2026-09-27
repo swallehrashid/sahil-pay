@@ -21,7 +21,10 @@ export const communicationApiSlice = apiSlice.injectEndpoints({
     // it — see the route's docstring.
     getSmsBalance: builder.query({
       query: () => "/communications/sms-balance",
-      providesTags: ["Communication"],
+      // Anything that can send an SMS (a welcome on tenant create, a reminder, an
+      // invoice, a receipt, a lease) invalidates one of these, so the balance on
+      // screen drops the moment credits are spent.
+      providesTags: ["Communication", "Tenant", "Invoice", "Payment", "Lease", "Notification", "Settings"],
     }),
     resendCommunication: builder.mutation({
       query: (id) => ({ url: `/communications/${id}/resend`, method: "POST" }),

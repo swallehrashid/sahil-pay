@@ -17,8 +17,12 @@ import { toRows, toPaginationMeta, readSummary } from "@/utils/tableAdapters";
 import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function PropertiesPage() {
+  const { can } = usePermissions();
+  // View-only members see the list; only editors get the write actions.
+  const canEdit = can("properties", "edit");
   const pg = usePagination();
   const [search, setSearch] = useState("");
   // `name` is the properties endpoint's search parameter.
@@ -70,8 +74,8 @@ export default function PropertiesPage() {
 
   const handleDelete = async () => {
     try {
-      await deleteProperty(pendingDelete.id).unwrap();
-      toast("Property deleted.", { type: "success" });
+      const res = await deleteProperty(pendingDelete.id).unwrap();
+      toast(res?.message || "Property deleted.", { type: "success" });
     } catch {
       toast("Could not delete the property.", { type: "error" });
     } finally {
@@ -92,11 +96,11 @@ export default function PropertiesPage() {
       <PageHeader
         title="Properties"
         subtitle="Every property in your portfolio"
-        actions={
+        actions={canEdit && (
           <Button data-tour={ANCHORS.properties.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
             Add property
           </Button>
-        }
+        )}
       />
 
       {/* Server-side search. At this scale filtering the twenty rows already
@@ -125,14 +129,14 @@ export default function PropertiesPage() {
           columns={columns}
           rows={properties}
           isLoading={isLoading}
-          rowActions={(row) => (
+          rowActions={canEdit ? (row) => (
             <Dropdown
               items={[
                 { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
                 { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
               ]}
             />
-          )}
+          ) : undefined}
         />
         <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
       </div>
@@ -146,7 +150,7 @@ export default function PropertiesPage() {
         onClose={() => setPendingDelete(null)}
         onConfirm={handleDelete}
         title="Delete property?"
-        description={`"${pendingDelete?.name}" will be moved out of your active properties list.`}
+        description={`"${pendingDelete?.name}" will be deleted together with ALL of its units${pendingDelete?.unit_count ? ` (${pendingDelete.unit_count})` : ""} and every tenant in them. Their past invoices and payments stay in your reports.`}
       />
     </div>
   );

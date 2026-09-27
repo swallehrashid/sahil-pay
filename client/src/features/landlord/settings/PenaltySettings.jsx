@@ -8,13 +8,13 @@ import Badge from "@/components/ui/Badge";
 import { SkeletonForm } from "@/components/ui/Skeleton";
 import { toast } from "@/components/ui/Toast";
 import { toRows } from "@/utils/tableAdapters";
-import { useGetPropertiesQuery } from "@/features/landlord/properties/propertyApiSlice";
 import {
   useGetPenaltyPolicyQuery,
   useSavePenaltyPolicyMutation,
   usePreviewPenaltiesQuery,
   useRunPenaltiesMutation,
 } from "@/features/landlord/penalties/penaltyApiSlice";
+import { useGetPropertyOptionsQuery } from "@/store/lookupApiSlice";
 
 // Late-payment penalties, configured PER PROPERTY.
 //
@@ -53,7 +53,7 @@ const EMPTY = {
 
 export default function PenaltySettings() {
   const { data: propertiesData, isLoading: loadingProperties } =
-    useGetPropertiesQuery({ per_page: 200 });
+    useGetPropertyOptionsQuery();
   const properties = useMemo(() => toRows(propertiesData), [propertiesData]);
 
   const [chosenId, setChosenId] = useState(null);

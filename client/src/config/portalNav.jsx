@@ -34,10 +34,10 @@ export function buildPortalNav(routes, { etims = false, leaseReviewCount = 0, is
         { to: routes.invoices, label: "Invoices", module: "invoices", dataTour: ANCHORS.sidebar.invoices },
         // Money that arrived but couldn't be matched with certainty — next to
         // Payments, where someone looks when a tenant says "I paid".
-        ...(isLandlord ? [{ to: routes.reviewQueue, label: "Review queue", module: "payments" }] : []),
+        { to: routes.reviewQueue, label: "Review queue", module: "payments" },
         { to: routes.expenses, label: "Expenses", module: "expenses" },
         { to: routes.reportsPenalties, label: "Penalties", module: "penalties" },
-        ...(isLandlord ? [{ to: routes.payouts, label: "Owner payouts", module: "payments" }] : []),
+        { to: routes.payouts, label: "Owner payouts", module: "payments" },
         ...(etims ? [{ to: routes.etimsRegister, label: "eTIMS register", module: "properties" }] : []),
       ],
     },

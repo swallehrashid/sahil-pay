@@ -27,8 +27,6 @@ import GenerateCustomInvoices from "./GenerateCustomInvoices";
 import GenerateCategoryInvoices from "./GenerateCategoryInvoices";
 import { useGetInvoicesQuery, useCreateInvoiceMutation, useUpdateInvoiceMutation, useDeleteInvoiceMutation, useSendInvoiceMutation } from "./invoiceApiSlice";
 import { useGetChargeCategoriesQuery } from "../chargeCategoryApiSlice";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile } from "@/utils/downloadFile";
@@ -37,15 +35,19 @@ import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { INVOICE_STATUSES } from "@/utils/constants";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { useGetPropertyOptionsQuery, useGetTenantOptionsQuery } from "@/store/lookupApiSlice";
+import { usePermissions } from "@/hooks/usePermissions";
 
 export default function InvoicesPage() {
+  const { can } = usePermissions();
+  const canEdit = can("invoices", "edit");
   const [searchParams] = useSearchParams();
   const tenantIdFromQuery = searchParams.get("tenant_id");
 
   // Charges held for a later invoice. Surfaced as a tab with a count rather
   // than a separate page: whoever is looking at invoices is the person who
   // needs to know something is waiting to go on one.
-  const [tab, setTab] = useState("invoices");
+  const [tab, setTab] = useState(searchParams.get("tab") === "queue" ? "queue" : "invoices");
   const { data: queueData } = useGetInvoiceQueueQuery();
 
   const [filters, setFilters] = useState({ status: "", date_from: "", date_to: "" });
@@ -54,8 +56,8 @@ export default function InvoicesPage() {
 
   const pg = usePagination();
   const { data, isLoading } = useGetInvoicesQuery({ ...appliedFilters, ...pg.params });
-  const { data: tenantsData } = useGetTenantsQuery();
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const { data: catData } = useGetChargeCategoriesQuery({ kind: "invoice", include_inactive: 0 });
   const [createInvoice, { isLoading: isCreating }] = useCreateInvoiceMutation();
   const [updateInvoice, { isLoading: isUpdating }] = useUpdateInvoiceMutation();
@@ -134,6 +136,7 @@ export default function InvoicesPage() {
         subtitle="Every invoice you've sent, and anything waiting to go on one"
         actions={
           <>
+            {canEdit && (
             <Dropdown
               align="right"
               trigger={
@@ -153,6 +156,8 @@ export default function InvoicesPage() {
                 })),
               ]}
             />
+            )}
+            {canEdit && (
             <Button
               variant="ghost"
               data-tour={ANCHORS.invoices.categoriesButton}
@@ -161,6 +166,7 @@ export default function InvoicesPage() {
             >
               Categories
             </Button>
+            )}
             <Button
               variant="ghost"
               leftIcon={<Download className="h-4 w-4" />}
@@ -168,9 +174,11 @@ export default function InvoicesPage() {
             >
               Download all
             </Button>
+            {canEdit && (
             <Button data-tour={ANCHORS.invoices.addButton} leftIcon={<Plus className="h-4 w-4" />} onClick={openCreate}>
               Add invoice
             </Button>
+            )}
           </>
         }
       />
@@ -178,7 +186,8 @@ export default function InvoicesPage() {
       <Tabs
         tabs={[
           { key: "invoices", label: "Invoices" },
-          { key: "queue", label: "Waiting to be billed", count: queueData?.count || undefined },
+          { key: "queue", label: "Queued charges", count: ((queueData?.count || 0) + (queueData?.review_count || 0)) || undefined,
+            dataTour: ANCHORS.invoices.queueTab },
         ]}
         activeKey={tab}
         onChange={setTab}
@@ -224,15 +233,15 @@ export default function InvoicesPage() {
             rowActions={(row) => (
               <Dropdown
                 items={[
-                  { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
-                  { label: "Send", icon: <Send className="h-4 w-4" />, onClick: () => sendInvoice(row.id).then(() => toast("Invoice sent.", { type: "success" })) },
+                  canEdit && { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
+                  canEdit && { label: "Send", icon: <Send className="h-4 w-4" />, onClick: () => sendInvoice(row.id).then(() => toast("Invoice sent.", { type: "success" })) },
                   {
                     label: "Download",
                     icon: <Download className="h-4 w-4" />,
                     onClick: () => downloadFile(`/invoices/${row.id}/download`, { filename: `${row.invoice_number}.pdf` }),
                   },
-                  { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
-                ]}
+                  canEdit && { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
+                ].filter(Boolean)}
               />
             )}
           />

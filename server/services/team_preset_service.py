@@ -101,6 +101,20 @@ PRESETS: dict[str, dict] = {
         # module was blocking most visibly.
         "edit": ["tenants", "messages", "maintenance", "leases", "notifications"],
     },
+    "full_access": {
+        "label": "Full access",
+        "description": (
+            "Office manager: can see and change everything the account owner "
+            "can — properties, tenants, invoices, payments, utilities, messages, "
+            "reports — except Settings."
+        ),
+        "role": "editor",
+        "scope": "all",
+        "view": [],
+        # Filled in below from PermissionModule, so a module added later is
+        # included without anybody remembering to update this list.
+        "edit": [],
+    },
     "custom": {
         "label": "Custom",
         "description": "Start from an empty matrix and grant exactly what you choose.",
@@ -110,6 +124,13 @@ PRESETS: dict[str, dict] = {
         "edit": [],
     },
 }
+
+def _all_modules() -> list[str]:
+    from models import PermissionModule
+    return [m.value for m in PermissionModule]
+
+
+PRESETS["full_access"]["edit"] = _all_modules()
 
 VALID_PRESETS = tuple(PRESETS.keys())
 

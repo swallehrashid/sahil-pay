@@ -1144,3 +1144,40 @@ def decrement_sms_balance(landlord, n: int = 1) -> None:
                 )
             except Exception as exc:  # never let an alert break an SMS send
                 logger.error("low_sms alert dispatch failed: %s", exc)
+
+def nairobi_day_start_utc(day, days_after: int = 0) -> datetime:
+    """
+    Naive-UTC datetime at which the Nairobi calendar day *day* (a date or
+    'YYYY-MM-DD') begins, shifted by *days_after* days. Timestamps are stored
+    in UTC, so "everything on 27 September" in Kenya starts at 21:00 UTC on the
+    26th — filtering on the bare date would drop the first three hours.
+    """
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+
+    if isinstance(day, str):
+        day = datetime.strptime(day[:10], "%Y-%m-%d").date()
+    local = datetime(day.year, day.month, day.day, tzinfo=ZoneInfo("Africa/Nairobi"))
+    local += timedelta(days=days_after)
+    return local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+def can_edit_module(module: str) -> bool:
+    """Whether the current caller may EDIT *module*. Owners, property managers
+    and admins always may; a team member needs can_edit on that module."""
+    from extensions import db
+    from models import TeamMemberPermission
+
+    user = get_jwt_user()
+    if user.role in ("landlord", "property_manager", "system_admin"):
+        return True
+    tm = getattr(user, "team_member_profile", None)
+    if user.role != "team_member" or tm is None:
+        return False
+    return bool(
+        db.session.query(TeamMemberPermission.id)
+        .filter(TeamMemberPermission.team_member_id == tm.id,
+                TeamMemberPermission.module == module,
+                TeamMemberPermission.can_edit.is_(True))
+        .first()
+    )

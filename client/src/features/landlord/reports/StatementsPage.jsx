@@ -10,11 +10,10 @@ import YearOnYearReport from "./YearOnYearReport";
 import GroupingReport from "./GroupingReport";
 import DeletedTenantsReport from "./DeletedTenantsReport";
 import PaymentsReport from "./PaymentsReport";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
-import { useGetPropertiesQuery } from "../properties/propertyApiSlice";
 import { useGetPropertyGroupsQuery } from "../groups/groupApiSlice";
 import { toRows } from "@/utils/tableAdapters";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
+import { useGetPropertyOptionsQuery, useGetTenantOptionsQuery } from "@/store/lookupApiSlice";
 
 const TABS = [
   { key: "payments", label: "Payments" },
@@ -33,8 +32,8 @@ const TABS = [
 // the landlord's letterhead + signature.
 export default function StatementsPage() {
   const [tab, setTab] = useState("tenant");
-  const { data: tenantsData } = useGetTenantsQuery();
-  const { data: propertiesData } = useGetPropertiesQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
+  const { data: propertiesData } = useGetPropertyOptionsQuery();
   const { data: groupsData } = useGetPropertyGroupsQuery();
 
   const tenants = toRows(tenantsData);

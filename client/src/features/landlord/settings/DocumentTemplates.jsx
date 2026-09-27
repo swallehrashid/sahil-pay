@@ -18,10 +18,10 @@ import {
   useDeleteDocumentTemplateMutation,
   useSendDocumentMutation,
 } from "./documentApiSlice";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { DOCUMENT_TYPES } from "@/utils/constants";
 import { isRequired } from "@/utils/validators";
 import { toRows } from "@/utils/tableAdapters";
+import { useGetTenantOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
 
 function TemplateForm({ initialValues, onSubmit, onCancel, isSubmitting }) {
   const [form, setForm] = useState({ name: "", document_type: "lease", content: "", ...initialValues });
@@ -81,7 +81,7 @@ function SendDocumentModal({ template, tenants, onClose }) {
           label="Tenant"
           value={tenantId}
           onChange={(e) => setTenantId(e.target.value)}
-          options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))}
+          options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))}
           required
         />
         <div className="flex justify-end gap-3 pt-2">
@@ -100,7 +100,7 @@ function SendDocumentModal({ template, tenants, onClose }) {
 // §4.18 (beta) — lease/tenancy/deposit document templates, dispatched to tenants.
 export default function DocumentTemplates() {
   const { data, isLoading } = useGetDocumentTemplatesQuery();
-  const { data: tenantsData } = useGetTenantsQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
   const [createTemplate, { isLoading: isCreating }] = useCreateDocumentTemplateMutation();
   const [updateTemplate, { isLoading: isUpdating }] = useUpdateDocumentTemplateMutation();
   const [deleteTemplate] = useDeleteDocumentTemplateMutation();

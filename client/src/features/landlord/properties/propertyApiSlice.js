@@ -21,7 +21,7 @@ export const propertyApiSlice = apiSlice.injectEndpoints({
     }),
     deleteProperty: builder.mutation({
       query: (id) => ({ url: `/properties/${id}`, method: "DELETE" }),
-      invalidatesTags: ["Property"],
+      invalidatesTags: ["Property", "Unit", "Tenant"],
     }),
     addUnitsToProperty: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/properties/${id}/units`, method: "POST", body }),

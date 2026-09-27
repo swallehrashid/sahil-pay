@@ -35,7 +35,7 @@ export const tenantApiSlice = apiSlice.injectEndpoints({
     }),
     deleteTenant: builder.mutation({
       query: (id) => ({ url: `/tenants/${id}`, method: "DELETE" }),
-      invalidatesTags: ["Tenant"],
+      invalidatesTags: ["Tenant", "Unit", "Property"],
     }),
     shiftTenant: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/tenants/${id}/shift`, method: "POST", body }),

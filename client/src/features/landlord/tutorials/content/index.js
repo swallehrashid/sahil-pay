@@ -9,6 +9,8 @@ import paymentsAndMpesa from "./paymentsAndMpesa";
 import allocation from "./allocation";
 import communications from "./communications";
 import reports from "./reports";
+import utilities from "./utilities";
+import reviewQueue from "./reviewQueue";
 
 // Ordered registry of every tutorial (ONBOARDING_TUTORIALS_SPEC.md §7). Section order here
 // drives both the hub page's card order and the onboarding sequence's picks.
@@ -19,6 +21,8 @@ export const TUTORIALS = [
   addTenant,
   chargeCategories,
   createInvoice,
+  utilities,
+  reviewQueue,
   recordPayment,
   paymentsAndMpesa,
   allocation,

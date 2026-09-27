@@ -22,7 +22,7 @@ import { toRows } from "@/utils/tableAdapters";
 import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile, fetchObjectUrl } from "@/utils/downloadFile";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
+import { useGetTenantOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
 import {
   useGetLeasesQuery,
   useSendLeaseMutation,
@@ -260,8 +260,15 @@ function SendLeaseWizard({ isOpen, onClose }) {
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
 
-  const { data: tenantsData, isFetching } = useGetTenantsQuery({ search, per_page: 50 }, { skip: !isOpen });
-  const tenants = toRows(tenantsData);
+  const { data: tenantsData, isFetching } = useGetTenantOptionsQuery(undefined, { skip: !isOpen });
+  const allTenants = toRows(tenantsData);
+  const tenants = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allTenants;
+    return allTenants.filter((t) =>
+      [t.first_name, t.last_name, t.phone, t.unit_name, t.property_name, t.account_number]
+        .filter(Boolean).join(" ").toLowerCase().includes(q));
+  }, [allTenants, search]);
   const { data: options } = useGetLeaseDocumentOptionsQuery(undefined, { skip: !isOpen });
   const [sendLeases, { isLoading }] = useSendLeasesMutation();
 
@@ -541,10 +548,9 @@ function ReviewDrawer({ lease, onClose, mayEdit }) {
 }
 
 function UploadLeaseModal({ isOpen, onClose }) {
-  const [search, setSearch] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [file, setFile] = useState(null);
-  const { data: tenantsData } = useGetTenantsQuery({ search, per_page: 50 }, { skip: !isOpen });
+  const { data: tenantsData } = useGetTenantOptionsQuery(undefined, { skip: !isOpen });
   const tenants = toRows(tenantsData);
   const [upload, { isLoading }] = useUploadLeaseMutation();
 
@@ -564,9 +570,9 @@ function UploadLeaseModal({ isOpen, onClose }) {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Record a lease signed in the office">
       <form onSubmit={submit} className="space-y-4">
-        <SearchInput value={search} onSearch={setSearch} placeholder="Find the tenant…" />
         <Select label="Tenant" value={tenantId} onChange={(e) => setTenantId(e.target.value)} required
-                options={tenants.map((t) => ({ value: t.id, label: `${t.first_name} ${t.last_name}` }))} />
+                searchPlaceholder="Type a name, unit or property…"
+                options={tenants.map((t) => ({ value: t.id, label: tenantOptionLabel(t) }))} />
         <FileUpload label="The signed agreement" accept=".pdf,image/*" value={file} onChange={setFile}
                     hint="One PDF is best. A clear photo of the signed pages also works." />
         <p className="text-sm text-white/50">

@@ -1,7 +1,7 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import PageHeader from "@/components/layout/PageHeader";
-import { LANDLORD_ROUTES } from "@/config/routePaths";
+import { LANDLORD_ROUTES, TEAM_ROUTES } from "@/config/routePaths";
 
 /**
  * One home for owner money, with the two halves of the job as tabs.
@@ -21,12 +21,14 @@ import { LANDLORD_ROUTES } from "@/config/routePaths";
  * pattern as Settings, so the shell is already familiar.
  */
 
-const SECTIONS = [
-  { to: LANDLORD_ROUTES.payoutRuns, label: "Payout runs", end: true },
-  { to: LANDLORD_ROUTES.payoutLedger, label: "Ledger" },
+const sectionsFor = (routes) => [
+  { to: routes.payoutRuns, label: "Payout runs", end: true },
+  { to: routes.payoutLedger, label: "Ledger" },
 ];
 
 export default function PayoutsLayout() {
+  const { pathname } = useLocation();
+  const SECTIONS = sectionsFor(pathname.startsWith("/team") ? TEAM_ROUTES : LANDLORD_ROUTES);
   return (
     <div>
       <PageHeader

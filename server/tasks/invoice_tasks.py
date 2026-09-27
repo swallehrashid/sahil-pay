@@ -123,16 +123,23 @@ def _unpaid_components(li) -> list[tuple[date, "Decimal"]]:
     return [(origin, remaining)]
 
 
-def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, issue_dt: date, actor_user_id):
+def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, issue_dt: date, actor_user_id,
+                                    include_rent: bool = True, include_queued: bool = True):
     """
     Do the month-end work for ONE tenant (caller owns the transaction / commit):
       1. Roll unpaid prior-month current/balance lines into one "{Category} Balance
          b/f" line per category on the new monthly invoice (deposits NEVER roll);
          mark sources 'rolled'; write BalanceRollover provenance rows.
-      2. Add a 'current' line for each active auto_bill_monthly category.
-      3. Apply any held tenant credit.
-    Idempotent: skips a tenant who already has this run month's monthly invoice.
-    Returns "created" | "skipped" | "empty".
+      2. include_rent: add a 'current' line for each active auto_bill_monthly
+         category (rent and any other fixed monthly charge).
+      3. include_queued: add every APPROVED queued charge for the unit.
+      4. Apply any held tenant credit.
+
+    One monthly invoice per tenant per month. When it already exists, approved
+    queued charges are appended to it (if it is still open) → "updated".
+    With rent off, an invoice is only raised when there is a queued charge —
+    arrears alone never produce a new bill.
+    Returns "created" | "updated" | "skipped" | "empty".
     """
     from decimal import Decimal
     from extensions import db
@@ -156,6 +163,14 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
         .first()
     )
     if existing is not None:
+        if include_queued and existing.status in (InvoiceStatus.open.value, InvoiceStatus.partial.value):
+            from services import invoice_queue_service as queue
+            waiting = queue.pending_for_unit(unit.id)
+            if waiting and queue.consume_into_invoice(existing, waiting, tenant=tenant) > 0:
+                record_audit(actor_user_id, landlord.id, "run_monthly_billing", "invoice", existing.id,
+                             f"{len(waiting)} approved queued charge(s) added to "
+                             f"{existing.invoice_number} for {tenant.first_name} {tenant.last_name}.")
+                return "updated"
         return "skipped"
 
     Z = Decimal("0")
@@ -198,7 +213,7 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
         .all()
     )
     current_lines: list[tuple[ChargeCategory, Decimal]] = []
-    for cat in auto_cats:
+    for cat in (auto_cats if include_rent else []):
         if cat.name.lower() == "rent":
             amount = Decimal(str(unit.rent_amount or 0))
         else:
@@ -212,9 +227,9 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
     # still has to be billed for the water.
     from services import invoice_queue_service as queue
 
-    queued = queue.pending_for_unit(unit.id)
+    queued = queue.pending_for_unit(unit.id) if include_queued else []
 
-    if not per_category and not current_lines and not queued:
+    if not current_lines and not queued and (not include_rent or not per_category):
         return "empty"
 
     cats_by_id = {c.id: c for c in ChargeCategory.query.filter_by(landlord_id=landlord.id).all()}
@@ -308,7 +323,8 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
 
 
 @celery.task(name="tasks.invoice_tasks.run_monthly_billing_task")
-def run_monthly_billing_task(landlord_id, issue_date=None, property_ids=None, unit_ids=None, actor_user_id=None) -> dict:
+def run_monthly_billing_task(landlord_id, issue_date=None, property_ids=None, unit_ids=None, actor_user_id=None,
+                             include_rent=True, include_queued=True) -> dict:
     """
     Month-end billing + rollover for one landlord (spec §3). One transaction per
     tenant so a single tenant's failure can't poison the whole run.
@@ -319,8 +335,8 @@ def run_monthly_billing_task(landlord_id, issue_date=None, property_ids=None, un
     issue_dt = parse_date(issue_date) or date.today()
     run_month_first = _first_of_month(issue_dt)
     landlord = db.session.get(Landlord, landlord_id)
-    if landlord is None:
-        return {"created": 0, "skipped": 0, "empty": 0, "errors": 0}
+    if landlord is None or not (include_rent or include_queued):
+        return {"created": 0, "updated": 0, "skipped": 0, "empty": 0, "errors": 0}
 
     query = Tenant.query.filter_by(landlord_id=landlord_id, is_deleted=False)
     if unit_ids:
@@ -328,11 +344,12 @@ def run_monthly_billing_task(landlord_id, issue_date=None, property_ids=None, un
     elif property_ids:
         query = query.join(Unit, Unit.id == Tenant.unit_id).filter(Unit.property_id.in_(property_ids))
 
-    tally = {"created": 0, "skipped": 0, "empty": 0, "errors": 0}
+    tally = {"created": 0, "updated": 0, "skipped": 0, "empty": 0, "errors": 0}
     for tenant in query.all():
         try:
             outcome = _run_monthly_billing_for_tenant(
-                landlord, tenant, run_month_first, issue_dt, actor_user_id)
+                landlord, tenant, run_month_first, issue_dt, actor_user_id,
+                include_rent=include_rent, include_queued=include_queued)
             db.session.commit()
             tally[outcome] = tally.get(outcome, 0) + 1
         except Exception:
@@ -346,17 +363,26 @@ def run_monthly_billing_task(landlord_id, issue_date=None, property_ids=None, un
 @celery.task(name="tasks.invoice_tasks.run_monthly_billing_all")
 def run_monthly_billing_all(issue_date=None) -> dict:
     """
-    Celery Beat entry (1st of month): run month-end billing for every landlord.
-    Demo shadow landlords (DEMO_MODE_SPEC.md §3.4) are skipped — their example
-    data must never churn overnight; it only changes via the demo/reset flow.
+    Celery Beat entry (1st of month): month-end billing for every landlord who
+    turned it on in Settings → Automation:
+        auto_generate_recurring_invoices  → rent + fixed monthly charges
+        auto_invoice_queued_charges       → approved queued charges
+    Both on: one invoice with rent, queued charges and any balance b/f. Both off:
+    nothing is invoiced for that account. Demo shadow landlords are skipped.
     """
     from models import Landlord
 
-    totals = {"landlords": 0, "created": 0, "skipped": 0, "empty": 0, "errors": 0}
+    totals = {"landlords": 0, "created": 0, "updated": 0, "skipped": 0, "empty": 0, "errors": 0}
     for landlord in Landlord.query.filter(Landlord.is_demo.is_(False)).all():
-        res = run_monthly_billing_task(landlord.id, issue_date=issue_date)
+        aut = landlord.automation_settings
+        include_rent = bool(aut and aut.auto_generate_recurring_invoices)
+        include_queued = bool(aut and aut.auto_invoice_queued_charges)
+        if not (include_rent or include_queued):
+            continue
+        res = run_monthly_billing_task.run(landlord.id, issue_date=issue_date,
+                                           include_rent=include_rent, include_queued=include_queued)
         totals["landlords"] += 1
-        for k in ("created", "skipped", "empty", "errors"):
+        for k in ("created", "updated", "skipped", "empty", "errors"):
             totals[k] += res.get(k, 0)
     return totals
 

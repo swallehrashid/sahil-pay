@@ -72,17 +72,22 @@ export function portaliseTutorial(tutorial, portal) {
  * The tutorials this viewer should be offered, already rewritten for their
  * portal.
  *
+ * A team member is offered a tutorial only when they can EDIT its module: the
+ * tutorials teach how to add, record and send, and a view-only member can do
+ * none of that. `module: null` tutorials (the product overview) go to anyone
+ * who can edit something. The account owner sees everything.
+ *
  * @param tutorials  the full registry
  * @param portal     "landlord" | "team"
  * @param can        usePermissions().can — always true for a landlord
  */
 export function visibleTutorials(tutorials, portal, can) {
+  const anyEdit = tutorials.some((t) => t.module && can(t.module, "edit"));
   return tutorials
     .filter((tutorial) => {
-      // `module: null` means the tutorial explains the product rather than a
-      // permissioned area (the welcome overview), so everyone sees it.
-      if (!tutorial.module) return true;
-      return can(tutorial.module, "view");
+      if (portal !== "team") return true;
+      if (!tutorial.module) return anyEdit;
+      return can(tutorial.module, "edit");
     })
     .map((tutorial) => portaliseTutorial(tutorial, portal))
     .filter(Boolean);

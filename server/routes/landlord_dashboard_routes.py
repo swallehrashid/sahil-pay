@@ -34,6 +34,7 @@ from models import (
 )
 from decorators import (
     require_landlord_or_team, get_current_landlord_id, scope_to_accessible_properties,
+    require_permission,
 )
 
 dashboard_bp = Blueprint("dashboard", __name__, url_prefix="/api/dashboard")
@@ -68,6 +69,7 @@ _NOT_BF = db.func.coalesce(InvoiceLineItem.subcategory, "") != "balance"
 @dashboard_bp.route("/summary", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("payments", "view")
 @scope_to_accessible_properties
 def get_summary():
     """
@@ -166,6 +168,7 @@ def get_summary():
 @dashboard_bp.route("/unpaid-tenants", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("payments", "view")
 @scope_to_accessible_properties
 def get_unpaid_tenants():
     """
@@ -232,6 +235,7 @@ def get_unpaid_tenants():
 @dashboard_bp.route("/performance-graph", methods=["GET"])
 @jwt_required()
 @require_landlord_or_team()
+@require_permission("payments", "view")
 @scope_to_accessible_properties
 def get_performance_graph():
     """

@@ -138,6 +138,7 @@ def list_team_members():
         .options(
             selectinload(TeamMember.permissions),
             selectinload(TeamMember.property_accesses),
+            selectinload(TeamMember.user),
         )
         .filter_by(landlord_id=landlord_id)
     )
@@ -164,6 +165,7 @@ def list_team_members():
     items = []
     for tm in paginated.items:
         d = tm.to_dict()
+        d["email"] = tm.user.email if tm.user else None
         d["permissions"] = [p.to_dict() for p in tm.permissions]
         d["property_access"] = (
             "all" if tm.property_access_all
@@ -217,6 +219,13 @@ def create_team_member():
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "An account with this email already exists."}), 400
 
+    from services.phone_service import canonical_phone, INVALID_MESSAGE
+    phone = None
+    if (data.get("phone") or "").strip():
+        phone = canonical_phone(data["phone"])
+        if phone is None:
+            return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+
     # System-issued temporary password the member must change on first login.
     temp_password = _generate_temp_password()
 
@@ -229,7 +238,7 @@ def create_team_member():
 
     user = User(
         email                = email,
-        phone                = data.get("phone"),
+        phone                = phone,
         password_hash        = generate_password_hash(temp_password),
         role                 = UserRole.team_member.value,
         is_verified          = False,
@@ -246,7 +255,7 @@ def create_team_member():
         username            = username,
         first_name          = data.get("first_name"),
         last_name           = data.get("last_name"),
-        phone               = data.get("phone"),
+        phone               = phone,
         role                = role,
         preset              = preset,
         property_access_all = data.get("property_access_all", False),
@@ -345,6 +354,15 @@ def update_team_member(member_id):
     tm          = _get_or_404(landlord_id, member_id)
     data        = request.get_json(silent=True) or {}
     before      = tm.to_dict()
+
+    if "phone" in data:
+        from services.phone_service import canonical_phone, INVALID_MESSAGE
+        if (data["phone"] or "").strip():
+            data["phone"] = canonical_phone(data["phone"])
+            if data["phone"] is None:
+                return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+        else:
+            data["phone"] = None
 
     for field in ["first_name", "last_name", "phone", "role",
                   "username", "property_access_all"]:

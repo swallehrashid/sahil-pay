@@ -55,7 +55,10 @@ export async function staffLogin(page, email, password) {
 }
 
 export function lastOtp(phone) {
-  const out = execSync(`grep "login code is" ${API_LOG} | grep -F "${phone}" | tail -1 || true`).toString();
+  // Match on the subscriber digits: the log shows the number as it was SENT
+  // (254…), whatever format the tenant typed.
+  const tail = String(phone).replace(/\D/g, "").slice(-9);
+  const out = execSync(`grep "login code is" ${API_LOG} | grep -F "${tail}" | tail -1 || true`).toString();
   const m = out.match(/login code is (\d{6})/);
   return m && m[1];
 }
@@ -66,7 +69,7 @@ export async function tenantLogin(page, phone) {
   await page.locator("input").first().fill(phone);
   await page.click('button[type="submit"]');
   await page.waitForTimeout(2500);
-  const code = lastOtp(phone.replace(/^0/, "+254"));
+  const code = lastOtp(phone);
   if (!code) throw new Error(`No OTP found in ${API_LOG} for ${phone}`);
   const digits = page.locator('input[inputmode="numeric"]');
   for (let i = 0; i < 6; i++) await digits.nth(i).fill(code[i]);

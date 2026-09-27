@@ -34,10 +34,11 @@ def _base_url() -> str:
 
 
 def _normalize_phone(phone: str) -> str:
-    """Strip everything but digits and a leading '+' before sending to FluxSMS.
-    Accepts 07XXXXXXXX / 01XXXXXXXX local format or 254XXXXXXXXX international —
-    FluxSMS converts either on its end."""
-    return re.sub(r"[^\d]", "", phone or "")
+    """The number FluxSMS is sent: 254XXXXXXXXX for any Kenyan mobile however it
+    was typed (07…, 7…, +254…). FluxSMS does NOT reliably convert a 07… number
+    itself — that is how welcome messages to numbers saved as 07… went missing."""
+    from services.phone_service import dialable
+    return dialable(phone)
 
 
 def _post(path: str, body: dict) -> dict | None:
@@ -64,6 +65,10 @@ def _post(path: str, body: dict) -> dict | None:
     except (urllib.error.URLError, json.JSONDecodeError) as exc:
         logger.error("FluxSMS %s failed: %s", path, exc)
         return None
+
+
+# send_sms() result when FluxSMS accepted the message but returned no id to track.
+ACCEPTED_NO_ID = "accepted-no-id"
 
 
 def send_sms(
@@ -117,12 +122,14 @@ def send_sms(
             logger.info("SMS sent to %s via FluxSMS (message_id=%s, networkid=%s).",
                         recipient, message_id, network_id)
         else:
-            # Accepted but no id — likely queued/scheduled by the provider. Treat
-            # as a soft failure so we do NOT burn a credit for a message that may
-            # never leave the provider; the raw response above shows why.
+            # Accepted but no id — queued/scheduled by the provider. FluxSMS bills
+            # Sahil Pay for an accepted message whether or not an id came back, so
+            # this is NOT a failure: treating it as one is how messages went out on
+            # Sahil Pay's pool without being charged to the landlord.
             logger.warning("SMS to %s accepted by FluxSMS but returned no message id "
                            "(likely SCHEDULED — sender '%s' may be pending network approval).",
                            recipient, sender_id)
+            return ACCEPTED_NO_ID
         return message_id
 
     logger.error("send_sms failed for %s (sender=%s): %s", recipient, sender_id,
@@ -176,6 +183,9 @@ def send_otp_sms(identifier: str, code: str, first_name: str) -> None:
     message_id = send_sms(identifier, content)
     if not message_id:
         logger.error("OTP SMS to %s was NOT accepted by the provider (no message id returned).", identifier)
+        return
+    if message_id == ACCEPTED_NO_ID:
+        logger.info("OTP SMS to %s accepted by FluxSMS (scheduled, no message id to track).", identifier)
         return
 
     # One immediate delivery-status probe for observability. FluxSMS updates the

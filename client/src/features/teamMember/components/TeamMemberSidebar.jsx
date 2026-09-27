@@ -15,14 +15,15 @@ import { useGetEtimsScopeQuery } from "@/features/landlord/etims/etimsApiSlice";
 export default function TeamMemberSidebar({ isMobileOpen, onCloseMobile }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { can } = usePermissions();
+  const { can, canEditSomething } = usePermissions();
   const { data: etimsScope } = useGetEtimsScopeQuery();
 
   const canView = (module, requires) => can(module, requires || "view");
+  // Help & tutorials teach how to change things; a view-only member gets none.
   const items = filterPortalNav(
     buildPortalNav(TEAM_ROUTES, { etims: Boolean(etimsScope?.enabled), isLandlord: false }),
     canView,
-  );
+  ).filter((item) => item.key !== "help" || canEditSomething);
   const actions = buildNewActions(TEAM_ROUTES).filter((a) => can(a.module, a.requires));
 
   const handleLogout = () => {

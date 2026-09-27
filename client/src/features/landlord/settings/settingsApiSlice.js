@@ -51,6 +51,17 @@ export const settingsApiSlice = apiSlice.injectEndpoints({
       query: () => "/settings/backup",
       providesTags: ["Backup"],
     }),
+    // Backup & Delete (owner only): what would go, then password → phrase → wipe.
+    getWipeInfo: builder.query({
+      query: () => "/settings/wipe",
+      keepUnusedDataFor: 0,
+    }),
+    verifyWipePassword: builder.mutation({
+      query: (body) => ({ url: "/settings/wipe/verify-password", method: "POST", body }),
+    }),
+    wipeAccount: builder.mutation({
+      query: (body) => ({ url: "/settings/wipe", method: "POST", body }),
+    }),
     // Synchronous, detailed backup preview (JSON) for a scope — the download
     // (Excel/PDF, with column selection) hits the same endpoint via ReportView.
     getBackupPreview: builder.query({
@@ -59,6 +70,7 @@ export const settingsApiSlice = apiSlice.injectEndpoints({
     // Run the enabled scheduled automations now (verifies the toggles work).
     runAutomations: builder.mutation({
       query: () => ({ url: "/settings/automation/run", method: "POST" }),
+      invalidatesTags: ["Communication", "Invoice", "Tenant"],
     }),
   }),
 });
@@ -77,5 +89,8 @@ export const {
   useGenerateBackupMutation,
   useGetBackupsQuery,
   useGetBackupPreviewQuery,
+  useGetWipeInfoQuery,
+  useVerifyWipePasswordMutation,
+  useWipeAccountMutation,
   useRunAutomationsMutation,
 } = settingsApiSlice;

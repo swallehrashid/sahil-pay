@@ -7,13 +7,13 @@ import Select from "@/components/ui/Select";
 import Spinner from "@/components/ui/Spinner";
 import { toast } from "@/components/ui/Toast";
 import { formatCurrency } from "@/utils/currencyFormatter";
-import { useGetTenantsQuery } from "../tenants/tenantApiSlice";
 import { toRows } from "@/utils/tableAdapters";
 import {
   useGetAllocationPreviewQuery,
   useConfirmPaymentMutation,
   useDeclinePaymentMutation,
 } from "./paymentApiSlice";
+import { useGetTenantOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
 
 // Landlord/team reviews a submitted payment (tenant-submitted, co-pilot, or an
 // unmatched bank-statement import): check the proof, match/re-match it to a
@@ -23,7 +23,7 @@ import {
 export default function ConfirmPaymentModal({ payment, onClose }) {
   const paymentId = payment?.id;
   const [tenantId, setTenantId] = useState(payment?.tenant_id ? String(payment.tenant_id) : "");
-  const { data: tenantsData } = useGetTenantsQuery();
+  const { data: tenantsData } = useGetTenantOptionsQuery();
   const tenants = toRows(tenantsData);
 
   useEffect(() => {
@@ -118,7 +118,7 @@ export default function ConfirmPaymentModal({ payment, onClose }) {
             label="Tenant"
             value={tenantId}
             onChange={(e) => setTenantId(e.target.value)}
-            options={tenants.map((t) => ({ value: String(t.id), label: `${t.first_name} ${t.last_name}${t.account_number ? ` (${t.account_number})` : ""}` }))}
+            options={tenants.map((t) => ({ value: String(t.id), label: `${tenantOptionLabel(t)}${t.account_number ? ` (${t.account_number})` : ""}` }))}
             placeholder="Match this payment to a tenant first…"
             hint={needsTenant ? "This payment isn't matched to a tenant yet — select one to allocate it." : "Change this to re-match the payment before confirming."}
             required
