@@ -25,9 +25,18 @@ export const tenantApiSlice = apiSlice.injectEndpoints({
       query: (id) => `/tenants/${id}/score`,
       providesTags: (result, error, id) => [{ type: "TenantScore", id }],
     }),
+    // What the move-in invoice will hold (deposit, lease fee, first rent
+    // month) before the tenant is saved. POST because it takes a body.
+    previewMoveIn: builder.mutation({
+      query: (body) => ({ url: "/tenants/move-in-preview", method: "POST", body }),
+    }),
+    createMoveInInvoice: builder.mutation({
+      query: ({ id, ...body }) => ({ url: `/tenants/${id}/move-in-invoice`, method: "POST", body }),
+      invalidatesTags: ["Tenant", "Invoice"],
+    }),
     createTenant: builder.mutation({
       query: (body) => ({ url: "/tenants", method: "POST", body }),
-      invalidatesTags: ["Tenant"],
+      invalidatesTags: ["Tenant", "Invoice", "Unit"],
     }),
     updateTenant: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/tenants/${id}`, method: "PUT", body }),
@@ -65,6 +74,8 @@ export const {
   useGetTenantTransactionsQuery,
   useGetTenantScoreQuery,
   useCreateTenantMutation,
+  usePreviewMoveInMutation,
+  useCreateMoveInInvoiceMutation,
   useUpdateTenantMutation,
   useDeleteTenantMutation,
   useShiftTenantMutation,

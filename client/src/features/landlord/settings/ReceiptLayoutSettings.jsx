@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/Toast";
 import { env } from "@/config/env";
 import { getAccessToken } from "@/utils/tokenStorage";
 import ThemePicker from "./ThemePicker";
+import PdfPreview from "@/components/ui/PdfPreview";
 
 /**
  * Design the receipt you actually print.
@@ -166,9 +167,11 @@ export default function ReceiptLayoutSettings() {
                 const selected = layout.paper === paper.key;
                 // A thumbnail in the real proportions — the fastest way to see
                 // that "A4 third" is a narrow slip, not a small page.
-                const ratio = paper.height_mm
-                  ? paper.width_mm / paper.height_mm
-                  : paper.width_mm / 200;
+                // The thumbnail is the SHEET, with the receipt drawn where it
+                // prints — so "top third" looks like the top third of a page.
+                const sw = paper.sheet_width_mm ?? paper.width_mm;
+                const sh = paper.sheet_height_mm ?? paper.height_mm;
+                const ratio = sw / sh;
                 return (
                   <button
                     key={paper.key}
@@ -182,12 +185,17 @@ export default function ReceiptLayoutSettings() {
                     )}
                   >
                     <span
-                      className={clsx(
-                        "flex-shrink-0 rounded border",
-                        selected ? "border-secondary/60 bg-secondary/20" : "border-white/25 bg-white/10"
-                      )}
+                      className="relative flex-shrink-0 rounded border border-white/25 bg-white/[0.06]"
                       style={{ width: 34 * Math.min(ratio, 1.6), height: 34 / Math.max(ratio, 0.35) }}
-                    />
+                    >
+                      <span
+                        className={clsx(
+                          "absolute left-0 top-0 rounded-[2px] border",
+                          selected ? "border-secondary/70 bg-secondary/40" : "border-white/40 bg-white/25"
+                        )}
+                        style={{ width: `${(paper.width_mm / sw) * 100}%`, height: `${(paper.height_mm / sh) * 100}%` }}
+                      />
+                    </span>
                     <span className="min-w-0">
                       <span className="block text-sm text-white">{paper.label}</span>
                       <span className="block text-xs leading-snug text-white/45">
@@ -255,6 +263,54 @@ export default function ReceiptLayoutSettings() {
             </div>
           </section>
 
+          {/* Letterhead sizes — logo, company name, contact details */}
+          <section className="glass p-5" data-testid="letterhead-sizes">
+            <h3 className="text-sm font-medium text-white">Letterhead size</h3>
+            <p className="mt-1 text-xs text-white/45">
+              Make the logo, the company name and the contact details as big as you want them.
+              100% is the standard size for the chosen paper; press Update preview to see it.
+            </p>
+            <div className="mt-4 grid gap-5 sm:grid-cols-3">
+              {[
+                { key: "logo", label: "Logo" },
+                { key: "title", label: "Company name & title" },
+                { key: "contact", label: "Contact info" },
+              ].map(({ key, label }) => {
+                const value = layout.letterhead?.[key] ?? 1;
+                return (
+                  <div key={key}>
+                    <label htmlFor={`lh-${key}`} className="mb-1.5 block text-sm font-medium text-white/80">
+                      {label} ({Math.round(value * 100)}%)
+                    </label>
+                    <input
+                      id={`lh-${key}`}
+                      name={`letterhead_${key}`}
+                      type="range"
+                      min={options.letterhead?.min ?? 0.5}
+                      max={options.letterhead?.max ?? 2.5}
+                      step="0.05"
+                      value={value}
+                      onChange={(e) => set({ letterhead: { ...layout.letterhead, [key]: Number(e.target.value) } })}
+                      className="w-full accent-[color:var(--color-secondary,#b95f7b)]"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-4 max-w-xs">
+              <Select
+                label="Company name alignment"
+                value={layout.letterhead?.title_align ?? "left"}
+                onChange={(e) => set({ letterhead: { ...layout.letterhead, title_align: e.target.value } })}
+                options={[
+                  { value: "left", label: "Left — beside the logo" },
+                  { value: "center", label: "Centred" },
+                  { value: "right", label: "Right" },
+                ]}
+              />
+            </div>
+          </section>
+
           {/* Document colours — receipts AND reports */}
           <ThemePicker
             palette={palette}
@@ -283,7 +339,7 @@ export default function ReceiptLayoutSettings() {
                 <input
                   type="range"
                   min="0.8"
-                  max="1.25"
+                  max="1.3"
                   step="0.05"
                   value={layout.font_scale}
                   onChange={(e) => set({ font_scale: Number(e.target.value) })}
@@ -328,18 +384,18 @@ export default function ReceiptLayoutSettings() {
             <h3 className="text-sm font-medium text-white">Preview</h3>
             {paperSpec && (
               <span className="text-xs text-white/40">
-                {paperSpec.width_mm}mm ×{" "}
-                {paperSpec.height_mm ? `${paperSpec.height_mm}mm` : "continuous"}
+                Receipt {paperSpec.width_mm} × {paperSpec.height_mm} mm
+                {paperSpec.sheet_width_mm && (paperSpec.sheet_width_mm !== paperSpec.width_mm
+                  || paperSpec.sheet_height_mm !== paperSpec.height_mm)
+                  ? ` on an A4 sheet — prints exactly as shown` : ""}
               </span>
             )}
           </div>
 
           {previewUrl ? (
-            <iframe
-              title="Receipt preview"
-              src={previewUrl}
-              className="h-[560px] w-full rounded-lg border border-white/10 bg-white"
-            />
+            // The actual PDF, drawn page by page — the same file that prints.
+            <PdfPreview key={previewUrl} url={previewUrl} data-testid="receipt-preview"
+                        className="max-h-[720px] overflow-auto rounded-lg" />
           ) : (
             <div className="flex h-[560px] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-white/15 text-center">
               <Eye className="h-6 w-6 text-white/25" />

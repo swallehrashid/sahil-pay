@@ -1,4 +1,4 @@
-import { forwardRef } from "react";
+import { forwardRef, useId } from "react";
 import { Calendar } from "lucide-react";
 import clsx from "clsx";
 
@@ -6,7 +6,11 @@ const DatePicker = forwardRef(function DatePicker(
   { label, error, hint, className, id, required, ...props },
   ref
 ) {
-  const inputId = id || props.name;
+  // useId() so a label is always bound to its input — without it a picker
+  // with neither id nor name had an unlabelled field (screen readers and
+  // label-based lookups found nothing). Same fix as Checkbox and Input.
+  const generatedId = useId();
+  const inputId = id || props.name || generatedId;
   return (
     <div className="w-full">
       {label && (

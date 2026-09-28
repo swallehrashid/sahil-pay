@@ -92,6 +92,10 @@ function buildPortalRoutes(rootPrefix) {
     routes[key] = `${rootPrefix}/${suffix}`;
   }
   routes.tenantTransactionsPath = (id) => `${rootPrefix}/tenants/${id}/transactions`;
+  // One property's own page: its units and its tenants, each on a sub-page.
+  routes.propertyDetailPath = (id, tab = "units") => `${rootPrefix}/properties/${id}/${tab}`;
+  // Monthly invoices generated one property at a time (generate → confirm → next).
+  routes.invoicesByProperty = `${rootPrefix}/invoices/by-property`;
   routes.bankStatementReviewPath = (id) => `${rootPrefix}/payments/bank-statement/${id}`;
   // Help articles are addressed by SLUG, which stays stable when the admin
   // rewrites a title — so dashboard nudges and settings links never rot.

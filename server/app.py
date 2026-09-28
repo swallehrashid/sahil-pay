@@ -382,6 +382,15 @@ def _register_error_handlers(app: Flask) -> None:
     def handle_api_error(exc: ApiError):
         return error(exc.message, status=exc.status, errors=exc.errors, code=exc.code)
 
+    from services.receipt_service import ReceiptNotAvailable
+
+    @app.errorhandler(ReceiptNotAvailable)
+    def handle_no_receipt(err):
+        # A receipt exists only for a confirmed, allocated payment. Every route
+        # that renders one goes through render_receipt_pdf(), so this is the
+        # single place the refusal turns into a response.
+        return jsonify({"error": str(err), "code": "receipt_not_available"}), 409
+
     @app.errorhandler(marshmallow.ValidationError)
     def handle_marshmallow_validation(exc: marshmallow.ValidationError):
         return error(

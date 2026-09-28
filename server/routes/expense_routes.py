@@ -78,14 +78,11 @@ def list_expenses():
     if search := (request.args.get("search") or "").strip():
         # Category, notes and the property/unit it was booked against — the
         # three things somebody actually remembers about a past expense.
-        like = f"%{search}%"
-        query = query.outerjoin(Property, Property.id == Expense.property_id).filter(
-            db.or_(
-                Expense.category.ilike(like),
-                Expense.notes.ilike(like),
-                Property.name.ilike(like),
-            )
-        )
+        from services.search import match_all_words
+        clause = match_all_words(search, [Expense.category, Expense.notes, Property.name])
+        query = query.outerjoin(Property, Property.id == Expense.property_id)
+        if clause is not None:
+            query = query.filter(clause)
 
     total = db.session.query(
         db.func.coalesce(db.func.sum(Expense.amount), 0)

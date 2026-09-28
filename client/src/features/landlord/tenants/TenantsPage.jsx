@@ -124,6 +124,9 @@ export default function TenantsPage() {
           toast("Tenant added. Welcome message sent.", { type: "success" });
         } else if (created?.welcome_message === "failed") {
           toast("Tenant added, but the welcome message could not be sent.", { type: "error", duration: 9000 });
+        } else if (created?.move_in_invoice) {
+          toast(`Tenant added. Move-in invoice ${created.move_in_invoice.invoice_number} raised — ${created.move_in_invoice.title}.`,
+                { type: "success", duration: 7000 });
         } else {
           toast("Tenant added.", { type: "success" });
         }

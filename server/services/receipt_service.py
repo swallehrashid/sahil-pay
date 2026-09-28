@@ -25,8 +25,7 @@ from decimal import Decimal
 from html import escape
 
 from utils import render_pdf
-from services.report_builder import (build_meta, _letterhead_html, _signature_html,
-                                     _platform_credit_html, report_style)
+from services.report_builder import build_meta, _signature_html
 
 logger = logging.getLogger(__name__)
 
@@ -81,156 +80,215 @@ def receipt_link_for(payment) -> str:
     return f"{base}/api/receipts/public/{make_receipt_token(payment)}"
 
 
-def _line_group_and_label(li, ref_date):
-    """(group, label, is_deposit) for one line item.
+class ReceiptNotAvailable(Exception):
+    """This payment cannot have a receipt (yet) — see receipt_blocker()."""
 
-    group    one of: rent | utilities | deposits | other
-    label    a human row label, using the category's subcategory display name
-             ("Water Deposit", "Rent Balance", "Water") when the line carries a
-             (category, subcategory); otherwise the line's own item text.
+
+def receipt_blocker(payment) -> str | None:
     """
-    from models import ChargeCategoryKind, SubCategory
+    Why this payment cannot have a receipt, or None when it can.
 
-    cat = li.category
-    sub = li.subcategory
-    is_deposit = sub == SubCategory.deposit.value
+    A receipt says "we received this money and applied it". Until a payment is
+    confirmed AND applied to a tenant's account, neither half is true: a
+    pending Co-pilot SMS, a suspense payment nobody has matched, a declined or
+    reversed one — issuing a receipt for any of those hands the tenant a
+    document that proves a payment the books do not have.
+    """
+    from models import PaymentStatus
 
-    if cat is not None and sub is not None:
-        label = cat.subcategory_display().get(sub, li.item)
-        if is_deposit:
-            group = "deposits"
-        elif cat.kind == ChargeCategoryKind.utility.value:
-            group = "utilities"
-        elif cat.name and cat.name.strip().lower() == "rent":
-            group = "rent"
-        else:
-            group = "other"
-        return group, label, is_deposit
+    if payment is None or getattr(payment, "is_deleted", False):
+        return "This payment no longer exists."
+    if payment.status != PaymentStatus.confirmed.value:
+        label = {
+            "pending": "is still awaiting review",
+            "suspense": "has not been matched to a tenant yet",
+            "declined": "was declined",
+            "reversed": "was reversed",
+        }.get(payment.status, f"is {payment.status}")
+        return (f"No receipt yet: this payment {label}. Review and allocate it "
+                "first — receipts are issued only for confirmed, allocated payments.")
+    if payment.tenant_id is None:
+        return "No receipt yet: this payment is not allocated to a tenant."
+    if not payment.payment_allocations and not _credited(payment):
+        return ("No receipt yet: this payment has not been allocated to any "
+                "charge or held as credit.")
+    return None
 
-    # Un-categorised legacy line: fall back to the line's own text, and infer a
-    # deposit from the wording so an old deposit line still lands in Deposits.
-    label = li.item or "Charge"
-    if "deposit" in (label or "").lower():
-        return "deposits", label, True
-    return "other", label, False
+
+def _credited(payment) -> bool:
+    from models import CreditLedger
+    return CreditLedger.query.filter(CreditLedger.payment_id == payment.id,
+                                     CreditLedger.amount > 0).first() is not None
+
+
+def assert_receiptable(payment) -> None:
+    reason = receipt_blocker(payment)
+    if reason:
+        raise ReceiptNotAvailable(reason)
+
+
+_METHOD_LABELS = {
+    "mpesa": "M-Pesa", "m-pesa": "M-Pesa", "co_pilot": "M-Pesa (Co-pilot)",
+    "stk": "M-Pesa", "c2b": "M-Pesa", "bank_statement": "Bank", "bank": "Bank",
+    "cash": "Cash", "manual": "Manual entry", "cheque": "Cheque",
+    "credit": "Account credit",
+}
+
+
+def _method_label(payment) -> str:
+    raw = (payment.payment_method or payment.source or "").strip()
+    return _METHOD_LABELS.get(raw.lower(), raw.replace("_", " ").title() or "—")
+
+
+def _dmy(d) -> str:
+    return d.strftime("%d/%m/%Y") if d else ""
+
+
+def _short_month(iso: str | None) -> str:
+    if not iso:
+        return ""
+    y, m = int(iso[:4]), int(iso[5:7])
+    return date(y, m, 1).strftime("%b %Y")
+
+
+def _legacy_rows(payment) -> list[dict]:
+    """Allocations that only recorded an invoice (no line) — very old data."""
+    from services import line_period as lp
+    rows = []
+    for a in payment.payment_allocations:
+        if a.line_item_id is None and a.invoice is not None:
+            month = lp.first_of(a.invoice.issue_date)
+            rows.append({
+                "line_item_id": None, "invoice_number": a.invoice.invoice_number,
+                "group": "other", "base": a.invoice.title or f"Invoice {a.invoice.invoice_number}",
+                "month": month.isoformat() if month else None,
+                "month_label": lp.month_label(month),
+                "label": a.invoice.title or f"Invoice {a.invoice.invoice_number}",
+                "amount": Decimal(a.amount_allocated or 0), "is_deposit": False,
+            })
+    return rows
 
 
 def build_receipt(payment) -> dict:
-    """Structured receipt data, itemised at the line-item level, with a
-    dedicated deposits section so a paid deposit is always shown."""
+    """
+    Structured receipt data. Every charge row carries the MONTH it is for
+    (services/line_period.py) and is stated as it stood at this payment — so a
+    receipt downloaded again months later still says what it said the day it
+    was issued.
+    """
+    from services import line_period as lp
+
     tenant   = payment.tenant
     landlord = payment.landlord
     unit     = payment.unit
-    property = payment.property or (unit.property if unit else None)
-    ref_date = payment.payment_date or date.today()
+    prop     = payment.property or (unit.property if unit else None)
 
-    # What this specific payment paid toward each line item.
-    alloc_by_line = {}
-    for a in payment.payment_allocations:
-        if a.line_item_id is not None:
-            alloc_by_line[a.line_item_id] = (a.amount_allocated or Decimal("0"))
-    # Legacy allocations that only recorded an invoice (no line_item_id) — keep a
-    # per-invoice remainder to attribute across that invoice's lines below.
-    alloc_by_invoice_remainder = {}
-    for a in payment.payment_allocations:
-        if a.line_item_id is None:
-            alloc_by_invoice_remainder[a.invoice_id] = (
-                alloc_by_invoice_remainder.get(a.invoice_id, Decimal("0"))
-                + (a.amount_allocated or Decimal("0"))
-            )
+    paid = lp.paid_lines(payment) + _legacy_rows(payment)
+    owed = lp.outstanding_after(payment)
+
+    # One row per (charge, month): what was owed going in, what this payment
+    # paid, what is left. Keyed so a line this payment did not touch still
+    # shows as owed on the full-page receipt.
+    merged: dict[tuple, dict] = {}
+    order: list[tuple] = []
+
+    def slot(r):
+        key = (r["group"], r["base"], r["month"])
+        if key not in merged:
+            merged[key] = {
+                "description":       r["label"],
+                "item":              r["base"],
+                "month":             r["month"],
+                "month_label":       r["month_label"],
+                "invoice_number":    r["invoice_number"],
+                "is_deposit":        r["is_deposit"],
+                "amount_due":        0.0,
+                "paid_this_receipt": 0.0,
+                "balance_cf":        0.0,
+            }
+            order.append(key)
+        return merged[key]
+
+    for r in paid:
+        row = slot(r)
+        row["paid_this_receipt"] += _f(r["amount"])
+        row["amount_due"] += _f(r["amount"])
+    for r in owed:
+        row = slot(r)
+        row["balance_cf"] += _f(r["amount"])
+        row["amount_due"] += _f(r["amount"])
 
     sections = {"rent": [], "utilities": [], "deposits": [], "other": []}
-
-    from models import InvoiceStatus, InvoiceLineItem, Invoice
-    invoices = (
-        Invoice.query
-        .filter_by(tenant_id=tenant.id, is_deleted=False)
-        .filter(Invoice.status != InvoiceStatus.void.value)
-        .all()
-        if tenant else []
-    )
-
-    for inv in invoices:
-        inv_remainder = alloc_by_invoice_remainder.get(inv.id, Decimal("0"))
-        for li in inv.line_items:
-            paid_here = alloc_by_line.get(li.id, Decimal("0"))
-            # Attribute any legacy invoice-level allocation across the invoice's
-            # lines, oldest/open first, so a legacy receipt still itemises.
-            if paid_here == 0 and inv_remainder > 0:
-                take = min(inv_remainder, li.remaining if li.remaining > 0 else Decimal("0"))
-                if take > 0:
-                    paid_here = take
-                    inv_remainder -= take
-
-            balance_cf = (li.amount or Decimal("0")) - (li.amount_paid or Decimal("0"))
-            amount_due = balance_cf + paid_here      # what was owed entering this receipt
-            # Skip lines irrelevant to this receipt (nothing owed, nothing paid here).
-            if amount_due <= 0 and paid_here <= 0:
-                continue
-
-            group, label, is_deposit = _line_group_and_label(li, ref_date)
-            sections[group].append({
-                "description":       label,
-                "invoice_number":    inv.invoice_number,
-                "is_deposit":        is_deposit,
-                "amount_due":        _f(amount_due),
-                "paid_this_receipt": _f(paid_here),
-                "balance_cf":        _f(balance_cf),
-            })
+    for key in sorted(order, key=lambda k: (k[2] or "9999", k[1])):
+        row = merged[key]
+        for money in ("amount_due", "paid_this_receipt", "balance_cf"):
+            row[money] = round(row[money], 2)
+        sections[key[0]].append(row)
 
     def _subtotal(rows, key):
         return round(sum(r[key] for r in rows), 2)
 
-    total_due       = round(sum(_subtotal(rows, "amount_due") for rows in sections.values()), 2)
-    total_allocated = round(sum(_subtotal(rows, "paid_this_receipt") for rows in sections.values()), 2)
-    amount_paid     = _f(payment.amount)
-    advance_credit  = round(max(0.0, amount_paid - total_allocated), 2)
-    balance_remaining = round(sum(_subtotal(rows, "balance_cf") for rows in sections.values()), 2)
+    total_allocated = round(sum(_f(r["amount"]) for r in paid), 2)
+    balance_remaining = round(sum(_f(r["amount"]) for r in owed), 2)
+    amount_paid = _f(payment.amount)
+    advance_credit = round(max(0.0, amount_paid - total_allocated), 2)
+    total_due = round(total_allocated + balance_remaining, 2)
 
-    # Total deposit held = refundable deposit money the tenant has PAID across all
-    # confirmed history (not just this receipt) — the onboarding deposit on the
-    # tenant record PLUS any paid deposit-subcategory line items, less returns.
+    paid_months = sorted({r["month"] for r in paid if r["month"]})
+    if len(paid_months) == 1:
+        period_label = lp.month_label(lp.parse_month(paid_months[0]))
+    elif paid_months:
+        period_label = (f"{lp.month_label(lp.parse_month(paid_months[0]))} – "
+                        f"{lp.month_label(lp.parse_month(paid_months[-1]))}")
+    else:
+        period_label = None
+
     deposit_paid_total = 0.0
     if tenant:
-        from models import SubCategory
+        from models import Invoice, InvoiceStatus, SubCategory
         deposit_paid_total += _f(getattr(tenant, "deposit_paid", 0))
-        for inv in invoices:
+        for inv in (Invoice.query.filter_by(tenant_id=tenant.id, is_deleted=False)
+                    .filter(Invoice.status != InvoiceStatus.void.value).all()):
             for li in inv.line_items:
                 if li.subcategory == SubCategory.deposit.value:
                     deposit_paid_total += _f(li.amount_paid)
         deposit_paid_total -= _f(getattr(tenant, "deposit_returned", 0))
 
-    # eTIMS details for the on-screen receipt (§3.1). The key is present ONLY
-    # when the property opted in, kept receipts on, and a number was recorded —
-    # so the UI has nothing to render an empty state from, which is the point.
     etims = None
-    if (property is not None and property.etims_shows("receipts")
+    if (prop is not None and prop.etims_shows("receipts")
             and payment.etims_invoice_number):
         etims = {
             "invoice_number": payment.etims_invoice_number,
             "issued_at":      (payment.etims_issued_at.isoformat()
                                if payment.etims_issued_at else None),
             "qr_url":         payment.etims_qr_url,
-            "seller_kra_pin": property.effective_kra_pin,
+            "seller_kra_pin": prop.effective_kra_pin,
             "buyer_kra_pin":  getattr(tenant, "kra_pin", None) if tenant else None,
         }
+
+    def _public(rows):
+        return [{**r, "amount": _f(r["amount"])} for r in rows]
 
     return {
         "payment_ref":    payment.payment_ref,
         "payment_date":   str(payment.payment_date) if payment.payment_date else None,
         "etims":          etims,
         "status":         payment.status,
-        "method":         payment.payment_method or payment.source,
+        "method":         _method_label(payment),
         "reference":      payment.mpesa_reference or payment.till_number or payment.payment_ref,
         "tenant_name":    f"{tenant.first_name} {tenant.last_name}".strip() if tenant else None,
+        "account_number": getattr(tenant, "account_number", None) if tenant else None,
         "unit_name":      unit.name if unit else None,
-        "property_name":  property.name if property else None,
+        "property_name":  prop.name if prop else None,
         "currency":       landlord.currency if landlord else "KES",
         "landlord": {
             "company_name":    landlord.company_name if landlord else None,
             "company_address": getattr(landlord, "company_address", None) if landlord else None,
             "logo_url":        getattr(landlord, "logo_url", None) if landlord else None,
         },
+        "period_label":      period_label,
+        "paid_items":        _public(paid),
+        "outstanding_items": _public(owed),
         "rent_section":      sections["rent"],
         "utilities_section": sections["utilities"],
         "deposits_section":  sections["deposits"],
@@ -240,6 +298,7 @@ def build_receipt(payment) -> dict:
         "deposits_due":      _subtotal(sections["deposits"], "amount_due"),
         "other_due":         _subtotal(sections["other"], "amount_due"),
         "total_due":         total_due,
+        "total_allocated":   total_allocated,
         "amount_paid":       amount_paid,
         "advance_credit":    advance_credit,
         "balance_remaining": balance_remaining,
@@ -251,23 +310,20 @@ def _money(value, currency="KES") -> str:
     return f"{currency} {_f(value):,.2f}"
 
 
-def _charge_groups_html(groups, currency: str, columns: int, max_rows: int | None) -> str:
+def _charge_label(row: dict, short: bool) -> str:
+    """'Rent — September 2026' (full page) or 'Rent — Sep 2026' (a third)."""
+    if not row.get("month"):
+        return escape(row["item"])
+    month = _short_month(row["month"]) if short else row["month_label"]
+    return f"{escape(row['item'])} <span class='month'>— {escape(month)}</span>"
+
+
+def _charge_groups_html(groups, currency: str, columns: int, max_rows: int | None,
+                        period_label: str | None = None) -> str:
     """
-    Every charge group as ONE ruled table: a single header, a shaded label row
-    per group (Rent, Utilities, Deposits, Other), then its lines.
-
-    `columns` is how many money columns the paper can carry — see
-    receipt_layout.money_columns(). Four money columns across a 99mm band leave
-    each about two characters wide, so a cut slip or a till roll shows the item
-    and what THIS payment paid, and the balance lives in the summary.
-
-    On a narrow paper, charges this payment did not touch are left out: listing
-    every open charge at "KES 0.00" filled a slip with rows that had nothing to
-    do with the money being receipted.
-
-    A fixed-height band cannot grow, so a long list is trimmed to what the paper
-    holds — and the receipt SAYS how many rows it folded away and where to see
-    them, so nobody is left thinking a charge went missing.
+    Every charge group as ONE ruled table. Four money columns on a full page
+    (due / paid / balance c/f); item + paid on a third or a strip, where only
+    what THIS payment paid is listed. Every item names its month.
     """
     wide = columns >= 4
     if wide:
@@ -293,146 +349,176 @@ def _charge_groups_html(groups, currency: str, columns: int, max_rows: int | Non
             shown = rows
         if not shown:
             continue
-        # Group label rows only where there is height to spend on them; a slip
-        # already names each line, and a band has no row to spare.
         if wide:
             body += f"<tr class='group-row'><td colspan='{span}'>{escape(title)}</td></tr>"
         for r in shown:
+            label = _charge_label(r, short=not wide)
             if wide:
-                body += (f"<tr><td>{escape(r['description'])}</td>"
+                body += (f"<tr><td>{label}</td>"
                          f"<td class='right'>{_money(r['amount_due'], currency)}</td>"
                          f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td>"
                          f"<td class='right'>{_money(r['balance_cf'], currency)}</td></tr>")
             else:
-                body += (f"<tr><td>{escape(r['description'])}</td>"
+                body += (f"<tr><td>{label}</td>"
                          f"<td class='right'>{_money(r['paid_this_receipt'], currency)}</td></tr>")
         used += len(shown)
 
     if not body:
         body = f"<tr><td colspan='{span}'>Held as credit on the account</td></tr>"
 
-    html = (f"<h2>Charges</h2><table class='grid charges'><thead><tr>{head}</tr></thead>"
+    heading = "Charges"
+    if period_label:
+        # A third of a page has room for "Jul–Sep 2026", not the full words.
+        heading += f" — {escape(_short_period(period_label) if not wide else period_label)}"
+    html = (f"<h2>{heading}</h2><table class='grid charges'><thead><tr>{head}</tr></thead>"
             f"<tbody>{body}</tbody></table>")
     if hidden:
-        html += (
-            f"<p class='muted receipt-small'>+{hidden} more item"
-            f"{'s' if hidden != 1 else ''} — see the full statement.</p>"
-        )
+        html += (f"<p class='muted receipt-small'>+{hidden} more item"
+                 f"{'s' if hidden != 1 else ''} — see the full statement.</p>")
     return html
+
+
+def _short_period(label: str) -> str:
+    """'July 2026 – September 2026' → 'Jul–Sep 2026'; 'August 2026' → 'Aug 2026'."""
+    from datetime import datetime as _dt
+    parts = [p.strip() for p in label.split("–")]
+    try:
+        dates = [_dt.strptime(p, "%B %Y") for p in parts]
+    except ValueError:
+        return label
+    if len(dates) == 1:
+        return dates[0].strftime("%b %Y")
+    a, b = dates[0], dates[-1]
+    if a.year == b.year:
+        return f"{a:%b}–{b:%b %Y}"
+    return f"{a:%b %Y}–{b:%b %Y}"
+
+
+def _details_html(rows: list[tuple[str, str]]) -> str:
+    body = "".join(
+        f"<tr><td class='k'>{escape(k)}</td><td class='v'>{escape(v or '—')}</td></tr>"
+        for k, v in rows
+    )
+    return f"<h2>Details</h2><table class='grid kv'><tbody>{body}</tbody></table>"
+
+
+def _owed_html(items: list[dict], currency: str, flow: str, limit: int = 6) -> str:
+    """
+    What is still owed after this payment, by month — "Rent — Sep 2026 KES
+    20,000". A tenant paying August's rent late must see that September is
+    still open, on the same piece of paper.
+    """
+    if not items:
+        return ""
+    from services.receipt_layout import FLOW_BAND
+    shown = items[:limit]
+    more = len(items) - len(shown)
+    if flow == FLOW_BAND:
+        shown = items[:limit]
+        more = len(items) - len(shown)
+        rows = "".join(
+            f"<tr><td>{escape(i['base'])}{(' <span class=month>' + escape(_short_month(i['month'])) + '</span>') if i['month'] else ''}</td>"
+            f"<td class='right'>{_money(i['amount'], currency)}</td></tr>" for i in shown)
+        if more:
+            rows += f"<tr><td colspan='2' class='muted'>+{more} more</td></tr>"
+        return ("<p class='owed-line'><strong>Still owed after this payment</strong></p>"
+                f"<table class='grid owed totals'><tbody>{rows}</tbody></table>")
+    rows = "".join(
+        f"<tr><td>{escape(i['label'])}</td><td class='right'>{_money(i['amount'], currency)}</td></tr>"
+        for i in shown)
+    if more:
+        rows += f"<tr><td colspan='2' class='muted'>+{more} more — see the full statement</td></tr>"
+    return ("<h2>Still owed after this payment</h2><table class='grid owed'>"
+            "<thead><tr><th>Item</th><th class='right'>Balance</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>")
+
+
+def _credit_html() -> str:
+    from services import branding
+    site = branding.BRAND_WEBSITE.replace("https://", "")
+    return (f"<p class='credit'>Generated by {branding.BRAND_NAME} · {site} · "
+            f"{branding.BRAND_PHONE}</p>")
+
+
+def _totals_html(data: dict, currency: str, sections_on: dict) -> str:
+    rows = [f"<tr><td>Total due</td><td class='right'>{_money(data['total_due'], currency)}</td></tr>",
+            f"<tr class='total-row'><td>Amount paid</td>"
+            f"<td class='right'>{_money(data['amount_paid'], currency)}</td></tr>"]
+    if data["advance_credit"] > 0:
+        rows.append(f"<tr><td>Advance credit</td><td class='right'>"
+                    f"{_money(data['advance_credit'], currency)}</td></tr>")
+    if sections_on.get("balance", True):
+        rows.append(f"<tr class='total-row'><td>Balance</td>"
+                    f"<td class='right'>{_money(data['balance_remaining'], currency)}</td></tr>")
+    if sections_on.get("deposits", True) and data.get("deposit_held_total", 0) > 0:
+        rows.append(f"<tr><td>Deposit held</td><td class='right'>"
+                    f"{_money(data['deposit_held_total'], currency)}</td></tr>")
+    return f"<h2>Summary</h2><table class='grid totals'><tbody>{''.join(rows)}</tbody></table>"
+
+
+def _render(landlord, layout: dict, theme: dict, data: dict, *, etims_block: str = "",
+            sample: bool = False) -> bytes:
+    """The one renderer: a real receipt and the settings preview both come through here."""
+    from services import receipt_layout as rl
+
+    currency = data["currency"]
+    meta = build_meta(landlord, report_title="Official Receipt",
+                      property_name=data.get("property_name"))
+    if not meta.get("phone"):
+        meta["phone"] = getattr(landlord, "mpesa_number", None)
+
+    unit_bits = " · ".join(b for b in (data.get("property_name"), data.get("unit_name")) if b)
+    details = _details_html([
+        ("Receipt no.", data["payment_ref"]),
+        ("Date paid", _dmy(date.fromisoformat(data["payment_date"])) if data.get("payment_date") else ""),
+        ("Received from", data.get("tenant_name") or ""),
+        ("Unit", unit_bits),
+        ("Method", data.get("method") or ""),
+        ("Reference", str(data.get("reference") or "")),
+    ])
+
+    groups = [("Rent", data["rent_section"]), ("Utilities", data["utilities_section"]),
+              ("Deposits", data["deposits_section"]), ("Other charges", data["other_section"])]
+    if not layout["sections"].get("deposits", True):
+        groups = [g for g in groups if g[0] != "Deposits" or any(r["paid_this_receipt"] for r in g[1])]
+    charges = _charge_groups_html(groups, currency, rl.money_columns(layout),
+                                  rl.max_charge_rows(layout), data.get("period_label"))
+
+    sections_on = layout.get("sections", {})
+    totals = _totals_html(data, currency, sections_on)
+    flow = rl.flow_of(layout)
+    owed = _owed_html(data.get("outstanding_items") or [], currency, flow, rl.max_owed_rows(layout)) \
+        if sections_on.get("balance", True) else ""
+    signature = _signature_html(meta) if sections_on.get("signature", True) else ""
+    notes = "<p class='muted'>Thank you for your payment.</p>" if sections_on.get("notes", True) else ""
+    if sample:
+        notes = "<p><strong>SAMPLE — not a real payment.</strong></p>" + notes
+
+    body = rl.compose_body(layout, {
+        "details": details, "charges": charges, "totals": totals, "owed": owed,
+        "notes": notes, "etims": etims_block, "signature": signature,
+        "credit": _credit_html(),
+    })
+    html = rl.document(layout, theme, rl.header_html(layout, meta), body)
+    return render_pdf(html)
 
 
 def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
     """
-    Branded receipt PDF.
-
-    `layout` is the landlord's chosen receipt layout (paper size, header slot
-    arrangement, density) — see services/receipt_layout.py. Omitted, it is read
-    from their settings; a landlord who has never touched the screen gets the
-    original A4 receipt unchanged.
+    Branded receipt PDF. Refuses (ReceiptNotAvailable) for a payment that is
+    not confirmed and allocated. `layout` defaults to the landlord's saved one.
     """
     from services import receipt_layout as rl
     from services import receipt_theme
-
-    data     = build_receipt(payment)
-    landlord = payment.landlord
-    currency = data["currency"]
-    layout   = rl.normalise(layout) if layout is not None else rl.for_landlord(landlord)
-
-    subject_bits = [b for b in [data.get("tenant_name"), data.get("unit_name"), data.get("property_name")] if b]
-    meta = build_meta(
-        landlord,
-        report_title="Payment Receipt",
-        subject=" · ".join(subject_bits),
-        property_name=data.get("property_name"),
-        extra={"period": data.get("payment_date")},
-    )
-
-    info = (
-        "<table class='grid kv'><tbody>"
-        f"<tr><td>Receipt no.</td><td class='right'>{escape(data['payment_ref'])}</td></tr>"
-        f"<tr><td>Date</td><td class='right'>{escape(data.get('payment_date') or '')}</td></tr>"
-        f"<tr><td>Received from</td><td class='right'>{escape(data.get('tenant_name') or '')}</td></tr>"
-        + (f"<tr><td>Unit</td><td class='right'>{escape(data.get('unit_name') or '')}</td></tr>"
-           if data.get("unit_name") else "")
-        + f"<tr><td>Method</td><td class='right'>{escape(str(data.get('method') or '—'))}</td></tr>"
-        f"<tr><td>Reference</td><td class='right'>{escape(str(data.get('reference') or '—'))}</td></tr>"
-        "</tbody></table>"
-    )
-
-    columns = rl.money_columns(layout)
-    groups = [
-        ("Rent", data["rent_section"]),
-        ("Utilities", data["utilities_section"]),
-        ("Deposits", data["deposits_section"]),
-        ("Other charges", data["other_section"]),
-    ]
-    sections_html = _charge_groups_html(groups, currency, columns, rl.max_charge_rows(layout))
-
-    advance_row = (
-        f"<tr><td>Advance / credit</td><td class='right'>{_money(data['advance_credit'], currency)}</td></tr>"
-        if data["advance_credit"] > 0 else ""
-    )
-    deposit_held_row = (
-        f"<tr><td>Total deposit held (refundable)</td><td class='right'>{_money(data['deposit_held_total'], currency)}</td></tr>"
-        if data.get("deposit_held_total", 0) > 0 else ""
-    )
-    totals = (
-        "<h2>Summary</h2><table class='grid kv'><tbody>"
-        f"<tr><td>Total amount due</td><td class='right'>{_money(data['total_due'], currency)}</td></tr>"
-        f"<tr class='total-row'><td>Amount paid (this receipt)</td><td class='right'>{_money(data['amount_paid'], currency)}</td></tr>"
-        f"{advance_row}"
-        f"<tr class='total-row'><td>Balance remaining</td><td class='right'>{_money(data['balance_remaining'], currency)}</td></tr>"
-        f"{deposit_held_row}"
-        "</tbody></table>"
-    )
-
-    # The landlord's own header arrangement replaces the shared report
-    # letterhead; sections they've switched off are simply not drawn.
-    sections_on = layout.get("sections", {})
-    # These rows are already inside `totals`, so hiding one means removing it
-    # from the built string rather than blanking the variable it came from.
-    if not sections_on.get("deposits", True) and deposit_held_row:
-        totals = totals.replace(deposit_held_row, "", 1)
-    if not sections_on.get("balance", True):
-        balance_row = (
-            f"<tr class='total-row'><td>Balance remaining</td>"
-            f"<td class='right'>{_money(data['balance_remaining'], currency)}</td></tr>"
-        )
-        totals = totals.replace(balance_row, "", 1)
-
-    signature = _signature_html(meta) if sections_on.get("signature", True) else ""
-    thanks = (
-        "<p class='muted'>Thank you for your payment.</p>"
-        if sections_on.get("notes", True) else ""
-    )
-
-    # eTIMS block (SAHILPAY_ETIMS_KRA_COMPLIANCE_SPEC.md §3.1). Returns "" —
-    # and so changes this receipt not at all — unless the property opted in,
-    # kept receipts switched on, AND this payment carries a recorded number.
-    # A payment without one produces no block, no placeholder and no "pending"
-    # marker, even on an eTIMS-enabled property.
     from services.etims_pdf import receipt_block_html
-    etims_block = receipt_block_html(payment, payment.property, payment.tenant)
 
-    # The blocks are handed over NAMED rather than concatenated, so the paper's
-    # flow can deal them into columns. Joining them here is what made every
-    # paper a shrunken A4 receipt — nothing downstream could rearrange a string.
-    body = rl.compose_body(layout, {
-        "details": info,
-        "charges": sections_html,
-        "totals": totals,
-        "notes": thanks,
-        "etims": etims_block,
-        "signature": signature,
-        "credit": _platform_credit_html(),
-    })
-    theme = receipt_theme.for_landlord(landlord)
-    html = (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        f"{report_style(theme)}<style>{rl.page_css(layout, theme)}</style>"
-        f"</head><body>{rl.header_html(layout, meta)}{body}</body></html>"
-    )
-    return render_pdf(html)
+    assert_receiptable(payment)
+    landlord = payment.landlord
+    layout = rl.normalise(layout) if layout is not None else rl.for_landlord(landlord)
+    data = build_receipt(payment)
+    etims_block = receipt_block_html(payment, payment.property, payment.tenant)
+    return _render(landlord, layout, receipt_theme.for_landlord(landlord), data,
+                   etims_block=etims_block)
 
 
 # ---------------------------------------------------------------------------
@@ -441,90 +527,49 @@ def render_receipt_pdf(payment, layout: dict | None = None) -> bytes:
 
 def render_sample_receipt_pdf(landlord, layout: dict, theme_override: dict | None = None) -> bytes:
     """
-    A receipt built from FAKE data, so the layout editor can show the real paper
-    size and header arrangement without needing a real payment to point at — a
-    landlord setting this up on day one has no payments yet.
-
-    Deliberately obvious sample values: nobody should mistake a preview for a
-    document they can hand to a tenant.
+    A receipt built from FAKE data so the layout editor shows the real paper
+    and letterhead without a real payment. It goes through the SAME renderer
+    as a real receipt — a preview that differs from the real thing is worse
+    than no preview.
     """
     from services import receipt_layout as rl
     from services import receipt_theme
-    from services.report_builder import build_meta
+    from services import line_period as lp
 
     layout = rl.normalise(layout)
     currency = getattr(landlord, "currency", "KES") or "KES"
+    today = date.today()
+    this_month = lp.first_of(today)
+    last_month = lp.first_of(date(today.year - (1 if today.month == 1 else 0),
+                                  12 if today.month == 1 else today.month - 1, 1))
 
-    meta = build_meta(
-        landlord,
-        report_title="Payment Receipt",
-        subject="SAMPLE — Jane Wanjiku · Unit A1",
-        property_name="Sunrise Apartments",
-    )
-    meta["phone"] = meta.get("phone") or getattr(landlord, "mpesa_number", None)
+    def row(item, month, due, paid, left=0.0):
+        return {"description": f"{item} — {lp.month_label(month)}" if month else item,
+                "item": item, "month": month.isoformat() if month else None,
+                "month_label": lp.month_label(month), "invoice_number": "SAMPLE",
+                "is_deposit": "Deposit" in item,
+                "amount_due": due, "paid_this_receipt": paid, "balance_cf": left}
 
-    info = (
-        "<table class='grid kv'><tbody>"
-        "<tr><td>Receipt no.</td><td class='right'>SAMPLE-0001</td></tr>"
-        "<tr><td>Date</td><td class='right'>"
-        f"{date.today().isoformat()}</td></tr>"
-        "<tr><td>Received from</td><td class='right'>Jane Wanjiku</td></tr>"
-        "<tr><td>Method</td><td class='right'>M-Pesa</td></tr>"
-        "<tr><td>Reference</td><td class='right'>SGH7X2K9QP</td></tr>"
-        "</tbody></table>"
-    )
-
-    def line(label, amount):
-        return {"description": label, "amount_due": amount, "paid_this_receipt": amount, "balance_cf": 0}
-
-    groups = [("Rent", [line("Rent — this month", 25000)]),
-              ("Utilities", [line("Water", 1200), line("Garbage", 300)])]
-    if layout["sections"].get("deposits", True):
-        groups.append(("Deposits", [line("Security deposit (held)", 25000)]))
-    sections = _charge_groups_html(groups, currency, rl.money_columns(layout), rl.max_charge_rows(layout))
-
-    totals_rows = (
-        "<tr><td>Total amount due</td><td class='right'>"
-        f"{_money(26500, currency)}</td></tr>"
-        "<tr class='total-row'><td>Amount paid (this receipt)</td>"
-        f"<td class='right'>{_money(26500, currency)}</td></tr>"
-    )
-    if layout["sections"].get("balance", True):
-        totals_rows += (
-            "<tr class='total-row'><td>Balance remaining</td>"
-            f"<td class='right'>{_money(0, currency)}</td></tr>"
-        )
-    totals = f"<h2>Summary</h2><table class='grid kv'><tbody>{totals_rows}</tbody></table>"
-
-    thanks = (
-        "<p class='muted'>Thank you for your payment.</p>"
-        if layout["sections"].get("notes", True) else ""
-    )
-    signature = _signature_html(meta) if layout["sections"].get("signature", True) else ""
-
-    # The preview MUST take the same arrangement path as a real receipt — a
-    # preview that stacks while the real thing runs in columns is worse than no
-    # preview, because it is confidently wrong about the one thing it exists to
-    # show.
-    body = rl.compose_body(layout, {
-        "details": info,
-        "charges": sections,
-        "totals": totals,
-        "notes": thanks,
-        "signature": signature,
-        "credit": _platform_credit_html(),
-    })
+    rent = [row("Rent", this_month, 6000, 6000)]
+    utilities = [row("Water", last_month, 850, 850)]
+    deposits = [row("Rent Deposit", this_month, 6000, 6000)] if layout["sections"].get("deposits", True) else []
+    other = [row("Lease Agreement", None, 500, 500)]
+    data = {
+        "payment_ref": "SAMPLE-0001", "payment_date": today.isoformat(),
+        "method": "M-Pesa", "reference": "UHU0S43PJ8",
+        "tenant_name": "Jonah Alex Mwendwa", "unit_name": "Unit A1",
+        "property_name": "Sunrise Apartments", "currency": currency,
+        "period_label": lp.month_label(this_month),
+        "rent_section": rent, "utilities_section": utilities,
+        "deposits_section": deposits, "other_section": other,
+        "outstanding_items": [{"base": "Water", "label": f"Water — {lp.month_label(this_month)}",
+                               "month": this_month.isoformat(), "amount": 900.0}],
+        "total_due": 14250.0, "amount_paid": 13350.0, "advance_credit": 0.0,
+        "balance_remaining": 900.0, "deposit_held_total": 6000.0,
+    }
     theme = receipt_theme.resolve(theme_override) if theme_override is not None \
         else receipt_theme.for_landlord(landlord)
-    html = (
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        f"{report_style(theme)}<style>{rl.page_css(layout, theme)}</style>"
-        "</head><body>"
-        f"{rl.header_html(layout, meta)}"
-        "<p class='muted receipt-small'><strong>SAMPLE — not a real payment.</strong></p>"
-        f"{body}</body></html>"
-    )
-    return render_pdf(html)
+    return _render(landlord, layout, theme, data, sample=True)
 
 
 # ---------------------------------------------------------------------------
@@ -563,7 +608,11 @@ def sms_receipt_text(payment, receipt: dict | None = None) -> str:
         for row in data.get(section) or []:
             paid = row.get("paid_this_receipt") or 0
             if paid > 0:
-                lines.append((row.get("description") or "Charge", paid))
+                # ASCII only: "Rent Sep 2026", never the em dash of the PDF.
+                name = row.get("item") or row.get("description") or "Charge"
+                if row.get("month"):
+                    name = f"{name} {_short_month(row['month'])}"
+                lines.append((name, paid))
     lines.sort(key=lambda pair: pair[1], reverse=True)
 
     parts = [f"Payment received: {currency} {_f(payment.amount):,.0f} ({payment.payment_ref})."]
@@ -622,6 +671,9 @@ def send_receipt(payment, channels, *, landlord_id: int | None = None,
     tenant = payment.tenant
     if tenant is None:
         return [], ["no tenant linked to this payment"]
+    blocker = receipt_blocker(payment)
+    if blocker:
+        return [], [blocker]
 
     landlord_id = landlord_id or payment.landlord_id
     data = build_receipt(payment)

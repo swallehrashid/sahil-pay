@@ -32,9 +32,14 @@ export default function Dropdown({ items = [], trigger, align = "right", searcha
 
   const showSearch = searchable ?? items.length >= SEARCH_THRESHOLD;
   const visibleItems = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter((i) => String(i.label ?? "").toLowerCase().includes(q));
+    // Every word must appear somewhere in the label, in any order — so
+    // "kirui alex" finds "Alex Kirui", and a space never ends the search.
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return items;
+    return items.filter((i) => {
+      const hay = String(i.label ?? "").toLowerCase();
+      return terms.every((t) => hay.includes(t));
+    });
   }, [items, query]);
 
   const close = useCallback(() => {
@@ -80,13 +85,24 @@ export default function Dropdown({ items = [], trigger, align = "right", searcha
     function handleKeyDown(e) {
       if (e.key === "Escape") close();
     }
-    // Any ancestor scrolling (including the table's own horizontal scroll
-    // container) invalidates the computed position — close rather than track it.
-    // But scrolling INSIDE the menu itself (a tall menu that overflows) must NOT
-    // close it, so ignore scroll events originating within the menu. (#3)
+    // An ancestor scrolling moves the trigger, so FOLLOW it — don't close.
+    //
+    // Closing on scroll made the row menu on wide tables (Payments) impossible
+    // to open: clicking the ⋮ at the right edge focuses it, the table's own
+    // horizontal scroll container nudges it into view, that nudge is a scroll
+    // event, and the menu shut in the same frame it opened. Send receipt,
+    // Download receipt, Edit and Delete were all behind it. Reposition instead,
+    // and close only once the trigger has actually left the screen. Scrolling
+    // inside the menu itself (a tall menu) is ignored as before. (#3)
     function handleScroll(e) {
       if (menuRef.current?.contains(e.target)) return;
-      close();
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (!rect || rect.bottom < 0 || rect.top > window.innerHeight
+          || rect.right < 0 || rect.left > window.innerWidth) {
+        close();
+        return;
+      }
+      place();
     }
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleKeyDown);

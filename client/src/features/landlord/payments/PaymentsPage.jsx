@@ -24,6 +24,7 @@ import EtimsEntryModal from "@/features/landlord/etims/EtimsEntryModal";
 import { useGetEtimsScopeQuery } from "@/features/landlord/etims/etimsApiSlice";
 import CopilotInboxTab from "./CopilotInboxTab";
 import SendReminderModal from "../communications/SendReminderModal";
+import SendReceiptModal from "./SendReceiptModal";
 import { useGetPaymentsQuery, useGetPaymentQuery, useCreatePaymentMutation, useUpdatePaymentMutation, useDeletePaymentMutation, useSendPaymentReceiptMutation } from "./paymentApiSlice";
 import { useGetCopilotInboxSummaryQuery } from "./copilotInboxApiSlice";
 import { formatCurrency } from "@/utils/currencyFormatter";
@@ -74,6 +75,7 @@ export default function PaymentsPage() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [reviewPayment, setReviewPayment] = useState(null);
   const [reminderTenant, setReminderTenant] = useState(null); // #4
+  const [receiptPayment, setReceiptPayment] = useState(null);
   // The eTIMS row action exists only for payments on a property the caller may
   // do tax work on — so an account that never opted in sees no extra menu item.
   const [etimsPayment, setEtimsPayment] = useState(null);
@@ -131,8 +133,10 @@ export default function PaymentsPage() {
         }
       }
       setIsFormOpen(false);
-    } catch {
-      toast("Could not save the payment.", { type: "error" });
+    } catch (err) {
+      // Say WHY — "this M-Pesa code was already allocated to …" is the message
+      // that stops somebody recording the same money twice.
+      toast(err?.data?.error || err?.data?.message || "Could not save the payment.", { type: "error", duration: 8000 });
     }
   };
 
@@ -271,12 +275,19 @@ export default function PaymentsPage() {
                         ? [{ label: "Review & confirm", icon: <CheckCircle2 className="h-4 w-4" />, onClick: () => setReviewPayment(row) }]
                         : []),
                       canEdit && { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
-                      canEdit && { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => sendReceipt(row.id).then(() => toast("Receipt sent.", { type: "success" })) },
-                      {
-                        label: "Download receipt",
-                        icon: <Download className="h-4 w-4" />,
-                        onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
-                      },
+                      // Receipts exist only for a confirmed payment that has been
+                      // allocated — a pending Co-pilot SMS or a suspense payment
+                      // has nothing to receipt yet.
+                      ...(row.receipt_available
+                        ? [
+                            canEdit && { label: "Send receipt", icon: <Send className="h-4 w-4" />, onClick: () => setReceiptPayment(row) },
+                            {
+                              label: "Download receipt",
+                              icon: <Download className="h-4 w-4" />,
+                              onClick: () => downloadFile(`/payments/${row.id}/receipt/download`, { filename: `${row.payment_ref}.pdf` }),
+                            },
+                          ]
+                        : []),
                       canEdit && { label: "Change tenant", icon: <ArrowRightLeft className="h-4 w-4" />, onClick: () => setReassignTarget(row) },
                       ...(etimsPropertyIds.has(row.property_id) && canEdit
                         ? [{
@@ -321,6 +332,7 @@ export default function PaymentsPage() {
       <ReassignTenantModal payment={reassignTarget} tenants={tenants} onClose={() => setReassignTarget(null)} />
       {reviewPayment && <ConfirmPaymentModal payment={reviewPayment} onClose={() => setReviewPayment(null)} />}
       <SendReminderModal tenant={reminderTenant} onClose={() => setReminderTenant(null)} />
+      <SendReceiptModal payment={receiptPayment} onClose={() => setReceiptPayment(null)} />
       <EtimsEntryModal record={etimsPayment} kind="payment" onClose={() => setEtimsPayment(null)} />
 
       <ConfirmDialog

@@ -84,6 +84,10 @@ def _first_of_month(d: date) -> date:
     return date(d.year, d.month, 1)
 
 
+def _next_month_first(d: date) -> date:
+    return date(d.year + (d.month // 12), d.month % 12 + 1, 1)
+
+
 def _unpaid_components(li) -> list[tuple[date, "Decimal"]]:
     """
     The still-owed provenance of a line, as [(origin_month, amount)]:
@@ -119,8 +123,47 @@ def _unpaid_components(li) -> list[tuple[date, "Decimal"]]:
             return out
 
     # 'current' line, or a defensive fallback for a balance line with no components.
-    origin = _first_of_month(li.invoice.issue_date) if li.invoice and li.invoice.issue_date else date.today()
+    # The month the charge is FOR (a meter reading's month, an explicitly billed
+    # month) — not merely the date of the invoice it sits on.
+    from services.line_period import line_month
+    origin = line_month(li) or (
+        _first_of_month(li.invoice.issue_date) if li.invoice and li.invoice.issue_date else date.today())
     return [(origin, remaining)]
+
+
+def _months_already_billed(tenant, month_first: date) -> set[int]:
+    """
+    Category ids that already carry a 'current' charge FOR *month_first* on a
+    live invoice of this tenant — whatever date that invoice was issued.
+    """
+    from extensions import db
+    from models import Invoice, InvoiceLineItem, InvoiceStatus, SubCategory
+
+    rows = (
+        db.session.query(InvoiceLineItem.category_id, InvoiceLineItem.period_month,
+                         Invoice.issue_date, Invoice.invoice_type)
+        .join(Invoice, Invoice.id == InvoiceLineItem.invoice_id)
+        .filter(Invoice.tenant_id == tenant.id,
+                Invoice.is_deleted.is_(False),
+                Invoice.status != InvoiceStatus.void.value,
+                InvoiceLineItem.subcategory == SubCategory.current.value,
+                InvoiceLineItem.category_id.isnot(None))
+        .all()
+    )
+    out = set()
+    for cid, period, issued, itype in rows:
+        if period is not None:
+            if _first_of_month(period) == month_first:
+                out.add(cid)
+        elif itype == "monthly" and issued and _first_of_month(issued) == month_first:
+            out.add(cid)
+    return out
+
+
+def _billing_starts(tenant) -> date | None:
+    """The first month rent is owed: the lease start's month, if one is set."""
+    start = tenant.lease_start_date
+    return _first_of_month(start) if start else None
 
 
 def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, issue_dt: date, actor_user_id,
@@ -159,7 +202,8 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
         Invoice.query
         .filter_by(tenant_id=tenant.id, landlord_id=landlord.id,
                    invoice_type=InvoiceType.monthly.value, is_deleted=False)
-        .filter(Invoice.issue_date >= run_month_first)
+        .filter(Invoice.issue_date >= run_month_first,
+                Invoice.issue_date < _next_month_first(run_month_first))
         .first()
     )
     if existing is not None:
@@ -188,7 +232,11 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
                 InvoiceLineItem.status == LineItemStatus.open.value,
                 InvoiceLineItem.subcategory.in_(
                     [SubCategory.current.value, SubCategory.balance.value]),
-                InvoiceLineItem.category_id.isnot(None))
+                InvoiceLineItem.category_id.isnot(None),
+                # A charge billed in advance FOR this month or later is not
+                # arrears yet — it stays where it is.
+                db.or_(InvoiceLineItem.period_month.is_(None),
+                       InvoiceLineItem.period_month < run_month_first))
         .all()
     )
 
@@ -213,7 +261,19 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
         .all()
     )
     current_lines: list[tuple[ChargeCategory, Decimal]] = []
+    already = _months_already_billed(tenant, run_month_first) if include_rent else set()
+    starts = _billing_starts(tenant)
     for cat in (auto_cats if include_rent else []):
+        # Rent is not billed for a month before the lease begins. A tenant who
+        # moves in on the 28th and whose first rent month is October must not
+        # get a September rent bill because the run happened after they joined.
+        if starts is not None and run_month_first < starts:
+            continue
+        # This month's charge already exists — typically October's rent billed
+        # (and paid) on the move-in invoice in September. Billing it again on
+        # the 1st would charge the tenant twice for the same month.
+        if cat.id in already:
+            continue
         if cat.name.lower() == "rent":
             amount = Decimal(str(unit.rent_amount or 0))
         else:
@@ -297,6 +357,7 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
             quantity=Decimal("1"), unit_price=amount, amount=amount,
             category_id=cat.id, subcategory=SubCategory.current.value,
             amount_paid=Z, status=LineItemStatus.open.value,
+            period_month=run_month_first,
         ))
         total += amount
         tenant.balance = Decimal(str(tenant.balance or 0)) - amount
@@ -320,6 +381,84 @@ def _run_monthly_billing_for_tenant(landlord, tenant, run_month_first: date, iss
                  f"({len(per_category)} balance b/f, {len(current_lines)} current, "
                  f"{len(queued)} queued).")
     return "created"
+
+
+def preview_monthly_for_tenant(landlord, tenant, run_month_first: date,
+                               include_rent: bool = True, include_queued: bool = True) -> dict:
+    """
+    What _run_monthly_billing_for_tenant WOULD do, without doing it — for the
+    property-by-property "generate and confirm" screen. Read-only.
+    """
+    from decimal import Decimal
+    from models import (Invoice, InvoiceLineItem, InvoiceType, InvoiceStatus, LineItemStatus,
+                        ChargeCategory, SubCategory)
+    from services import invoice_queue_service as queue
+
+    Z = Decimal("0")
+    unit = tenant.unit
+    row = {"tenant_id": tenant.id, "tenant_name": f"{tenant.first_name} {tenant.last_name}".strip(),
+           "unit_name": unit.name if unit else None, "status": "new",
+           "rent": 0.0, "other_fixed": 0.0, "queued": 0.0, "balance_bf": 0.0, "total": 0.0,
+           "note": None}
+    if unit is None:
+        row["status"] = "no_unit"
+        return row
+
+    existing = (Invoice.query
+                .filter_by(tenant_id=tenant.id, landlord_id=landlord.id,
+                           invoice_type=InvoiceType.monthly.value, is_deleted=False)
+                .filter(Invoice.issue_date >= run_month_first,
+                        Invoice.issue_date < _next_month_first(run_month_first)).first())
+    queued = queue.pending_for_unit(unit.id) if include_queued else []
+    queued_total = sum((Decimal(str(c.amount or 0)) for c in queued), Z)
+    if existing is not None:
+        row.update(status="already_invoiced", invoice_number=existing.invoice_number,
+                   queued=float(queued_total), total=float(queued_total))
+        row["note"] = (f"Already invoiced ({existing.invoice_number})"
+                       + (" — approved queued charges will be added." if queued_total else "."))
+        return row
+
+    already = _months_already_billed(tenant, run_month_first) if include_rent else set()
+    starts = _billing_starts(tenant)
+    rent = other = Z
+    if include_rent and not (starts is not None and run_month_first < starts):
+        for cat in (ChargeCategory.query.filter_by(landlord_id=landlord.id, is_active=True,
+                                                   auto_bill_monthly=True).all()):
+            if cat.id in already:
+                if cat.name.lower() == "rent":
+                    row["note"] = "This month's rent is already billed (paid in advance / move-in)."
+                continue
+            amount = Decimal(str(unit.rent_amount or 0)) if cat.name.lower() == "rent" \
+                else Decimal(str(cat.default_rate or 0))
+            if cat.name.lower() == "rent":
+                rent += amount
+            else:
+                other += amount
+    elif include_rent:
+        row["note"] = f"Lease starts {starts:%B %Y} — no rent this month."
+
+    bf = Z
+    if include_rent:
+        lines = (InvoiceLineItem.query.join(Invoice, InvoiceLineItem.invoice_id == Invoice.id)
+                 .filter(Invoice.tenant_id == tenant.id, Invoice.is_deleted.is_(False),
+                         Invoice.issue_date < run_month_first,
+                         Invoice.status != InvoiceStatus.void.value,
+                         InvoiceLineItem.status == LineItemStatus.open.value,
+                         InvoiceLineItem.subcategory.in_([SubCategory.current.value,
+                                                          SubCategory.balance.value]),
+                         InvoiceLineItem.category_id.isnot(None))
+                 .all())
+        for li in lines:
+            if li.period_month is not None and li.period_month >= run_month_first:
+                continue
+            bf += sum((a for _, a in _unpaid_components(li)), Z)
+
+    total = rent + other + queued_total + bf
+    row.update(rent=float(rent), other_fixed=float(other), queued=float(queued_total),
+               balance_bf=float(bf), total=float(total))
+    if not (rent or other or queued_total) and not bf:
+        row["status"] = "nothing_to_bill"
+    return row
 
 
 @celery.task(name="tasks.invoice_tasks.run_monthly_billing_task")

@@ -43,10 +43,9 @@ export const paymentApiSlice = apiSlice.injectEndpoints({
     sendPaymentReceipt: builder.mutation({
       // Accepts either a bare id (legacy row action → defaults to email) or
       // { id, channels: [...] } from the record-payment form.
-      query: (arg) => {
-        const { id, channels } = typeof arg === "object" ? arg : { id: arg, channels: undefined };
-        return { url: `/payments/${id}/receipt/send`, method: "POST", body: channels ? { channels } : {} };
-      },
+      // Always { id, channels }: the sender chooses the channels in
+      // SendReceiptModal; the API refuses an empty choice.
+      query: ({ id, channels }) => ({ url: `/payments/${id}/receipt/send`, method: "POST", body: { channels } }),
     }),
     reassignPaymentTenant: builder.mutation({
       query: ({ id, ...body }) => ({ url: `/payments/${id}/reassign`, method: "POST", body }),

@@ -315,7 +315,9 @@ def sms_provider_settings():
         landlord = db.session.get(Landlord, landlord_id)
         rates = load_rates()
         has_own_sender = bool(getattr(ls, "sms_sender_id", None) and getattr(ls, "sms_api_key", None))
+        from services import sms_provider_service
         payload = ls.to_dict()
+        payload["provider"] = sms_provider_service.describe(ls)
         payload.update({
             "sms_balance":   landlord.sms_balance if landlord else 0,
             "sender_mode":   "custom" if has_own_sender else "default",
@@ -329,10 +331,21 @@ def sms_provider_settings():
     _check_permission("settings", "edit")
 
     data = request.get_json(silent=True) or {}
+    from services import sms_provider_service
+    changed = False
     if "sms_api_key" in data:
-        ls.sms_api_key = (data["sms_api_key"] or "").strip() or None
+        # Encrypted at rest; a changed key must be re-verified before use.
+        sms_provider_service.store_key(ls, data["sms_api_key"])
+        changed = True
     if "sms_sender_id" in data:
-        ls.sms_sender_id = (data["sms_sender_id"] or "").strip() or None
+        new_sender = (data["sms_sender_id"] or "").strip().upper() or None
+        if new_sender and (len(new_sender) > 11 or not new_sender.replace(" ", "").isalnum()):
+            return jsonify({"error": "Sender ID: up to 11 letters and numbers."}), 400
+        changed = changed or new_sender != ls.sms_sender_id
+        ls.sms_sender_id = new_sender
+    if changed and ls.sms_connected:
+        # New credentials are not trusted until Connect checks them again.
+        ls.sms_connected = False
 
     db.session.commit()
     record_audit(
@@ -370,13 +383,23 @@ def connect_sms_provider():
     landlord_id = get_current_landlord_id()
     ls = _get_or_create_settings(landlord_id)
 
-    # Only the sender name is needed. It is registered with the provider on
-    # Sahil Pay's account, so there is no per-landlord API key to validate —
-    # messages go out under this name but still draw Sahil Pay's credit pool.
+    # A sender name is always needed. With an API key too, this is a THIRD-
+    # PARTY account and the key is checked live against FluxSMS before anything
+    # is connected; without one it is a name registered on Sahil Pay's account.
+    from services import sms_provider_service
     if not ls.sms_sender_id:
         return jsonify({
             "error": "Enter the sender name you had approved, then connect."
         }), 400
+
+    detail = "Sender name connected on Sahil Pay's account."
+    provider_balance = None
+    if sms_provider_service.has_own_key(ls):
+        ok, detail, provider_balance = sms_provider_service.verify(ls)
+        if not ok:
+            ls.sms_connected = False
+            db.session.commit()
+            return jsonify({"error": detail}), 400
 
     ls.sms_connected = True
     db.session.commit()
@@ -389,7 +412,45 @@ def connect_sms_provider():
         description=f"Custom SMS sender connected — sender ID '{ls.sms_sender_id}'.",
     )
     db.session.commit()
-    return jsonify({"message": "SMS sender connected.", "settings": ls.to_dict()}), 200
+    return jsonify({"message": f"SMS sender connected. {detail}",
+                    "provider_balance": provider_balance,
+                    "provider": sms_provider_service.describe(ls),
+                    "settings": ls.to_dict()}), 200
+
+
+@settings_bp.route("/sms-provider/test", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("settings", "edit")
+def test_sms_provider():
+    """
+    Send ONE test SMS through the connected sender to a number the landlord
+    types — the only way to prove the sender ID itself is approved on the
+    networks (a balance check proves the key, not the name). Billed like any
+    other message: to the landlord's own FluxSMS account in third-party mode,
+    to their Sahil Pay balance otherwise.
+    """
+    from types import SimpleNamespace
+    from services.communication_service import dispatch_message
+    from services.phone_service import canonical_phone, INVALID_MESSAGE
+
+    landlord_id = get_current_landlord_id()
+    ls = _get_or_create_settings(landlord_id)
+    if not ls.sms_connected:
+        return jsonify({"error": "Connect the sender first."}), 400
+    phone = canonical_phone((request.get_json(silent=True) or {}).get("phone") or "")
+    if phone is None:
+        return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+    # A stand-in recipient: the log is kept, but no tenant is attached to it.
+    recipient = SimpleNamespace(id=None, phone=phone, email=None, user_id=None, unit=None, unit_id=None)
+    log = dispatch_message(landlord_id=landlord_id, tenant=recipient, channel="sms",
+                           content=f"Sahil Pay test: your sender {ls.sms_sender_id} is connected.",
+                           recipient_type="team_member")
+    db.session.commit()
+    if log.status in ("delivered", "pending"):
+        return jsonify({"message": f"Test SMS sent to {phone} as {ls.sms_sender_id}.",
+                        "status": log.status}), 200
+    return jsonify({"error": log.failure_reason or "The test SMS was not accepted."}), 400
 
 
 @settings_bp.route("/sms-provider/disconnect", methods=["POST"])

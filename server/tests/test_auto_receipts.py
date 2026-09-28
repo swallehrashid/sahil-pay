@@ -80,6 +80,25 @@ def estate(app, db_session):
     s.add(payment)
     s.flush()
 
+    # A receipt exists only for an ALLOCATED payment, so the fixture's payment
+    # clears a real rent line — as every payment that reaches a receipt does.
+    from models import Invoice, InvoiceLineItem, PaymentAllocation
+    rent = ChargeCategory.query.filter_by(landlord_id=landlord.id, name="Rent").one()
+    inv = Invoice(invoice_number=f"INV{n}", landlord_id=landlord.id, tenant_id=tenant.id,
+                  unit_id=unit.id, property_id=prop.id, invoice_type="monthly",
+                  issue_date=date(2026, 8, 1), status="paid", total_amount=Decimal("5000"),
+                  amount_paid=Decimal("5000"), balance=Decimal("0"))
+    s.add(inv)
+    s.flush()
+    line = InvoiceLineItem(invoice_id=inv.id, item="Rent", quantity=1, unit_price=5000,
+                           amount=5000, amount_paid=5000, status="paid",
+                           category_id=rent.id, subcategory="current")
+    s.add(line)
+    s.flush()
+    s.add(PaymentAllocation(payment_id=payment.id, invoice_id=inv.id, line_item_id=line.id,
+                            amount_allocated=Decimal("5000")))
+    s.flush()
+
     return {"landlord": landlord, "tenant": tenant, "payment": payment,
             "automation": automation}
 
@@ -366,6 +385,12 @@ def test_two_different_payments_each_get_their_own_receipt(db_session, estate, e
         payment_ref=f"{first.payment_ref}-2", status=PaymentStatus.confirmed.value,
     )
     db_session.add(second)
+    db_session.flush()
+    # Nothing left to pay, so the second payment is held as an advance — which
+    # still makes it a receiptable, allocated payment.
+    from models import CreditLedger
+    db_session.add(CreditLedger(landlord_id=first.landlord_id, tenant_id=first.tenant_id,
+                                amount=Decimal("7000"), payment_id=second.id, memo="Advance"))
     db_session.flush()
 
     send_receipt(first, ["email"], landlord_id=first.landlord_id)

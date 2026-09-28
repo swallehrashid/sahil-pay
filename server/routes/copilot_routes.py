@@ -477,14 +477,13 @@ def list_landlord_messages():
 
     q = (request.args.get("q") or "").strip()
     if q:
-        like = f"%{q}%"
-        query = query.filter(
-            db.or_(
-                CopilotMessage.parsed_name.ilike(like),
-                CopilotMessage.parsed_ref.ilike(like),
-                CopilotMessage.parsed_account.ilike(like),
-            )
-        )
+        from services.search import match_all_words
+        clause = match_all_words(
+            q, [CopilotMessage.parsed_name, CopilotMessage.parsed_ref,
+                CopilotMessage.parsed_account, CopilotMessage.parsed_phone],
+            phone_columns=[CopilotMessage.parsed_phone])
+        if clause is not None:
+            query = query.filter(clause)
 
     paginated = query.order_by(CopilotMessage.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
@@ -574,6 +573,11 @@ def prepare_message_payment(message_id):
         }), 409
     if msg.parsed_amount is None or msg.parsed_amount <= 0:
         return jsonify({"error": "This message has no valid amount to allocate."}), 409
+
+    from services.payment_guard import duplicate_of, _describe
+    dupe = duplicate_of(landlord_id, msg.parsed_ref)
+    if dupe is not None:
+        return jsonify({"error": _describe(dupe), "code": "already_allocated"}), 409
 
     landlord = db.session.get(Landlord, landlord_id)
 

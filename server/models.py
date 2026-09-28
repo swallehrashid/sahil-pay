@@ -219,6 +219,7 @@ class InvoiceType(str, enum.Enum):
     recurring = "recurring"
     deposit   = "deposit"      # rent/utility/security deposits — allocated first bucket (#6)
     monthly   = "monthly"      # the single per-tenant month-end invoice (rollover + auto-bill)
+    move_in   = "move_in"      # deposit + lease fee + first rent month, billed when the tenant joins
 
 
 class PaymentStatus(str, enum.Enum):
@@ -1801,6 +1802,11 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
     deposit_returned     = Column(Numeric(12, 2), nullable=True)
     rent_payment_penalty = Column(Numeric(10, 2), nullable=True)
     bank_payer_name      = Column(String(150), nullable=True)
+    # Who to call when the tenant cannot be reached. Optional on purpose — a
+    # landlord importing an existing book will not have it for everyone.
+    next_of_kin_name         = Column(String(150), nullable=True)
+    next_of_kin_relationship = Column(String(60),  nullable=True)
+    next_of_kin_phone        = Column(String(20),  nullable=True)
     balance              = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     # Advance/credit held on the account (from overpayment). Auto-applied to the next
     # invoice / monthly billing. Always equals the sum of the credit ledger (spec §1.5).
@@ -1861,6 +1867,9 @@ class Tenant(SoftDeleteMixin, TimestampMixin, Base):
             "deposit_returned":     _serialise(self.deposit_returned),
             "rent_payment_penalty": _serialise(self.rent_payment_penalty),
             "bank_payer_name":      self.bank_payer_name,
+            "next_of_kin_name":         self.next_of_kin_name,
+            "next_of_kin_relationship": self.next_of_kin_relationship,
+            "next_of_kin_phone":        self.next_of_kin_phone,
             "balance":              _serialise(self.balance),
             "credit_balance":       _serialise(self.credit_balance),
             "lease_start_date":     _serialise(self.lease_start_date),
@@ -2029,6 +2038,10 @@ class InvoiceLineItem(TimestampMixin, Base):
     subcategory        = Column(String(10), nullable=True, index=True)   # enum SubCategory
     amount_paid        = Column(Numeric(12, 2), default=Decimal("0.00"), nullable=False)
     status             = Column(String(10), default="open", nullable=False)   # enum LineItemStatus
+    # First day of the month this charge is FOR. NULL = derive it (see
+    # services/line_period.py). Set explicitly when the invoice date and the
+    # month billed differ — next month's rent paid up front at move-in.
+    period_month       = Column(Date, nullable=True, index=True)
 
     invoice         = relationship("Invoice",        back_populates="line_items")
     utility_reading = relationship("UtilityReading", back_populates="line_items")
@@ -2054,6 +2067,7 @@ class InvoiceLineItem(TimestampMixin, Base):
             "amount_paid":        _serialise(self.amount_paid),
             "remaining":          _serialise(self.remaining),
             "status":             self.status,
+            "period_month":       _serialise(self.period_month),
             "created_at":         _serialise(self.created_at),
             "updated_at":         _serialise(self.updated_at),
         }
@@ -3938,7 +3952,15 @@ class LandlordSettings(TimestampMixin, Base):
         # masked tail, never the full value.
         api_key_display = None
         if self.sms_api_key:
-            api_key_display = f"••••{self.sms_api_key[-4:]}" if mask_secrets else self.sms_api_key
+            # The stored value is encrypted (services/sms_provider_service.py);
+            # mask the REAL key's last four, never the ciphertext's — and never
+            # return the key itself, masked or not, from an encrypted row.
+            try:
+                from services.sms_provider_service import own_key
+                plain = own_key(self) or ""
+            except Exception:
+                plain = ""
+            api_key_display = f"••••{plain[-4:]}" if plain else "••••"
         return {
             "id":                        self.id,
             "landlord_id":               self.landlord_id,
@@ -3948,7 +3970,9 @@ class LandlordSettings(TimestampMixin, Base):
             "low_sms_balance_threshold": self.low_sms_balance_threshold,
             "sms_sender_id":             self.sms_sender_id,
             "sms_connected":             self.sms_connected,
-            "sms_api_key_set":           bool(self.sms_api_key),
+            # Only a key saved (encrypted) through the third-party flow counts;
+            # an old plaintext key is ignored by sending, so it is not "set".
+            "sms_api_key_set":           bool(self.sms_api_key and self.sms_api_key.startswith("enc:")),
             "sms_api_key_masked":        api_key_display,
             "report_gross_basis":        self.report_gross_basis or "rent_only",
             # NULL stays NULL rather than being defaulted here: the client needs

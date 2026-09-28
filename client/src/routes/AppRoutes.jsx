@@ -53,6 +53,8 @@ const TwoFactorSetupPage = lazy(() => import("@/features/auth/TwoFactorSetupPage
 // ---- Landlord (and re-mounted by Team Member under permission guards) ----
 const LandlordDashboard = lazy(() => import("@/features/landlord/LandlordDashboard"));
 const PropertiesPage = lazy(() => import("@/features/landlord/properties/PropertiesPage"));
+const PropertyDetailPage = lazy(() => import("@/features/landlord/properties/PropertyDetailPage"));
+const InvoicesByPropertyPage = lazy(() => import("@/features/landlord/invoices/InvoicesByPropertyPage"));
 const UnitsPage = lazy(() => import("@/features/landlord/units/UnitsPage"));
 const TenantsPage = lazy(() => import("@/features/landlord/tenants/TenantsPage"));
 const DeletedTenants = lazy(() => import("@/features/landlord/tenants/DeletedTenants"));
@@ -350,11 +352,14 @@ export default function AppRoutes() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={withSuspense(LandlordDashboard)} />
             <Route path="properties" element={withSuspense(PropertiesPage)} />
+            <Route path="properties/:id" element={<Navigate to="units" replace />} />
+            <Route path="properties/:id/:tab" element={withSuspense(PropertyDetailPage)} />
             <Route path="units" element={withSuspense(UnitsPage)} />
             <Route path="tenants" element={withSuspense(TenantsPage)} />
             <Route path="tenants/deleted" element={withSuspense(DeletedTenants)} />
             <Route path="tenants/:id/transactions" element={withSuspense(TenantTransactions)} />
             <Route path="invoices" element={withSuspense(InvoicesPage)} />
+            <Route path="invoices/by-property" element={withSuspense(InvoicesByPropertyPage)} />
             <Route path="payments" element={withSuspense(PaymentsPage)} />
             <Route path="payments/bank-statement/:id" element={withSuspense(BankStatementReview)} />
             {/* Owner money — one page, two tabs. */}
@@ -423,6 +428,8 @@ export default function AppRoutes() {
 
             <Route element={<ProtectedRoutes requiredPermission={{ module: "properties", level: "view" }} />}>
               <Route path="properties" element={withSuspense(PropertiesPage)} />
+              <Route path="properties/:id" element={<Navigate to="units" replace />} />
+              <Route path="properties/:id/:tab" element={withSuspense(PropertyDetailPage)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "units", level: "view" }} />}>
               <Route path="units" element={withSuspense(UnitsPage)} />
@@ -436,6 +443,7 @@ export default function AppRoutes() {
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "invoices", level: "view" }} />}>
               <Route path="invoices" element={withSuspense(InvoicesPage)} />
+              <Route path="invoices/by-property" element={withSuspense(InvoicesByPropertyPage)} />
             </Route>
             <Route element={<ProtectedRoutes requiredPermission={{ module: "payments", level: "view" }} />}>
               <Route path="payments" element={withSuspense(PaymentsPage)} />

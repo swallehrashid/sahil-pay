@@ -3,6 +3,8 @@ import { apiSlice } from "@/store/apiSlice";
 // §4.11 + §4.12 — mirrors server/routes/report_routes.py. Every statement supports
 // ?format=pdf|excel via ExportButtons; these queries fetch the on-screen preview data.
 export const reportApiSlice = apiSlice.injectEndpoints({
+  // Every statement is computed live on the server; asking again when a page
+  // is opened or the tab regains focus is what keeps it live on screen.
   endpoints: (builder) => ({
     getTenantStatement: builder.query({
       query: ({ id, ...params }) => ({ url: `/reports/statements/tenant/${id}`, params }),

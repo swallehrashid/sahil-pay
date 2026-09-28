@@ -1,24 +1,29 @@
 """
-A receipt printed on a third of a page must BE a third of a page.
+What is previewed is what prints.
 
 WHY THESE ASSERT ON THE RENDERED PDF
 ------------------------------------
-The previous layout tests checked the generated CSS string, and every one of
-them passed while thermal receipts were coming out on A4 — the stylesheet said
-`size: 80mm auto`, which reads correctly and is invalid, so WeasyPrint threw the
-declaration away without anyone noticing. A test that reads the CSS cannot see
-that. These read the page box out of the PDF itself.
+A test that reads the CSS cannot see what a printer will do with the result.
+These read the page box out of the PDF and scan the rendered image for ink.
 
-The two properties that matter, and that a landlord actually complained about:
+THE BUG THIS FILE EXISTS FOR
+----------------------------
+The "A4 third" receipt used to be a PDF whose page was 210 × 99 mm. A page wider
+than it is tall is turned to landscape by every print dialog and scaled up to
+fill an A4 sheet — so the owner's receipts came out rotated, covering the whole
+page, with tiny text and huge gaps, while the preview (which shows the page as
+it is) looked right. Photographs of both are in the September-2026 release notes.
 
-  1. The page is the size that was asked for.
-  2. The content FILLS it — it is rearranged into the rectangle, not shrunk and
-     stranded in the middle of it with white margin on either side.
+So the properties that matter now:
 
-A note on (2): a full page, a tall slip and a till roll are all content-length
-papers — a short receipt legitimately ends partway down and the rest is blank.
-Only a BAND has a fixed height it is supposed to occupy, so only a band is held
-to a fill ratio.
+  1. The PDF page IS the sheet in the printer — A4 portrait for every A4 paper
+     (A4 landscape for the landscape band), 80 mm for a till roll. There is
+     nothing left for a print dialog to rotate or rescale.
+  2. The receipt stays in its place on that sheet: every mark of a top-third
+     receipt is above the cut line, every mark of a strip is left of it.
+  3. It fills its third: full width, and most of the height — not a strip of
+     tiny text at the top.
+  4. A busy receipt still fits; what does not is summarised, never cut off.
 """
 
 import re
@@ -35,19 +40,28 @@ MM_PER_PT = 25.4 / 72
 
 
 class _Landlord:
-    company_name = "Mwangi Property Management Ltd"
-    abbreviated_name = "MPM"
-    company_address = "P.O. Box 4521-00100, Westlands, Nairobi"
+    company_name = "Rawa Estates and Managing Agents"
+    abbreviated_name = "RAWA"
+    company_address = "Anju Plaza, Opp Mathai Supermarket\nP.O Box 2932-10140"
     logo_url = None
+    letterhead_url = None
     signature_url = None
     currency = "KES"
-    mpesa_number = "247247"
+    mpesa_number = "0710351891"
+    contact_phone = "0710 351 891"
+    contact_email = "info@rawaestatesagent.com"
+    website = "https://rawaestatesagent.com"
     landlord_settings = None
+    user = None
 
 
-def _render(paper, theme=None, tmp_path=None):
+def _render(paper, tmp_path, data=None):
     layout = rl.normalise({"paper": paper})
-    pdf = rs.render_sample_receipt_pdf(_Landlord(), layout, theme)
+    if data is None:
+        pdf = rs.render_sample_receipt_pdf(_Landlord(), layout, None)
+    else:
+        from services import receipt_theme
+        pdf = rs._render(_Landlord(), layout, receipt_theme.resolve(None), data)
     path = tmp_path / f"{paper}.pdf"
     path.write_bytes(pdf)
     return path
@@ -64,174 +78,162 @@ def _page_geometry(path):
             int(pages.group(1)))
 
 
-def _ink_extent(path):
-    """(vertical, horizontal) fraction of the page the ink actually spans."""
+def _ink(path, dpi=110):
+    """(image, [(x, y) of ink]) — ink is anything darker than the paper, ignoring the grey cut line."""
     from PIL import Image
-
-    subprocess.run(["pdftoppm", "-r", "110", "-png", "-singlefile",
+    subprocess.run(["pdftoppm", "-r", str(dpi), "-png", "-singlefile",
                     str(path), str(path.with_suffix(""))], check=True)
     image = Image.open(path.with_suffix(".png")).convert("L")
-    width, height = image.size
+    return image
+
+
+def _ink_box_mm(image, dpi=110, threshold=140):
+    """Bounding box (left, top, right, bottom) in mm of DARK ink (text, rules, tables)."""
+    w, h = image.size
     px = image.load()
-    rows = [y for y in range(height) if any(px[x, y] < 240 for x in range(0, width, 2))]
-    cols = [x for x in range(width) if any(px[x, y] < 240 for y in range(0, height, 2))]
+    rows = [y for y in range(h) if any(px[x, y] < threshold for x in range(0, w, 2))]
+    cols = [x for x in range(w) if any(px[x, y] < threshold for y in range(0, h, 2))]
     assert rows and cols, "the receipt rendered blank"
-    return (max(rows) + 1) / height, (max(cols) - min(cols) + 1) / width
+    mm = 25.4 / dpi
+    return min(cols) * mm, min(rows) * mm, (max(cols) + 1) * mm, (max(rows) + 1) * mm
+
+
+def _busy_data(rows=10, owed=5):
+    def row(i):
+        return {"description": f"Charge {i}", "item": f"Charge {i}", "month": "2026-09-01",
+                "month_label": "September 2026", "invoice_number": "X", "is_deposit": False,
+                "amount_due": 1000.0, "paid_this_receipt": 1000.0, "balance_cf": 0.0}
+    return {
+        "payment_ref": "PAY-6-000070", "payment_date": "2026-09-25", "method": "M-Pesa (Co-pilot)",
+        "reference": "UIPRH7P2U5", "tenant_name": "Jonah Alex Mwendwa", "unit_name": "MN 4",
+        "property_name": "Kingongo Court", "currency": "KES", "period_label": "September 2026",
+        "rent_section": [row(i) for i in range(rows)], "utilities_section": [],
+        "deposits_section": [], "other_section": [],
+        "outstanding_items": [{"base": f"Owed {i}", "label": f"Owed {i} — October 2026",
+                               "month": "2026-10-01", "amount": 500.0} for i in range(owed)],
+        "total_due": rows * 1000.0 + owed * 500, "amount_paid": rows * 1000.0,
+        "advance_credit": 0.0, "balance_remaining": owed * 500.0, "deposit_held_total": 6000.0,
+    }
 
 
 # ---------------------------------------------------------------------------
-# 1. The page is the size that was asked for
+# 1. The PDF page is the sheet in the printer
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("paper", list(rl.PAPERS))
-def test_the_page_is_exactly_the_chosen_size(paper, tmp_path):
-    spec = rl.PAPERS[paper]
-    width, height, _ = _page_geometry(_render(paper, tmp_path=tmp_path))
-
-    assert abs(width - spec["width_mm"]) <= 1, \
-        f"{paper} asked for {spec['width_mm']}mm wide and got {width}mm"
-    assert abs(height - spec["height_mm"]) <= 1, \
-        f"{paper} asked for {spec['height_mm']}mm tall and got {height}mm"
+SHEETS = {
+    "a4": (210, 297),
+    "a4_third_band": (210, 297),
+    "a4_third_slip": (210, 297),
+    "a4_third_landscape": (297, 210),
+    "thermal_80": (80, 297),
+}
 
 
 @pytest.mark.parametrize("paper", list(rl.PAPERS))
-def test_a_receipt_fits_on_one_page(paper, tmp_path):
-    """
-    The second page of a 99mm band is a near-empty slip that reads as a printing
-    fault, so a receipt spilling onto one is a defect, not a detail.
-    """
-    _, _, pages = _page_geometry(_render(paper, tmp_path=tmp_path))
-    assert pages == 1, f"{paper} produced {pages} pages"
+def test_the_pdf_page_is_the_physical_sheet(paper, tmp_path):
+    width, height, pages = _page_geometry(_render(paper, tmp_path))
+    assert (width, height) == SHEETS[paper], f"{paper}: {width}×{height} mm"
+    assert pages == 1
 
 
-def test_the_wide_band_is_wider_than_it_is_tall(tmp_path):
-    """The landlord's own words: a third of a page is a RECTANGLE, full width
-    and a third of the height — not an A4 receipt squeezed into a corner."""
-    width, height, _ = _page_geometry(_render("a4_third_band", tmp_path=tmp_path))
-
-    assert width == 210, "the band must span the full A4 width"
-    assert 95 <= height <= 100, "the band must be one third of the A4 height"
-    assert width > height
-
-
-def test_the_tall_slip_is_taller_than_it_is_wide(tmp_path):
-    """The other way of cutting a third, offered alongside rather than instead."""
-    width, height, _ = _page_geometry(_render("a4_third_slip", tmp_path=tmp_path))
-
-    assert width == 99 and height == 297
+def test_the_top_third_receipt_is_a_portrait_page(tmp_path):
+    """THE complaint: it must never be a landscape-shaped page a dialog will rotate."""
+    width, height, _ = _page_geometry(_render("a4_third_band", tmp_path))
     assert height > width
 
 
-def test_three_bands_stack_down_one_a4_sheet(tmp_path):
-    """The point of the band: three of them come out of one sheet."""
-    width, height, _ = _page_geometry(_render("a4_third_band", tmp_path=tmp_path))
+# ---------------------------------------------------------------------------
+# 2 + 3. It stays in its third, and fills it
+# ---------------------------------------------------------------------------
 
-    assert width == 210                      # the full A4 width
-    assert abs(height * 3 - 297) <= 3        # three of them make a page
+def test_the_top_third_receipt_stays_above_the_cut_and_fills_the_width(tmp_path):
+    left, top, right, bottom = _ink_box_mm(_ink(_render("a4_third_band", tmp_path)))
+    assert bottom <= 99, f"ink runs to {bottom:.0f} mm — past the cut line at 99 mm"
+    assert right - left >= 0.9 * 210, "the receipt must use the full width of the sheet"
+    assert bottom >= 0.55 * 99, "the receipt should fill its third, not sit as a strip at the top"
+
+
+def test_a_busy_receipt_still_fits_above_the_cut(tmp_path):
+    path = _render("a4_third_band", tmp_path, _busy_data(rows=12, owed=6))
+    _, _, pages = _page_geometry(path)
+    _, _, _, bottom = _ink_box_mm(_ink(path))
+    assert pages == 1 and bottom <= 99
+
+
+def test_the_landscape_band_stays_in_its_third(tmp_path):
+    path = _render("a4_third_landscape", tmp_path, _busy_data(rows=12, owed=6))
+    _, _, _, bottom = _ink_box_mm(_ink(path))
+    assert bottom <= 70
+
+
+def test_the_strip_stays_left_of_its_cut(tmp_path):
+    left, _, right, _ = _ink_box_mm(_ink(_render("a4_third_slip", tmp_path)))
+    assert right <= 70, f"ink runs to {right:.0f} mm — past the strip's cut at 70 mm"
 
 
 # ---------------------------------------------------------------------------
-# 2. The content fills the rectangle
+# The arrangement
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("paper", ["a4_third_band", "a4_third_landscape"])
-def test_a_band_is_filled_not_shrunk(paper, tmp_path):
-    """
-    THE ORIGINAL COMPLAINT. Choosing a smaller paper used to keep the same
-    stacked arrangement and only shrink the type, leaving the receipt marooned
-    in the middle of the paper with white down both sides. The content has to be
-    rearranged into the rectangle it was given.
-    """
-    path = _render(paper, tmp_path=tmp_path)
-    vertical, horizontal = _ink_extent(path)
-
-    assert horizontal >= 0.90, \
-        f"{paper} uses only {horizontal:.0%} of its width — the receipt is shrunk, not reflowed"
-    assert vertical >= 0.75, \
-        f"{paper} uses only {vertical:.0%} of its height — the band is mostly empty"
-
-
-def test_a_band_lays_its_body_out_in_columns(tmp_path):
-    """The mechanism behind the fill: three columns across, not one down."""
+def test_a_band_lays_its_body_out_in_three_tables_across():
     layout = rl.normalise({"paper": "a4_third_band"})
     body = rl.compose_body(layout, {
         "details": "<p>D</p>", "charges": "<p>C</p>", "totals": "<p>T</p>",
         "notes": "", "etims": "", "signature": "", "credit": "",
     })
-
-    assert "col-details" in body and "col-charges" in body and "col-totals" in body
     assert body.index("col-details") < body.index("col-charges") < body.index("col-totals")
 
 
-def test_a_full_page_still_stacks(tmp_path):
-    """A4 is unchanged — a landlord who never opens the screen sees no difference."""
+def test_a_full_page_still_stacks():
     layout = rl.normalise({"paper": "a4"})
-    body = rl.compose_body(layout, {
-        "details": "<p>D</p>", "charges": "<p>C</p>", "totals": "<p>T</p>",
-        "notes": "", "etims": "", "signature": "", "credit": "",
-    })
-
+    body = rl.compose_body(layout, {"details": "<p>D</p>", "charges": "<p>C</p>",
+                                    "totals": "<p>T</p>"})
     assert "col-charges" not in body
 
 
 # ---------------------------------------------------------------------------
-# 3. Not fitting is handled, rather than allowed to overflow
+# 4. Not fitting is summarised, never cut off
 # ---------------------------------------------------------------------------
 
 def test_a_band_caps_its_charge_rows_and_says_so():
-    """
-    A band cannot grow. A tenant with a dozen charges must not silently lose
-    rows OFF the receipt, and must not push it onto a second band either — so
-    the receipt trims and states what it trimmed.
-    """
     layout = rl.normalise({"paper": "a4_third_band"})
     cap = rl.max_charge_rows(layout)
     assert cap and cap > 0
-
-    rows = [{"description": f"Item {i}", "amount_due": 100,
-             "paid_this_receipt": 100, "balance_cf": 0} for i in range(cap + 5)]
+    rows = [{"description": f"Item {i}", "item": f"Item {i}", "month": None,
+             "amount_due": 100, "paid_this_receipt": 100, "balance_cf": 0} for i in range(cap + 5)]
     html = rs._charge_groups_html([("Rent", rows)], "KES", 2, cap)
-
     assert "Item 0" in html
-    assert f"+5 more items" in html, "trimmed rows must be accounted for"
+    assert "+5 more items" in html
 
 
 def test_a_full_page_never_caps_rows():
     layout = rl.normalise({"paper": "a4"})
     assert rl.max_charge_rows(layout) is None
-
-    rows = [{"description": f"Item {i}", "amount_due": 100,
-             "paid_this_receipt": 100, "balance_cf": 0} for i in range(30)]
+    rows = [{"description": f"Item {i}", "item": f"Item {i}", "month": None,
+             "amount_due": 100, "paid_this_receipt": 100, "balance_cf": 0} for i in range(30)]
     html = rs._charge_groups_html([("Rent", rows)], "KES", 4, None)
-
-    assert "Item 29" in html
-    assert "more item" not in html
+    assert "Item 29" in html and "more item" not in html
 
 
 def test_a_small_paper_drops_to_two_money_columns():
-    """
-    Four money columns across a 99mm band leaves each about two characters
-    wide. That is not a smaller receipt, it is an unreadable one.
-    """
     assert rl.money_columns(rl.normalise({"paper": "a4"})) == 4
     assert rl.money_columns(rl.normalise({"paper": "a4_third_band"})) == 2
     assert rl.money_columns(rl.normalise({"paper": "thermal_80"})) == 2
 
 
 # ---------------------------------------------------------------------------
-# 4. Renaming a paper must not silently change anyone's receipt
+# Keys
 # ---------------------------------------------------------------------------
 
-def test_the_old_paper_key_still_resolves():
+def test_the_portrait_third_key_means_the_top_third_receipt():
     """
-    `a4_third_portrait` was the 99×210 slip before the wide band existed. Any
-    landlord who saved it keeps a tall slip — quietly moving them to a different
-    paper because we renamed a constant would be worse than the original bug.
+    Owners call the top-third receipt "the 1/3 page portrait layout", and an
+    older build saved it as `a4_third_portrait`. It resolves to the top third
+    of an upright A4 sheet.
     """
     layout = rl.normalise({"paper": "a4_third_portrait"})
-
-    assert layout["paper"] == "a4_third_slip"
-    assert rl.flow_of(layout) == rl.FLOW_COLUMN
+    assert layout["paper"] == "a4_third_band"
+    assert rl.flow_of(layout) == rl.FLOW_BAND
 
 
 def test_an_unknown_paper_falls_back_to_a4():
