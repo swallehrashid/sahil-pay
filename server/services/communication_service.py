@@ -138,10 +138,21 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         # handset, not whose credits pay for it. send_sms() falls back to the
         # platform key when api_key is None.
 
-        if landlord is not None and not is_demo and (landlord.sms_balance or 0) < sms_credits:
+        # THIRD-PARTY account (services/sms_provider_service.py): the landlord
+        # connected their own FluxSMS API key, so the message goes out on
+        # THEIR account and their provider bills them. Sahil Pay's balance
+        # gate, pool and charge do not apply — charging both would bill the
+        # same message twice.
+        from services import sms_provider_service
+        sms_api_key = sms_provider_service.sending_key(settings) if not is_demo else None
+        third_party = bool(sms_api_key)
+
+        if third_party:
+            pass
+        elif landlord is not None and not is_demo and (landlord.sms_balance or 0) < sms_credits:
             blocked = "Insufficient SMS balance — top up to keep sending."
 
-        if not blocked and not is_demo:
+        if not blocked and not is_demo and not third_party:
             # EVERY send is gated by the pool, branded sender or not: the
             # credits come out of SahilPay's FluxSMS account either way. The
             # master toggle still only governs the shared SAHILPAY sender,
@@ -202,7 +213,8 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
             status = "delivered" if provider_message_id else "failed"
         if status == "failed":
             failure_reason = ("The SMS provider did not accept the message. "
-                              "Check the sender ID is approved on the network.")
+                              "Check the sender ID is approved on the network"
+                              + (" and your FluxSMS account has credit." if sms_api_key else "."))
     elif channel == "email":
         # Every landlord→tenant email is Sahil-themed: use the caller's themed
         # HTML when given, else wrap the plain content in the branded shell.
@@ -237,7 +249,8 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
     # Charge/decrement only AFTER the outcome is known, and only when the SMS
     # actually went out (or was simulated as delivered) — a failed send never
     # burns credits or records platform cost.
-    if channel == "sms" and not blocked and status in ("delivered", "pending"):
+    if channel == "sms" and not blocked and status in ("delivered", "pending") \
+            and not (sms_api_key and not is_demo):
         if not is_demo:
             sms_charge    = econ["charge"]
             platform_cost = econ["platform_cost"]
@@ -328,7 +341,11 @@ def send_account_sms(landlord, phone: str | None, content: str, *, label: str = 
     simulate = current_app.config.get("COMMS_SIMULATION_MODE", True) or landlord.is_demo
 
     reason = None
-    if not landlord.is_demo:
+    from services import sms_provider_service
+    own_key = sms_provider_service.sending_key(settings) if not landlord.is_demo else None
+    if own_key:
+        cfg = None      # third-party account: their provider bills them
+    elif not landlord.is_demo:
         cfg = SmsPricingConfig.get_singleton()
         if (landlord.sms_balance or 0) < credits:
             reason = "Insufficient SMS balance — top up to keep sending."
@@ -346,7 +363,7 @@ def send_account_sms(landlord, phone: str | None, content: str, *, label: str = 
         status = "delivered"
         logger.info("SIMULATED %s SMS to %s (landlord %s)", label, phone, landlord.id)
     else:
-        provider_id = send_sms(phone, content, sender_id=econ["sender_id"])
+        provider_id = send_sms(phone, content, sender_id=econ["sender_id"], api_key=own_key)
         if provider_id == ACCEPTED_NO_ID:
             provider_id = None
             status = "delivered"
@@ -355,7 +372,7 @@ def send_account_sms(landlord, phone: str | None, content: str, *, label: str = 
         if status == "failed":
             reason = "The SMS provider did not accept the message."
 
-    charged = status == "delivered" and not landlord.is_demo
+    charged = status == "delivered" and not landlord.is_demo and not own_key
     if charged:
         decrement_sms_balance(landlord, credits)
         cfg.pool_balance = max(0, cfg.pool_balance - credits)

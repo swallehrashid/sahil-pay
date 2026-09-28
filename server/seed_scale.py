@@ -325,7 +325,40 @@ def build(properties_count: int, units_per_property: int, months: int,
     t0 = time.time()
     month_starts = [today.replace(day=1) - relativedelta(months=n) for n in range(months - 1, -1, -1)]
 
+    import string
+    from services.category_service import seed_default_categories
+    seed_default_categories(landlord.id)
+    water = m.ChargeCategory.query.filter_by(landlord_id=landlord.id, name="Water").first()
+    db.session.commit()
+
+    def mpesa_code():
+        return "".join(rng.choice(string.ascii_uppercase + string.digits) for _ in range(10))
+
     for mi, month in enumerate(month_starts, start=1):
+        # Last month's water, read at month end and queued for this month's
+        # invoice — so a September invoice carries "Water — August".
+        if water is not None and mi > 1:
+            reading_month = (month - relativedelta(months=1)).strftime("%Y-%m")
+            for tenant in tenants:
+                units_used = Decimal(rng.randint(2, 12))
+                reading = m.UtilityReading(
+                    landlord_id=landlord.id, property_id=tenant.unit.property_id,
+                    unit_id=tenant.unit_id, utility_item="Water", category_id=water.id,
+                    subcategory="current", previous_reading=Decimal("100"),
+                    current_reading=Decimal("100") + units_used, consumption=units_used,
+                    amount=units_used * 150, reading_month=reading_month,
+                )
+                db.session.add(reading)
+                db.session.flush()
+                db.session.add(m.QueuedCharge(
+                    landlord_id=landlord.id, unit_id=tenant.unit_id,
+                    occupant_at_queue_id=tenant.id, category_id=water.id, subcategory="current",
+                    item="Water", description=f"{units_used} m³ @ 150 ({reading_month})",
+                    amount=units_used * 150, utility_reading_id=reading.id,
+                    status=m.QueuedCharge.STATUS_QUEUED,
+                ))
+            db.session.commit()
+
         billed = 0
         for tenant in tenants:
             _run_monthly_billing_for_tenant(landlord, tenant, month, month, None)
@@ -354,13 +387,26 @@ def build(properties_count: int, units_per_property: int, months: int,
             due = sum((li.remaining for li in outstanding_line_items(tenant)), Decimal("0"))
             if due <= 0:
                 continue
+            # Not everybody pays the whole bill: some part-pay (the rest rolls
+            # into next month's "Balance b/f", with its months), a few pay a
+            # month ahead (advance credit, consumed by the next invoice).
+            kind = rng.random()
+            if kind < 0.17:
+                amount = (due * Decimal(str(rng.uniform(0.4, 0.9)))).quantize(Decimal("100"))
+            elif kind < 0.23:
+                amount = due + Decimal(str(tenant.unit.rent_amount or 0))
+            else:
+                amount = due
+            if amount <= 0:
+                continue
             when = month.replace(day=min(day, 28))
             payment = m.Payment(
                 payment_ref=gen_reference("PMT"), landlord_id=landlord.id,
                 tenant_id=tenant.id, unit_id=tenant.unit_id,
-                property_id=tenant.unit.property_id, amount=due,
+                property_id=tenant.unit.property_id, amount=amount,
                 payment_date=when, status=m.PaymentStatus.confirmed.value,
                 source=m.PaymentSource.mpesa.value, payment_method="M-Pesa",
+                mpesa_reference=mpesa_code(),
             )
             db.session.add(payment)
             db.session.flush()

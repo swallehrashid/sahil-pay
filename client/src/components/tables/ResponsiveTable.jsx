@@ -41,7 +41,7 @@ export default function ResponsiveTable({
                 <span className="text-right text-white/90">{col.render ? col.render(row) : row[col.key]}</span>
               </div>
             ))}
-            {rowActions && <div className="flex justify-end border-t border-white/10 pt-2">{rowActions(row)}</div>}
+            {rowActions && <div className="flex justify-end border-t border-white/10 pt-2" onClick={(e) => e.stopPropagation()}>{rowActions(row)}</div>}
           </div>
         ))}
       </div>

@@ -23,6 +23,18 @@ export const invoiceQueueApiSlice = apiSlice.injectEndpoints({
       transformResponse: (response) => ({ ...(response?.data ?? {}), message: response?.message }),
       invalidatesTags: ["InvoiceQueue", "Invoice", "Tenant", "Utility", "Dashboard"],
     }),
+    // Monthly invoicing one property at a time: the overview of every
+    // property for a month, and what one property's run would bill.
+    getMonthlyByProperty: builder.query({
+      query: (params) => ({ url: "/invoice-queue/by-property", params }),
+      transformResponse: unwrap,
+      providesTags: ["InvoiceQueue", "Invoice"],
+    }),
+    getMonthlyPropertyPreview: builder.query({
+      query: ({ propertyId, ...params }) => ({ url: `/invoice-queue/by-property/${propertyId}`, params }),
+      transformResponse: unwrap,
+      providesTags: ["InvoiceQueue", "Invoice"],
+    }),
     // Asked by the invoice form before saving, so it can warn that a unit has
     // charges waiting rather than letting somebody raise a bill that silently
     // omits the month's water.
@@ -55,4 +67,6 @@ export const {
   useCancelQueuedChargeMutation,
   useReviewQueuedChargesMutation,
   useRunMonthlyInvoicingMutation,
+  useGetMonthlyByPropertyQuery,
+  useGetMonthlyPropertyPreviewQuery,
 } = invoiceQueueApiSlice;

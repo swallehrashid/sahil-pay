@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Plus, FileText, Send, Download, Pencil, Trash2, Layers, Settings2 } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
+import { Plus, FileText, Send, Download, Pencil, Trash2, Layers, Settings2, Building2 } from "lucide-react";
 import PageHeader from "@/components/layout/PageHeader";
 import Tabs from "@/components/ui/Tabs";
 import InvoiceQueuePanel from "./InvoiceQueuePanel";
@@ -39,6 +40,8 @@ import { useGetPropertyOptionsQuery, useGetTenantOptionsQuery } from "@/store/lo
 import { usePermissions } from "@/hooks/usePermissions";
 
 export default function InvoicesPage() {
+  const navigate = useNavigate();
+  const ROUTES = usePortalRoutes();
   const { can } = usePermissions();
   const canEdit = can("invoices", "edit");
   const [searchParams] = useSearchParams();
@@ -137,6 +140,14 @@ export default function InvoicesPage() {
         actions={
           <>
             {canEdit && (
+              // Monthly invoicing one property at a time — generate, check,
+              // confirm, next — rather than the whole portfolio in one click.
+              <Button data-testid="invoice-by-property" leftIcon={<Building2 className="h-4 w-4" />}
+                      onClick={() => navigate(ROUTES.invoicesByProperty)}>
+                Invoice by property
+              </Button>
+            )}
+            {canEdit && (
             <Dropdown
               align="right"
               trigger={
@@ -145,6 +156,7 @@ export default function InvoicesPage() {
                 </Button>
               }
               items={[
+                { label: "Monthly invoices — property by property", onClick: () => navigate(ROUTES.invoicesByProperty) },
                 { label: "Generate rent invoices", onClick: () => setActiveGenerator("rent") },
                 { label: "Generate recurring bills", onClick: () => setActiveGenerator("recurring") },
                 { label: "Generate penalty invoices", onClick: () => setActiveGenerator("penalty") },

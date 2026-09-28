@@ -197,8 +197,12 @@ def auto_allocate(tenant, amount, landlord, ref_date: date | None = None) -> lis
             buckets.setdefault(key, []).append(li)
 
     def _line_sort(li: InvoiceLineItem):
+        # Oldest MONTH first — the month the charge is for, not the date of the
+        # invoice it sits on. October's rent billed on a September move-in
+        # invoice is paid after September's arrears, not before them.
+        from services.line_period import line_month
         issue = li.invoice.issue_date if li.invoice else None
-        return (issue or ref_date, li.id)
+        return (line_month(li) or issue or ref_date, issue or ref_date, li.id)
 
     allocations: list[dict] = []
 

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Plus, Building2, DoorOpen, AlertCircle, Pencil, Trash2 } from "lucide-react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { Plus, Building2, DoorOpen, AlertCircle, Pencil, Trash2, Eye } from "lucide-react";
+import { usePortalRoutes } from "@/hooks/usePortalRoutes";
 import PageHeader from "@/components/layout/PageHeader";
 import SearchInput from "@/components/ui/SearchInput";
 import SummaryCard from "@/components/ui/SummaryCard";
@@ -20,6 +21,8 @@ import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export default function PropertiesPage() {
+  const navigate = useNavigate();
+  const ROUTES = usePortalRoutes();
   const { can } = usePermissions();
   // View-only members see the list; only editors get the write actions.
   const canEdit = can("properties", "edit");
@@ -129,14 +132,17 @@ export default function PropertiesPage() {
           columns={columns}
           rows={properties}
           isLoading={isLoading}
-          rowActions={canEdit ? (row) => (
+          // Click a property to open its own page: its units and its tenants.
+          onRowClick={(row) => navigate(ROUTES.propertyDetailPath(row.id))}
+          rowActions={(row) => (
             <Dropdown
               items={[
-                { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
-                { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
-              ]}
+                { label: "View units & tenants", icon: <Eye className="h-4 w-4" />, onClick: () => navigate(ROUTES.propertyDetailPath(row.id)) },
+                canEdit && { label: "Edit", icon: <Pencil className="h-4 w-4" />, onClick: () => openEdit(row) },
+                canEdit && { label: "Delete", icon: <Trash2 className="h-4 w-4" />, danger: true, onClick: () => setPendingDelete(row) },
+              ].filter(Boolean)}
             />
-          ) : undefined}
+          )}
         />
         <Pagination page={pg.page} perPage={pg.perPage} total={meta.total} onPageChange={pg.setPage} onPerPageChange={pg.setPerPage} />
       </div>

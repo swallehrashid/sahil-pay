@@ -318,9 +318,14 @@ def allocate_payment(payment_id: int):
     This is the ONLY way money leaves suspense, and every row it writes is
     tagged with the actor — nothing is ever silently split.
     """
+    from services.payment_guard import claim_for_allocation
+
     landlord = _landlord()
     payment = _scoped_payment(payment_id, landlord.id)
     data = request.get_json(silent=True) or {}
+    # This endpoint used to allocate whatever it was given, even a payment
+    # already confirmed elsewhere — that was the double allocation.
+    payment = claim_for_allocation(payment)
 
     payment_resolver.allocate_manually(
         payment, landlord, data.get("splits") or [], actor_user_id=_actor_id(),
@@ -330,7 +335,8 @@ def allocate_payment(payment_id: int):
                  action="payment_manual_allocate", entity_type="payment",
                  entity_id=payment.id,
                  description=f"Manually allocated {payment.payment_ref}.")
-    return success(payment.to_dict(), message="Allocated.")
+    return success(payment.to_dict(),
+                   message=f"Payment {payment.payment_ref} reviewed and allocated.")
 
 
 @allocation_bp.route("/payments/<int:payment_id>/reverse", methods=["POST"])

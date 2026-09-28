@@ -26,11 +26,23 @@ export default function SearchInput({
 }) {
   const [text, setText] = useState(value);
 
-  // Keep in step when the parent clears the term (a "reset filters" button).
-  useEffect(() => { setText(value); }, [value]);
+  // Keep in step when the PARENT changes the term — a "reset filters" button.
+  //
+  // Compared against the trimmed text, never the raw text. The parent is sent
+  // the trimmed term, so after typing "Alex " and pausing it holds "Alex". The
+  // old `setText(value)` then overwrote the box with "Alex", deleting the space
+  // the person had just typed, and "Kirui" was glued on as "AlexKirui" — which
+  // is why every search stopped working the moment it contained a space.
+  // (Adjusted during render — React's pattern for "state derived from a
+  // changed prop" — rather than in an effect.)
+  const [seenValue, setSeenValue] = useState(value);
+  if (value !== seenValue) {
+    setSeenValue(value);
+    if (text.trim() !== (value ?? "").trim()) setText(value ?? "");
+  }
 
   useEffect(() => {
-    if (text === value) return undefined;
+    if (text.trim() === (value ?? "").trim()) return undefined;
     const timer = setTimeout(() => onSearch?.(text.trim()), delay);
     return () => clearTimeout(timer);
     // `value` is deliberately excluded: including it re-arms the timer on every

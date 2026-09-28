@@ -308,3 +308,123 @@ def cancel_charge(charge_id):
     )
     db.session.commit()
     return success(message="Charge cancelled.")
+
+
+# ---------------------------------------------------------------------------
+# Generate invoices property by property
+# ---------------------------------------------------------------------------
+#
+# The whole-portfolio run is one button and 1,000 invoices. A property manager
+# with a hundred owners wants to do it one block at a time — generate, look at
+# what came out, confirm, move on — so that a wrong rent on one building is
+# caught before it goes to the next. These two endpoints are the list and the
+# per-property preview; generating is the existing run-monthly with
+# property_ids=[one id].
+
+def _month_arg():
+    from services.line_period import parse_month
+    from datetime import date as _date
+    month = parse_month(request.args.get("month")) or parse_month(_date.today())
+    return month
+
+
+@invoice_queue_bp.route("/by-property", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "view")
+def monthly_by_property():
+    """Every property with how many of its tenants are invoiced for ?month=YYYY-MM."""
+    from datetime import date as _date
+    from models import Property, Tenant, InvoiceType
+
+    landlord_id = get_current_landlord_id()
+    month = _month_arg()
+    nxt = _date(month.year + (month.month // 12), month.month % 12 + 1, 1)
+    allowed = accessible_property_ids()
+
+    props = Property.query.filter_by(landlord_id=landlord_id, is_deleted=False)
+    if allowed is not None:
+        props = props.filter(Property.id.in_(allowed))
+    props = props.order_by(Property.name).all()
+    ids = [p.id for p in props]
+
+    tenants = dict(
+        db.session.query(Unit.property_id, db.func.count(Tenant.id))
+        .join(Tenant, Tenant.unit_id == Unit.id)
+        .filter(Unit.property_id.in_(ids), Unit.is_deleted.is_(False),
+                Tenant.is_deleted.is_(False), Tenant.landlord_id == landlord_id)
+        .group_by(Unit.property_id).all()
+    ) if ids else {}
+    invoiced = dict(
+        db.session.query(Invoice.property_id, db.func.count(db.distinct(Invoice.tenant_id)))
+        .filter(Invoice.landlord_id == landlord_id, Invoice.property_id.in_(ids),
+                Invoice.is_deleted.is_(False),
+                Invoice.invoice_type == InvoiceType.monthly.value,
+                Invoice.issue_date >= month, Invoice.issue_date < nxt)
+        .group_by(Invoice.property_id).all()
+    ) if ids else {}
+    billed = dict(
+        db.session.query(Invoice.property_id, db.func.coalesce(db.func.sum(Invoice.total_amount), 0))
+        .filter(Invoice.landlord_id == landlord_id, Invoice.property_id.in_(ids),
+                Invoice.is_deleted.is_(False),
+                Invoice.invoice_type == InvoiceType.monthly.value,
+                Invoice.issue_date >= month, Invoice.issue_date < nxt)
+        .group_by(Invoice.property_id).all()
+    ) if ids else {}
+
+    rows = []
+    for p in props:
+        t = int(tenants.get(p.id, 0))
+        i = int(invoiced.get(p.id, 0))
+        rows.append({
+            "property_id": p.id, "property_name": p.name, "city": p.city,
+            "tenants": t, "invoiced": i, "remaining": max(t - i, 0),
+            "invoiced_total": float(billed.get(p.id, 0) or 0),
+            "status": "done" if t and i >= t else ("partial" if i else ("empty" if not t else "pending")),
+        })
+    done = sum(1 for r in rows if r["status"] == "done")
+    return success({"month": month.isoformat(), "properties": rows,
+                    "summary": {"properties": len(rows), "done": done,
+                                "pending": sum(1 for r in rows if r["status"] in ("pending", "partial"))}})
+
+
+@invoice_queue_bp.route("/by-property/<int:property_id>", methods=["GET"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "view")
+def monthly_property_preview(property_id):
+    """Per tenant: what generating ?month= for this property will bill."""
+    from models import Landlord, Property, Tenant
+    from tasks.invoice_tasks import preview_monthly_for_tenant
+
+    landlord_id = get_current_landlord_id()
+    allowed = accessible_property_ids()
+    if allowed is not None and property_id not in allowed:
+        raise ApiError("Property not found.", status=404)
+    prop = Property.query.filter_by(id=property_id, landlord_id=landlord_id, is_deleted=False).first()
+    if prop is None:
+        raise ApiError("Property not found.", status=404)
+    month = _month_arg()
+    include_rent = (request.args.get("include_rent", "true").lower() != "false")
+    include_queued = (request.args.get("include_queued", "true").lower() != "false")
+    landlord = db.session.get(Landlord, landlord_id)
+
+    tenants = (Tenant.query.join(Unit, Unit.id == Tenant.unit_id)
+               .filter(Unit.property_id == property_id, Unit.is_deleted.is_(False),
+                       Tenant.is_deleted.is_(False), Tenant.landlord_id == landlord_id)
+               .order_by(Unit.name).all())
+    rows = [preview_monthly_for_tenant(landlord, t, month, include_rent, include_queued)
+            for t in tenants]
+    to_bill = [r for r in rows if r["status"] == "new"]
+    return success({
+        "month": month.isoformat(), "property_id": prop.id, "property_name": prop.name,
+        "tenants": rows,
+        "summary": {
+            "tenants": len(rows), "to_invoice": len(to_bill),
+            "already_invoiced": sum(1 for r in rows if r["status"] == "already_invoiced"),
+            "rent": round(sum(r["rent"] for r in to_bill), 2),
+            "queued": round(sum(r["queued"] for r in rows), 2),
+            "balance_bf": round(sum(r["balance_bf"] for r in to_bill), 2),
+            "total": round(sum(r["total"] for r in rows), 2),
+        },
+    })

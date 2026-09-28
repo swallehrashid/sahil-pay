@@ -40,11 +40,11 @@ def test_anything_unusable_falls_back_to_the_default(junk):
     layout = rl.normalise(junk)
     assert layout["paper"] in rl.PAPERS
     assert layout["density"] in rl.DENSITIES
-    assert 0.8 <= layout["font_scale"] <= 1.25
+    assert 0.8 <= layout["font_scale"] <= 1.3
 
 
 def test_font_scale_is_clamped():
-    assert rl.normalise({"font_scale": 99})["font_scale"] == 1.25
+    assert rl.normalise({"font_scale": 99})["font_scale"] == 1.3
     assert rl.normalise({"font_scale": 0.1})["font_scale"] == 0.8
 
 
@@ -89,9 +89,11 @@ def test_thermal_roll_is_80mm_wide():
     So: assert the width the roll actually is, and that the declaration is one
     a renderer will accept.
     """
+    import re
     css = rl.page_css(rl.normalise({"paper": "thermal_80"}))
-    assert "80mm" in css
-    assert "auto" not in css, "an @page size of `auto` is silently ignored"
+    page = re.search(r"@page \{[^}]*\}", css).group(0)
+    assert "80mm" in page
+    assert "auto" not in page, "an @page size of `auto` is silently ignored"
 
 
 def test_no_paper_produces_a_page_size_a_renderer_will_reject(recwarn):
@@ -105,7 +107,7 @@ def test_no_paper_produces_a_page_size_a_renderer_will_reject(recwarn):
     for paper in rl.PAPERS:
         css = rl.page_css(rl.normalise({"paper": paper}))
         size = re.search(r"@page \{ size: ([^;]+);", css).group(1).strip()
-        assert size == "A4" or re.fullmatch(r"[\d.]+mm [\d.]+mm", size), \
+        assert size in ("A4 portrait", "A4 landscape") or re.fullmatch(r"[\d.]+mm [\d.]+mm", size), \
             f"{paper} produced an unusable page size: {size!r}"
 
 
@@ -124,7 +126,7 @@ def _row_padding_mm(css: str) -> float:
     """The vertical row padding a stylesheet sets, normalised to millimetres."""
     import re
 
-    match = re.search(r"table td, table th \{ padding: ([\d.]+)(mm|px)", css)
+    match = re.search(r"table\.grid td \{[^}]*?padding: ([\d.]+)(mm|px)", css, re.S)
     assert match, "no row padding found in the stylesheet"
     value = float(match.group(1))
     return value if match.group(2) == "mm" else value * 25.4 / 96

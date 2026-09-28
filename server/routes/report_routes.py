@@ -187,35 +187,47 @@ def _fmt_response(file_bytes, fmt: str, filename: str):
 @jwt_required()
 @require_landlord_or_team()
 @require_permission("reports", "view")
+@scope_to_accessible_properties
 @require_report("payments")
 def payments_report():
     """
-    Consolidated per-category / per-tenant payments report.
+    Payments Report: per category / month / tenant, plus the allocation ledger.
     Query: ?category_id=<id|all>&date_from=&date_to=&property_id=
+           &format=json|pdf|excel  &ledger_page=&ledger_per_page=
+    Always computed live from the ledger — see services/payment_report_service.py.
     """
     from utils import parse_date
-    from services.payment_report_service import build_payments_report, build_payments_report_document
+    from services.payment_report_service import (
+        build_payments_report, build_payments_report_document, build_payments_report_excel)
 
     landlord_id = get_current_landlord_id()
     category_id = request.args.get("category_id", "all")
     date_from = parse_date(request.args.get("date_from"))
     date_to = parse_date(request.args.get("date_to"))
     property_id = request.args.get("property_id", type=int)
+    if property_id and not _property_in_scope(property_id):
+        return _not_found_response("Property")
+    allowed = _accessible_property_ids()
 
     fmt = (request.args.get("format") or "json").lower()
-    if fmt in ("pdf", "excel"):
-        # Export through the shared report_builder pipeline (letterhead + signature).
+    if fmt == "excel":
+        file_bytes = build_payments_report_excel(
+            _current_landlord(), category_id=category_id, date_from=date_from,
+            date_to=date_to, property_id=property_id, allowed_property_ids=allowed)
+        return _fmt_response(file_bytes, fmt, "payments-report"), 200
+    if fmt == "pdf":
         doc = build_payments_report_document(
-            _current_landlord(), category_id=category_id,
-            date_from=date_from, date_to=date_to, property_id=property_id,
-        )
+            _current_landlord(), category_id=category_id, date_from=date_from,
+            date_to=date_to, property_id=property_id, allowed_property_ids=allowed)
         selection = parse_column_selection(request.args.get("columns"))
         file_bytes = render_document(doc, fmt, selection, None)
         return _fmt_response(file_bytes, fmt, "payments-report"), 200
 
     data = build_payments_report(
-        landlord_id, category_id=category_id,
-        date_from=date_from, date_to=date_to, property_id=property_id,
+        landlord_id, category_id=category_id, date_from=date_from, date_to=date_to,
+        property_id=property_id, allowed_property_ids=allowed,
+        ledger_page=request.args.get("ledger_page", 1, type=int),
+        ledger_per_page=min(request.args.get("ledger_per_page", 50, type=int), 500),
     )
     return jsonify(data), 200
 

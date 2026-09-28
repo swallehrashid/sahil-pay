@@ -8,7 +8,9 @@ Put new documentation here.
 
 | Document | What it covers |
 |---|---|
-| [REDEPLOY.md](REDEPLOY.md) | **The current release** — dropdowns, backup & delete, cascade deletes, SMS billing, phone format, team tutorials, audit time, team members + queued invoices |
+| [REDEPLOY.md](REDEPLOY.md) | **The current release** — receipts that print as previewed, months on every receipt line, allocate-once, accurate reports + Excel, search with spaces, letterhead sizes, third-party SMS, property pages, invoice by property, month-end move-in, next of kin |
+| [REDEPLOY_PLAN_THIRTEEN_ITEMS.md](REDEPLOY_PLAN_THIRTEEN_ITEMS.md) | **Step-by-step checklist** to deploy the current release: backup, deploy, browser checks, 1 October, rollback |
+| [REDEPLOY_2026-09_EIGHT_ITEMS.md](REDEPLOY_2026-09_EIGHT_ITEMS.md) | The eight-item release before it (dropdowns, backup & delete, SMS billing, phones, team) |
 | [MPESA_GO_LIVE.md](MPESA_GO_LIVE.md) | Switching M-Pesa on: what is verified, Org-portal steps, first live test |
 | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | First-time VPS setup from scratch |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Deployment overview |

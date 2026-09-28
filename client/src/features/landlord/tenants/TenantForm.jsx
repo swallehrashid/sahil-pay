@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { formatCurrency } from "@/utils/currencyFormatter";
+import { usePreviewMoveInMutation } from "./tenantApiSlice";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
@@ -29,6 +31,9 @@ const EMPTY_FORM = {
   move_in_date: "",
   move_out_date: "",
   notes: "",
+  next_of_kin_name: "",
+  next_of_kin_relationship: "",
+  next_of_kin_phone: "",
   // Off by default: sending costs the landlord SMS credits, and a message
   // going out unasked is not a pleasant surprise.
   send_welcome_message: false,
@@ -37,8 +42,47 @@ const EMPTY_FORM = {
 // Only property/unit, first/last name and phone are required — every other field is
 // optional (§4.5).
 export default function TenantForm({ initialValues, properties = [], units = [], onSubmit, onCancel, isSubmitting }) {
-  const [form, setForm] = useState({ ...EMPTY_FORM, ...initialValues });
+  const [form, setForm] = useState(() => {
+    const merged = { ...EMPTY_FORM, ...initialValues };
+    // Nulls from the API would make these controlled inputs uncontrolled.
+    for (const k of ["next_of_kin_name", "next_of_kin_relationship", "next_of_kin_phone"]) merged[k] = merged[k] ?? "";
+    return merged;
+  });
   const [errors, setErrors] = useState({});
+  const isNew = !initialValues?.id;
+
+  // Move-in billing (new tenants only): deposit, lease fee, and the FIRST RENT
+  // MONTH — which for someone joining on the 28th is next month. See
+  // server/services/move_in_service.py.
+  const [moveIn, setMoveIn] = useState({
+    enabled: false, first_rent_month: "", lease_fee: "", include_first_rent: true, prorate_move_in_month: false,
+  });
+  const [preview, setPreview] = useState(null);
+  const [previewMoveIn] = usePreviewMoveInMutation();
+  useEffect(() => {
+    if (!isNew || !moveIn.enabled || !form.unit_id) return undefined;
+    const t = setTimeout(async () => {
+      try {
+        const res = await previewMoveIn({
+          unit_id: form.unit_id,
+          move_in_date: form.move_in_date || undefined,
+          deposit_amount: form.deposit_amount || 0,
+          first_rent_month: moveIn.first_rent_month || undefined,
+          lease_fee: moveIn.lease_fee || 0,
+          include_first_rent: moveIn.include_first_rent,
+          prorate_move_in_month: moveIn.prorate_move_in_month,
+        }).unwrap();
+        setPreview(res);
+        if (!moveIn.first_rent_month && res?.suggested_first_rent_month) {
+          setMoveIn((m) => ({ ...m, first_rent_month: res.suggested_first_rent_month.slice(0, 7) }));
+        }
+      } catch (err) {
+        setPreview({ error: err?.data?.error || err?.data?.message || "Could not preview the move-in bill." });
+      }
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, moveIn, form.unit_id, form.move_in_date, form.deposit_amount]);
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -65,9 +109,18 @@ export default function TenantForm({ initialValues, properties = [], units = [],
     if (form.deposit_returned && form.deposit_paid && Number(form.deposit_returned) > Number(form.deposit_paid)) {
       nextErrors.deposit_returned = "Cannot exceed deposit paid";
     }
+    if (form.next_of_kin_phone && !isValidPhone(form.next_of_kin_phone)) nextErrors.next_of_kin_phone = PHONE_ERROR;
+    if ((form.next_of_kin_phone || form.next_of_kin_relationship) && !isRequired(form.next_of_kin_name)) {
+      nextErrors.next_of_kin_name = "Enter the next of kin's name";
+    }
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
-    onSubmit(form);
+    const payload = { ...form };
+    if (isNew && moveIn.enabled) {
+      payload.move_in_billing = { ...moveIn, first_rent_month: moveIn.first_rent_month || undefined,
+                                  deposit_amount: form.deposit_amount || 0 };
+    }
+    onSubmit(payload);
   };
 
   return (
@@ -104,7 +157,7 @@ export default function TenantForm({ initialValues, properties = [], units = [],
           data-tour={ANCHORS.tenants.phoneField}
         />
         <Input label="Secondary phone" value={form.secondary_phone} onChange={update("secondary_phone")}
-               error={errors.secondary_phone} hint="Next of kin / other" />
+               error={errors.secondary_phone} hint="Tenant's other number" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <Input label="Email" type="email" value={form.email} onChange={update("email")} error={errors.email} />
@@ -113,6 +166,19 @@ export default function TenantForm({ initialValues, properties = [], units = [],
       <div className="grid grid-cols-2 gap-4">
         <Input label="National ID" value={form.national_id} onChange={update("national_id")} />
         <Input label="KRA PIN" value={form.kra_pin} onChange={update("kra_pin")} />
+      </div>
+
+      <div className="border-t border-white/10 pt-4" data-testid="next-of-kin-section">
+        <p className="mb-3 text-xs font-medium uppercase tracking-wide text-white/40">Next of kin</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Input label="Name" name="next_of_kin_name" value={form.next_of_kin_name} onChange={update("next_of_kin_name")}
+                 error={errors.next_of_kin_name} />
+          <Input label="Relationship" name="next_of_kin_relationship" placeholder="e.g. Sister, Spouse, Father"
+                 value={form.next_of_kin_relationship} onChange={update("next_of_kin_relationship")} />
+          <Input label="Phone" name="next_of_kin_phone" value={form.next_of_kin_phone} onChange={update("next_of_kin_phone")}
+                 error={errors.next_of_kin_phone}
+                 hint={toKenyanPhone(form.next_of_kin_phone) ? `Will be saved as ${toKenyanPhone(form.next_of_kin_phone)}` : PHONE_HINT} />
+        </div>
       </div>
 
       <div className="border-t border-white/10 pt-4">
@@ -140,6 +206,59 @@ export default function TenantForm({ initialValues, properties = [], units = [],
           <DatePicker label="Move-out date" value={form.move_out_date} onChange={update("move_out_date")} />
         </div>
       </div>
+
+      {isNew && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4" data-testid="move-in-billing">
+          <Checkbox
+            name="move_in_enabled"
+            label="Bill the move-in now (deposit, lease fee, first month's rent)"
+            checked={moveIn.enabled}
+            onChange={(e) => setMoveIn((m) => ({ ...m, enabled: e.target.checked }))}
+          />
+          <p className="mt-1.5 pl-7 text-xs leading-relaxed text-white/45">
+            For a tenant joining late in the month, the first rent month is next month: the bill says
+            "Rent — {preview?.first_rent_month_label || "next month"}", the receipt says the same, and the 1st-of-month
+            run will not bill that month again.
+          </p>
+          {moveIn.enabled && (
+            <div className="mt-4 space-y-4 pl-7">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Input label="First rent month" type="month" name="first_rent_month" value={moveIn.first_rent_month}
+                       onChange={(e) => setMoveIn((m) => ({ ...m, first_rent_month: e.target.value }))}
+                       hint="Suggested from the move-in date (20th or later → next month)" />
+                <Input label="Lease agreement fee" type="number" step="0.01" name="lease_fee" value={moveIn.lease_fee}
+                       onChange={(e) => setMoveIn((m) => ({ ...m, lease_fee: e.target.value }))} />
+              </div>
+              <div className="flex flex-wrap gap-x-6 gap-y-2">
+                <Checkbox label="Include the first month's rent" checked={moveIn.include_first_rent}
+                          onChange={(e) => setMoveIn((m) => ({ ...m, include_first_rent: e.target.checked }))} />
+                <Checkbox label="Charge the remaining days of the move-in month (pro-rata)" checked={moveIn.prorate_move_in_month}
+                          onChange={(e) => setMoveIn((m) => ({ ...m, prorate_move_in_month: e.target.checked }))} />
+              </div>
+              {!form.unit_id && <p className="text-xs text-white/45">Choose the unit to see the move-in bill.</p>}
+              {form.unit_id && preview?.error && <p className="text-xs text-red-300">{preview.error}</p>}
+              {form.unit_id && preview?.lines && (
+                <div className="rounded-lg bg-white/5 p-3 text-sm" data-testid="move-in-preview">
+                  {preview.lines.length === 0 && <p className="text-white/50">Nothing to bill yet — enter a deposit, fee or rent.</p>}
+                  {preview.lines.map((l, i) => (
+                    <div key={i} className="flex justify-between gap-4 py-0.5">
+                      <span className="text-white/80">{l.item}{l.month_label ? ` — ${l.month_label}` : ""}
+                        {l.description?.startsWith("Pro-rata") && <span className="text-white/40"> ({l.description})</span>}
+                      </span>
+                      <span className="text-white">{formatCurrency(l.amount)}</span>
+                    </div>
+                  ))}
+                  {preview.lines.length > 0 && (
+                    <div className="mt-1 flex justify-between border-t border-white/10 pt-1 font-semibold text-white">
+                      <span>Move-in total</span><span>{formatCurrency(preview.total)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <Input label="Rent payment penalty" type="number" step="0.01" value={form.rent_payment_penalty} onChange={update("rent_payment_penalty")} />
       <Input label="Bank payer name" value={form.bank_payer_name} onChange={update("bank_payer_name")} />

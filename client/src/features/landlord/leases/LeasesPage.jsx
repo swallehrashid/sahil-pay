@@ -23,6 +23,7 @@ import { formatDate } from "@/utils/dateFormatter";
 import { downloadFile, fetchObjectUrl } from "@/utils/downloadFile";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useGetTenantOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
+import { matchesAllWords } from "@/utils/search";
 import {
   useGetLeasesQuery,
   useSendLeaseMutation,
@@ -79,11 +80,8 @@ export default function LeasesPage() {
   const { data: allData } = useGetLeasesQuery({});
   const [sendLease] = useSendLeaseMutation();
 
-  const rows = (data?.items ?? []).filter((r) => {
-    if (!search) return true;
-    const hay = `${r.tenant_name} ${r.unit_name} ${r.property_name} ${r.title}`.toLowerCase();
-    return hay.includes(search.toLowerCase());
-  });
+  const rows = (data?.items ?? []).filter((r) =>
+    matchesAllWords([r.tenant_name, r.unit_name, r.property_name, r.title], search));
 
   const counts = {
     review: allData?.awaiting_review ?? 0,
@@ -263,11 +261,8 @@ function SendLeaseWizard({ isOpen, onClose }) {
   const { data: tenantsData, isFetching } = useGetTenantOptionsQuery(undefined, { skip: !isOpen });
   const allTenants = toRows(tenantsData);
   const tenants = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return allTenants;
     return allTenants.filter((t) =>
-      [t.first_name, t.last_name, t.phone, t.unit_name, t.property_name, t.account_number]
-        .filter(Boolean).join(" ").toLowerCase().includes(q));
+      matchesAllWords([t.first_name, t.last_name, t.phone, t.unit_name, t.property_name, t.account_number], search));
   }, [allTenants, search]);
   const { data: options } = useGetLeaseDocumentOptionsQuery(undefined, { skip: !isOpen });
   const [sendLeases, { isLoading }] = useSendLeasesMutation();

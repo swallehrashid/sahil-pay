@@ -110,6 +110,15 @@ def estate(app, db_session):
                       status=PaymentStatus.confirmed.value, source="manual")
     s.add(payment)
     s.flush()
+    # Receipts exist only for allocated payments: this one cleared the rent.
+    from models import InvoiceLineItem, PaymentAllocation
+    line = InvoiceLineItem(invoice_id=invoice.id, item="Rent", quantity=1, unit_price=25000,
+                           amount=25000, amount_paid=25000, status="paid", subcategory="current")
+    s.add(line)
+    s.flush()
+    s.add(PaymentAllocation(payment_id=payment.id, invoice_id=invoice.id, line_item_id=line.id,
+                            amount_allocated=Decimal("25000")))
+    s.flush()
 
     return {"landlord": landlord, "property": prop, "unit": unit,
             "tenant": tenant, "invoice": invoice, "payment": payment, "n": n}
