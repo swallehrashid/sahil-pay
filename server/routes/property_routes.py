@@ -65,7 +65,12 @@ def list_properties():
     if city:
         query = query.filter(Property.city.ilike(f"%{city}%"))
     if name:
-        query = query.filter(Property.name.ilike(f"%{name}%"))
+        # Name, city, address — every word must match one of them, so
+        # "Riverside Block C" and "Kilimani Riverside" both work.
+        from services.search import match_all_words
+        clause = match_all_words(name, [Property.name, Property.city, Property.street_name])
+        if clause is not None:
+            query = query.filter(clause)
 
     # THE SUMMARY DESCRIBES WHAT THE TABLE IS SHOWING.
     #
@@ -240,7 +245,21 @@ def get_property(property_id):
     prop        = _get_or_404(landlord_id, property_id)
 
     d = prop.to_dict()
-    d["units"]    = [u.to_dict() for u in prop.units if not u.is_deleted]
+    live_units    = [u for u in prop.units if not u.is_deleted]
+    d["units"]    = [u.to_dict() for u in live_units]
+    # The figures the property page leads with — all from this property only.
+    from models import Tenant
+    tenants = (Tenant.query.filter(Tenant.unit_id.in_([u.id for u in live_units] or [-1]),
+                                   Tenant.is_deleted.is_(False)).all())
+    d["summary"] = {
+        "units":     len(live_units),
+        "occupied":  sum(1 for u in live_units if u.is_occupied),
+        "vacant":    sum(1 for u in live_units if not u.is_occupied),
+        "tenants":   len(tenants),
+        "rent_roll": round(sum(float(u.rent_amount or 0) for u in live_units if u.is_occupied), 2),
+        "arrears":   round(sum(-float(t.balance or 0) for t in tenants if (t.balance or 0) < 0), 2),
+        "credit":    round(sum(float(t.credit_balance or 0) for t in tenants), 2),
+    }
     assignments   = ManagerAssignment.query.filter_by(property_id=prop.id).all()
     d["managers"] = [
         {"team_member_id": a.team_member_id, "scope_type": a.scope_type}

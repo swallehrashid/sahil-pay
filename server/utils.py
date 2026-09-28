@@ -114,7 +114,9 @@ def error(
     Returns:
         ({success: False, message: ..., errors: ..., code: ...}, status_code)
     """
-    payload: dict[str, Any] = {"success": False, "message": message}
+    # "error" duplicates "message" because most of the client reads
+    # err.data.error — without it an ApiError surfaced as a generic failure.
+    payload: dict[str, Any] = {"success": False, "message": message, "error": message}
     if errors is not None:
         payload["errors"] = errors
     if code is not None:

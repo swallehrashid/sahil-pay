@@ -73,11 +73,16 @@ export default function ConfirmPaymentModal({ payment, onClose }) {
         }
       : { tenant_id: Number(tenantId), mode: "auto" };
     try {
-      await confirmPayment({ id: paymentId, ...body }).unwrap();
-      toast("Payment confirmed.", { type: "success" });
+      const res = await confirmPayment({ id: paymentId, ...body }).unwrap();
+      toast(res?.message || "Payment reviewed and allocated.", { type: "success", duration: 6000 });
       onClose();
     } catch (err) {
-      toast(err?.data?.error || "Could not confirm payment.", { type: "error" });
+      // 409 = already reviewed and allocated (here, from the Co-pilot inbox,
+      // or the same M-Pesa code on another payment). Say so plainly and close:
+      // there is nothing left to do on this payment.
+      const msg = err?.data?.error || err?.data?.message || "Could not confirm payment.";
+      toast(msg, { type: "error", duration: 8000 });
+      if (err?.status === 409) onClose();
     }
   };
 

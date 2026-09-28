@@ -92,18 +92,18 @@ def list_tenants():
     if unit_id:
         query = query.filter(Tenant.unit_id == unit_id)
     if search:
-        like = f"%{search}%"
-        clauses = [
-            Tenant.first_name.ilike(like),
-            Tenant.last_name.ilike(like),
-            Tenant.phone.ilike(like),
-        ]
-        # Phones are stored as 254…; someone typing "0712 43" means the same digits.
-        digits = "".join(ch for ch in search if ch.isdigit())
-        if len(digits) >= 3 and digits == search.replace(" ", "").lstrip("+"):
-            tail = digits[1:] if digits.startswith("0") else digits
-            clauses.append(db.func.regexp_replace(Tenant.phone, r"\D", "", "g").ilike(f"%{tail}%"))
-        query = query.filter(db.or_(*clauses))
+        # Every word must match some field, so "Alex Kirui" finds Alex Kirui —
+        # see services/search.py. Phones are stored as 254…; "0712 43" still
+        # finds them.
+        from services.search import match_all_words
+        clause = match_all_words(
+            search,
+            [Tenant.first_name, Tenant.last_name, Tenant.phone, Tenant.email,
+             Tenant.account_number, Tenant.national_id],
+            phone_columns=[Tenant.phone],
+        )
+        if clause is not None:
+            query = query.filter(clause)
 
     # THE SUMMARY DESCRIBES WHAT THE TABLE IS SHOWING, and is computed in SQL.
     #
@@ -217,6 +217,9 @@ def create_tenant():
         secondary_phone = canonical_phone(data["secondary_phone"])
         if secondary_phone is None:
             return jsonify({"error": f"Secondary phone: {INVALID_MESSAGE}"}), 400
+    nok, nok_error = _next_of_kin(data)
+    if nok_error:
+        return jsonify({"error": nok_error}), 400
 
     unit = Unit.query.join(Property).filter(
         Unit.id == unit_id,
@@ -245,6 +248,9 @@ def create_tenant():
         deposit_returned     = data.get("deposit_returned"),
         rent_payment_penalty = data.get("rent_payment_penalty"),
         bank_payer_name      = data.get("bank_payer_name"),
+        next_of_kin_name         = nok.get("next_of_kin_name"),
+        next_of_kin_relationship = nok.get("next_of_kin_relationship"),
+        next_of_kin_phone        = nok.get("next_of_kin_phone"),
         balance              = 0,
         lease_start_date     = _parse_date(data.get("lease_start_date")),
         lease_expiry_date    = _parse_date(data.get("lease_expiry_date")),
@@ -280,6 +286,15 @@ def create_tenant():
         after_data=tenant.to_dict(),
     )
 
+    # Move-in billing (deposit, lease fee, first rent month) — only when the
+    # form asked for it. See services/move_in_service.py for the month-end case.
+    move_in_invoice = None
+    if isinstance(data.get("move_in_billing"), dict) and data["move_in_billing"].get("enabled"):
+        from services.move_in_service import bill_move_in
+        move_in_invoice = bill_move_in(tenant, data["move_in_billing"],
+                                       actor_user_id=int(get_jwt_identity()))
+        db.session.commit()
+
     # Run the new-tenant automation (Settings → Automation). No-op if disabled.
     from services.automation_service import on_tenant_created
 
@@ -294,6 +309,8 @@ def create_tenant():
         welcome_status, welcome_detail = _send_welcome_message(landlord, tenant)
 
     payload = tenant.to_dict()
+    if move_in_invoice is not None:
+        payload["move_in_invoice"] = move_in_invoice.to_dict()
     payload["welcome_message"] = welcome_status
     payload["welcome_message_detail"] = welcome_detail
 
@@ -478,7 +495,16 @@ def update_tenant(tenant_id):
         "national_id", "kra_pin", "account_number", "deposit_amount",
         "deposit_paid", "deposit_returned", "rent_payment_penalty",
         "bank_payer_name", "notes",
+        "next_of_kin_name", "next_of_kin_relationship", "next_of_kin_phone",
     ]
+    if any(k in data for k in ("next_of_kin_name", "next_of_kin_relationship", "next_of_kin_phone")):
+        nok, nok_error = _next_of_kin({**{
+            "next_of_kin_name": tenant.next_of_kin_name,
+            "next_of_kin_relationship": tenant.next_of_kin_relationship,
+            "next_of_kin_phone": tenant.next_of_kin_phone}, **data})
+        if nok_error:
+            return jsonify({"error": nok_error}), 400
+        data.update(nok)
     from services.phone_service import canonical_phone, INVALID_MESSAGE
     if "phone" in data:
         data["phone"] = canonical_phone(data["phone"])
@@ -576,39 +602,61 @@ def get_transactions(tenant_id):
     landlord_id = get_current_landlord_id()
     tenant      = _get_or_404(landlord_id, tenant_id)
 
+    from services.receipt_service import receipt_blocker
+
+    # The running balance counts each shilling once:
+    #   invoices  — NEW charges only. A monthly invoice's "Balance b/f" lines
+    #               are last month's debt carried forward, already counted on
+    #               the invoice it came from; adding them again doubled arrears.
+    #   payments  — confirmed cash only. Pending/declined money is not paid, and
+    #               a "credit applied" row is money already counted when it
+    #               arrived as an advance, so it moves nothing.
     entries = []
     for inv in tenant.invoices:
-        if not inv.is_deleted:
-            entries.append({
-                "type":        "invoice",
-                "date":        str(inv.issue_date),
-                "item":        inv.invoice_type,
-                "description": inv.title,
-                "amount_due":  float(inv.total_amount),
-                "amount_paid": float(inv.amount_paid),
-                "status":      inv.status,
-                "ref":         inv.invoice_number,
-            })
+        if inv.is_deleted or inv.status == "void":
+            continue
+        carried = sum(float(li.amount or 0) for li in inv.line_items if li.subcategory == "balance")
+        new_charges = round(float(inv.total_amount or 0) - carried, 2)
+        entries.append({
+            "type":        "invoice",
+            "id":          inv.id,
+            "date":        str(inv.issue_date),
+            "item":        inv.invoice_type,
+            "description": inv.title,
+            "amount":      new_charges,
+            "amount_due":  new_charges,
+            "brought_forward": round(carried, 2),
+            "amount_paid": float(inv.amount_paid),
+            "status":      inv.status,
+            "ref":         inv.invoice_number,
+        })
     for pay in tenant.payments:
-        if not pay.is_deleted:
-            entries.append({
-                "type":        "payment",
-                "date":        str(pay.payment_date),
-                "item":        pay.source,
-                "description": pay.notes,
-                "amount":      float(pay.amount),
-                "status":      pay.status,
-                "ref":         pay.payment_ref,
-            })
+        if pay.is_deleted:
+            continue
+        blocker = receipt_blocker(pay)
+        entries.append({
+            "type":        "payment",
+            "id":          pay.id,
+            "payment_id":  pay.id,
+            "date":        str(pay.payment_date),
+            "item":        "credit applied" if pay.source == "credit" else pay.source,
+            "description": pay.notes,
+            "amount":      float(pay.amount),
+            "status":      pay.status,
+            "ref":         pay.payment_ref,
+            "mpesa_reference": pay.mpesa_reference,
+            "counts":      pay.status == "confirmed" and pay.source != "credit",
+            "receipt_available": blocker is None,
+            "receipt_blocker": blocker,
+        })
 
-    entries.sort(key=lambda x: x["date"])
+    entries.sort(key=lambda x: (x["date"], 0 if x["type"] == "invoice" else 1))
 
-    # Compute running balance
     running = 0.0
     for e in entries:
         if e["type"] == "invoice":
             running += e["amount_due"]
-        else:
+        elif e.get("counts"):
             running -= e["amount"]
         e["running_balance"] = round(running, 2)
 
@@ -1022,6 +1070,82 @@ def upload_document(tenant_id):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _next_of_kin(data: dict) -> tuple[dict, str | None]:
+    """
+    Clean the next-of-kin fields. All three are optional, but a phone must be a
+    real phone (stored as 254…, like every other number here), and a phone
+    without a name is useless in an emergency.
+    """
+    from services.phone_service import canonical_phone, INVALID_MESSAGE
+
+    name = (data.get("next_of_kin_name") or "").strip() or None
+    relationship = (data.get("next_of_kin_relationship") or "").strip() or None
+    raw_phone = (data.get("next_of_kin_phone") or "").strip()
+    phone = None
+    if raw_phone:
+        phone = canonical_phone(raw_phone)
+        if phone is None:
+            return {}, f"Next of kin phone: {INVALID_MESSAGE}"
+    if (phone or relationship) and not name:
+        return {}, "Next of kin: enter a name as well as the phone/relationship."
+    return {"next_of_kin_name": name, "next_of_kin_relationship": relationship,
+            "next_of_kin_phone": phone}, None
+
+
+# ---------------------------------------------------------------------------
+# Move-in billing — preview and create (services/move_in_service.py)
+# ---------------------------------------------------------------------------
+@tenant_bp.route("/move-in-preview", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("tenants", "view")
+def move_in_preview():
+    """
+    What the move-in invoice will contain for a tenant who has not been saved
+    yet: { unit_id, move_in_date, first_rent_month?, deposit_amount?, lease_fee?,
+    prorate_move_in_month?, include_first_rent? }.
+    """
+    from services.move_in_service import preview, suggested_first_rent_month
+
+    landlord_id = get_current_landlord_id()
+    data = request.get_json(silent=True) or {}
+    unit = Unit.query.join(Property).filter(
+        Unit.id == data.get("unit_id"), Property.landlord_id == landlord_id,
+        Unit.is_deleted.is_(False)).first()
+    if unit is None:
+        return jsonify({"error": "Unit not found."}), 404
+    move_in = _parse_date(data.get("move_in_date")) or date.today()
+    # A stand-in, not a Tenant: attaching a real Tenant to the unit would
+    # cascade it into the session and autoflush half a tenant into the table.
+    from types import SimpleNamespace
+    draft = SimpleNamespace(landlord_id=landlord_id, unit=unit, unit_id=unit.id,
+                            move_in_date=move_in, deposit_amount=data.get("deposit_amount"))
+    plan = preview(draft, data)
+    plan.pop("_lines", None)
+    plan.pop("_first_month", None)
+    plan["suggested_first_rent_month"] = suggested_first_rent_month(move_in).isoformat()
+    return jsonify(plan), 200
+
+
+@tenant_bp.route("/<int:tenant_id>/move-in-invoice", methods=["POST"])
+@jwt_required()
+@require_landlord_or_team()
+@require_permission("invoices", "edit")
+def create_move_in_invoice(tenant_id):
+    """Bill an existing tenant's move-in (deposit, lease fee, first rent month)."""
+    from services.move_in_service import bill_move_in
+
+    landlord_id = get_current_landlord_id()
+    tenant = _get_or_404(landlord_id, tenant_id)
+    invoice = bill_move_in(tenant, request.get_json(silent=True) or {},
+                           actor_user_id=int(get_jwt_identity()))
+    db.session.commit()
+    if invoice is None:
+        return jsonify({"error": "Nothing to bill — add a rent month, deposit or fee."}), 400
+    return jsonify({"message": f"Move-in invoice {invoice.invoice_number} created.",
+                    "invoice": invoice.to_dict()}), 201
+
+
 def _get_or_404(landlord_id: int, tenant_id: int) -> Tenant:
     t = Tenant.query.filter_by(
         id=tenant_id, landlord_id=landlord_id, is_deleted=False

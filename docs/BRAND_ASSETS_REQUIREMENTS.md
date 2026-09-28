@@ -47,9 +47,9 @@ Two things also changed so this cannot hide again:
 ### Why those numbers
 
 **Wide, not tall.** The renderers box the logo: reports draw it into a
-**160 × 56 px** slot (`services/report_builder.py`), receipts at about **46 px
-tall** on a full page and less on a cut slip
-(`services/receipt_layout.py::page_css`). A square or portrait logo is fitted to
+**160 × 56 px** slot (`services/report_builder.py`), receipts at about **22–24 mm
+tall** (adjustable in Settings → Receipts & colours → Letterhead size;
+`services/receipt_layout.py::page_css`). A square or portrait logo is fitted to
 that box by its *height*, so it ends up a fraction of the available width and
 looks tiny. A wide lockup fills the slot.
 
@@ -110,58 +110,48 @@ on every document the company issues, so replacing it requires
 
 ---
 
-## 3. Receipt layout — what "a third of a page" means
+## 3. Receipt layout — what prints is what you preview
 
-A third of A4 can be cut two ways, and both are now offered as separate
-choices, because "third portrait" described both and meant neither.
+**Every A4 paper is generated as a real A4 page with the receipt already in its
+place.** The PDF page is the sheet in the printer, so a print dialog has nothing
+to rotate or rescale — "Fit to page", "Actual size" and auto-rotate all print
+the same thing, and the preview in Settings (which draws the PDF itself) is
+exactly that page.
 
-| Choice | Page size | How it cuts | Arrangement |
+| Choice | Receipt | On the sheet | Arrangement |
 |---|---|---|---|
-| **A4 (full page)** | 210 × 297 mm | — | Stacked, four money columns |
-| **A4 third — wide band** | **210 × 99 mm** | Three stacked **down** a portrait sheet (cut across) | Three columns side by side |
-| **A4 third — tall slip** | **99 × 297 mm** | Three **side by side** across a portrait sheet (cut down) | One narrow column |
-| **Landscape A4 third — wide band** | **297 × 70 mm** | Three stacked down a landscape sheet | Three columns side by side |
-| **Thermal roll (80 mm)** | 80 × 297 mm | Continuous | One narrow column |
+| **A4 (full page)** | 210 × 297 mm | the whole page | Stacked, four money columns (due / paid / balance c/f) |
+| **A4 third — portrait (top third of the page)** | **210 × 99 mm** | the **top third of an upright A4 sheet**, dashed cut line under it | Three tables across: Details · Charges · Summary |
+| **A4 third — narrow strip** | 70 × 297 mm | the left third of an upright A4 sheet | One column |
+| **Landscape A4 third — wide band** | 297 × 70 mm | the top third of a sideways A4 sheet | Three tables across |
+| **Thermal roll (80 mm)** | 80 mm wide | its own 80 mm page (a till printer) | One column |
 
-### Choosing a paper rearranges the receipt — it does not shrink it
+### Why it used to print wrong
 
-This is what was wrong before. Every paper used the same stacked arrangement,
-and only the page size and font changed. The result was an A4 receipt that had
-been made smaller, marooned in the middle of the paper.
+The top-third receipt used to be a PDF whose page *was* 210 × 99 mm. A page
+wider than it is tall is turned to landscape by every print dialog and scaled up
+to fill A4 — the receipt came out rotated across the whole sheet, tiny text and
+huge gaps, while the preview (which shows the page as it is) looked fine. The
+old "tall slip" was 99 mm wide, which cannot be cut three times from a 210 mm
+sheet at all, so every printer rescaled it too.
 
-Now the paper picks a **flow**:
+### Type and spacing
 
-* **Band** (short and wide) — the body is dealt into **three columns**:
-  details | charges | totals. The height stays inside the band and the width is
-  actually used. Charge tables drop to *item + paid*, because four money columns
-  across a third of a page leaves each about two characters wide.
-* **Column** (narrow and tall — a cut slip, a till roll) — one column,
-  condensed, header stacked and centred.
-* **Full** — unchanged from before.
+Sized against a real owner-supplied receipt: a ~22 mm logo, 15 pt "OFFICIAL
+RECEIPT", 12.5 pt company name, 9.5 pt contacts and 10 pt body text, with rows
+only a hair apart. Details labels are only as wide as their words, so "Received
+from  Grace Wanjiru" sit side by side. Long values wrap inside their own column.
 
-Measured on the rendered PDF: a wide band now uses **97% of its width and 82%
-of its height**; the landscape band **98% and 90%**. Verified by
-`server/tests/test_receipt_geometry.py`, which reads the page box out of the PDF
-and scans the image for where the ink actually reaches — so this cannot quietly
-regress.
+**Letterhead size** (Settings → Receipts & colours) scales the logo, the company
+name and the contact info separately, 50 %–250 %, and sets the name's alignment.
 
-A band also **caps its charge rows at 7** and prints `+N more items — see the
-full statement`. A fixed-height band cannot grow, and its second page is a
-near-empty slip that reads as a printing fault.
+### When it does not fit
 
-### ⚠️ Printing: set the dialog to "Actual size", not "Fit to page"
-
-**This is the single most common reason a correct layout comes out wrong, and it
-is not a bug in the receipt.**
-
-The PDF is generated at exactly the size chosen — a 210 × 99 mm band really is a
-210 × 99 mm page. If the print dialog is set to **Fit to page** (the default
-nearly everywhere), the printer scales that small page up onto the A4 sheet and
-centres it — producing a shrunken receipt surrounded by white margin on all
-sides. That is the printer resizing the page, not the layout.
-
-Set **Actual size / 100% / None** under Scale. The warning now appears in the
-settings screen next to the paper choice.
+A third of a page cannot grow. The top third prints up to 7 charge lines and 3
+"still owed" lines (the 70 mm landscape band 5 and 1) and says how many more
+there are — "+2 more items — see the full statement" — rather than cutting
+anything off. Verified on the rendered PDF by `server/tests/test_receipt_geometry.py`:
+every mark stays above the cut line.
 
 ---
 

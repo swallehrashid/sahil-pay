@@ -538,6 +538,13 @@ def _finalize_message(msg, landlord, ls, device) -> None:
                 confirmed_dupe = txn
                 break
 
+        # A payment recorded by hand on the Payments page carries the code too,
+        # with no M-Pesa transaction row behind it. Missing that is how the same
+        # money used to be allocated twice.
+        from services.payment_guard import duplicate_of
+        if confirmed_dupe is None and duplicate_of(landlord.id, parsed_ref) is not None:
+            confirmed_dupe = True
+
         if confirmed_dupe is not None:
             msg.parse_status = CopilotParseStatus.duplicate.value
             msg.match_status = CopilotMatchStatus.n_a.value

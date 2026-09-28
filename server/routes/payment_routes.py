@@ -97,26 +97,27 @@ def list_payments():
         # The M-Pesa code and the payer's name are what somebody has in front of
         # them when they come looking for a payment — usually a tenant on the
         # phone reading a confirmation SMS out loud.
-        like = f"%{search}%"
-        query = query.outerjoin(Tenant, Tenant.id == Payment.tenant_id).filter(
-            db.or_(
-                Payment.payment_ref.ilike(like),
-                Payment.mpesa_reference.ilike(like),
-                Payment.reference_text.ilike(like),
-                Tenant.first_name.ilike(like),
-                Tenant.last_name.ilike(like),
-                Tenant.phone.ilike(like),
-                Tenant.account_number.ilike(like),
-            )
+        from services.search import match_all_words
+        clause = match_all_words(
+            search,
+            [Payment.payment_ref, Payment.mpesa_reference, Payment.reference_text,
+             Payment.payer_phone, Tenant.first_name, Tenant.last_name, Tenant.phone,
+             Tenant.account_number],
+            phone_columns=[Tenant.phone, Payment.payer_phone],
         )
+        query = query.outerjoin(Tenant, Tenant.id == Payment.tenant_id)
+        if clause is not None:
+            query = query.filter(clause)
 
-    total_amount = db.session.query(
-        db.func.coalesce(db.func.sum(Payment.amount), 0)
-    ).filter(
-        Payment.landlord_id == landlord_id,
-        Payment.is_deleted.is_(False),
-        Payment.status == PaymentStatus.confirmed.value,
-    ).scalar()
+    # "Total received" describes the rows on screen: the same filters and
+    # search, confirmed payments only. It used to be the whole book whatever
+    # was typed, so searching one tenant still showed every shilling received.
+    total_amount = (
+        query.filter(Payment.status == PaymentStatus.confirmed.value)
+        .with_entities(db.func.coalesce(db.func.sum(Payment.amount), 0))
+        .order_by(None)
+        .scalar()
+    )
 
     from sqlalchemy.orm import joinedload
 
@@ -133,6 +134,7 @@ def list_payments():
         .paginate(page=page, per_page=per_page, error_out=False)
     )
 
+    receiptable = _receiptable_ids([p.id for p in paginated.items])
     items = []
     for p in paginated.items:
         d = p.to_dict()
@@ -140,6 +142,10 @@ def list_payments():
         d["tenant_name"]   = f"{t.first_name} {t.last_name}" if t else None
         d["unit_name"]     = p.unit.name     if p.unit     else None
         d["property_name"] = p.property.name if p.property else None
+        # A receipt exists only for a confirmed payment that has been applied to
+        # a tenant's account; the UI hides Send / Download receipt otherwise.
+        d["receipt_available"] = (p.id in receiptable and p.status == PaymentStatus.confirmed.value
+                                  and p.tenant_id is not None)
         items.append(d)
 
     return jsonify({
@@ -205,6 +211,12 @@ def create_payment():
     alloc_total = sum(Decimal(str(a.get("amount_allocated", 0))) for a in allocations)
     if allocation_mode == "manual" and alloc_total > amount:
         return jsonify({"error": "Allocation total exceeds payment amount."}), 400
+
+    # The same M-Pesa code cannot be recorded against two payments — the most
+    # common way one transfer used to be counted twice was recording it here
+    # by hand after Co-pilot had already taken it from the SMS.
+    from services.payment_guard import assert_not_duplicate
+    assert_not_duplicate(landlord_id, data.get("mpesa_reference"))
 
     payment = Payment(
         payment_ref    = _ref_number(landlord_id),
@@ -292,6 +304,10 @@ def get_payment(payment_id):
     pay         = _get_or_404(landlord_id, payment_id)
     d           = pay.to_dict()
     d["allocations"] = [a.to_dict() for a in pay.payment_allocations]
+    from services.receipt_service import receipt_blocker
+    blocker = receipt_blocker(pay)
+    d["receipt_available"] = blocker is None
+    d["receipt_blocker"] = blocker
     t = pay.tenant
     d["tenant_name"]   = f"{t.first_name} {t.last_name}" if t else None
     d["unit_name"]     = pay.unit.name     if pay.unit     else None
@@ -520,10 +536,15 @@ def confirm_payment(payment_id):
         auto_allocate, normalize_manual_allocations, apply_allocations,
     )
 
+    from services.payment_guard import claim_for_allocation
+
     landlord_id = get_current_landlord_id()
     pay = _get_or_404(landlord_id, payment_id)
-    if pay.status == PaymentStatus.confirmed.value:
-        return jsonify({"error": "This payment is already confirmed."}), 400
+    # Locks the row and refuses a payment that is already confirmed, already
+    # allocated, or whose M-Pesa code is already on another confirmed payment —
+    # so a double click, or this page and the Co-pilot inbox side by side,
+    # can never allocate the same money twice.
+    pay = claim_for_allocation(pay)
 
     data     = request.get_json(silent=True) or {}
     tenant_id = data.get("tenant_id")
@@ -598,7 +619,13 @@ def confirm_payment(payment_id):
         after_data=pay.to_dict(),
     )
     db.session.commit()
-    return jsonify({"message": "Payment confirmed.", "payment": pay.to_dict()}), 200
+    allocated = sum((a.amount_allocated or 0) for a in pay.payment_allocations)
+    credit = (pay.amount or 0) - allocated
+    msg = (f"Payment {pay.payment_ref} reviewed and allocated to {tenant_name}: "
+           f"KES {allocated:,.2f} applied")
+    msg += f", KES {credit:,.2f} held as credit." if credit > 0 else "."
+    return jsonify({"message": msg, "payment": pay.to_dict(),
+                    "allocated": float(allocated), "credit": float(max(credit, 0))}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -731,8 +758,19 @@ def send_receipt(payment_id):
     if not tenant:
         return jsonify({"error": "This payment is not linked to a tenant."}), 400
 
+    from services.receipt_service import receipt_blocker
+    blocker = receipt_blocker(pay)
+    if blocker:
+        return jsonify({"error": blocker, "code": "receipt_not_available"}), 409
+
     data     = request.get_json(silent=True) or {}
-    channels = data.get("channels") or ["email"]
+    channels = data.get("channels") or []
+    # The sender chooses the channels (email / SMS / in-app) in the send
+    # dialog. Nothing is assumed: an empty choice is an error, not "email".
+    channels = [c for c in channels if c in ("email", "sms", "in_app", "whatsapp")]
+    if not channels:
+        return jsonify({"error": "Choose at least one way to send the receipt: "
+                                 "email, SMS or in-app."}), 400
 
     # ONE implementation, shared with the automation that fires when Co-pilot
     # allocates a payment on its own (services/automation_service.py). These
@@ -805,8 +843,9 @@ def public_receipt(token):
     if not pid:
         return jsonify({"error": "This receipt link is invalid or has expired."}), 404
 
+    from services.receipt_service import receipt_blocker
     pay = Payment.query.filter_by(id=pid, is_deleted=False).first()
-    if not pay or pay.status != PaymentStatus.confirmed.value:
+    if not pay or receipt_blocker(pay):
         return jsonify({"error": "Receipt not available."}), 404
 
     pdf_bytes = render_receipt_pdf(pay)
@@ -1124,6 +1163,18 @@ def import_statement_transactions(upload_id):
         "message":  f"{len(created)} payment(s) imported.",
         "payments": [p.to_dict() for p in created],
     }), 201
+
+
+def _receiptable_ids(payment_ids) -> set[int]:
+    """Payments (of these) that were allocated to a charge or held as credit."""
+    from models import CreditLedger, PaymentAllocation
+    if not payment_ids:
+        return set()
+    allocated = {pid for (pid,) in db.session.query(PaymentAllocation.payment_id)
+                 .filter(PaymentAllocation.payment_id.in_(payment_ids)).distinct()}
+    credited = {pid for (pid,) in db.session.query(CreditLedger.payment_id)
+                .filter(CreditLedger.payment_id.in_(payment_ids), CreditLedger.amount > 0).distinct()}
+    return allocated | credited
 
 
 # ---------------------------------------------------------------------------

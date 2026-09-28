@@ -67,16 +67,18 @@ function SplitEditor({ payment, onClose }) {
 
   const save = async () => {
     try {
-      await allocate({
+      const res = await allocate({
         paymentId: payment.id,
         splits: rows
           .filter((r) => Number(r.amount) > 0)
           .map((r) => ({ tenant_id: r.tenant_id, amount: r.amount })),
       }).unwrap();
-      toast("Allocated.", { type: "success" });
+      toast(res?.message || "Payment reviewed and allocated.", { type: "success", duration: 6000 });
       onClose();
     } catch (err) {
-      toast(err?.data?.error || "Could not allocate that payment.", { type: "error" });
+      toast(err?.data?.error || err?.data?.message || "Could not allocate that payment.",
+            { type: "error", duration: 8000 });
+      if (err?.status === 409) onClose();
     }
   };
 

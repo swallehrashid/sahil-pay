@@ -82,6 +82,16 @@ async function baseQueryWithReauth(args, api, extraOptions) {
     }
   }
 
+  // REPORTS NEVER GO STALE. Any successful write — a payment, an invoice, a
+  // tenant moved, a unit's rent changed, a property renamed — can change a
+  // report or a dashboard figure, and only ten of two hundred mutations used to
+  // say so. So every successful non-GET marks report and dashboard data stale
+  // here, at the one chokepoint, and whatever report is on screen refetches.
+  const method = typeof args === "object" ? (args.method || "GET").toUpperCase() : "GET";
+  if (method !== "GET" && !result.error) {
+    api.dispatch(apiSlice.util.invalidateTags(["Report", "Dashboard"]));
+  }
+
   // The account was locked mid-session (a balance passed its grace period):
   // refresh the access query so the lock screen replaces the page at once.
   if (result.error?.status === 402 && result.error?.data?.code === "subscription_locked") {

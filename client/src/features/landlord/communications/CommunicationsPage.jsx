@@ -25,6 +25,7 @@ import { usePagination } from "@/hooks/usePagination";
 import Pagination from "@/components/ui/Pagination";
 import { ANCHORS } from "@/features/landlord/tutorials/anchors";
 import { useGetTenantOptionsQuery, useGetTeamMemberOptionsQuery, tenantOptionLabel } from "@/store/lookupApiSlice";
+import { matchesAllWords } from "@/utils/search";
 import { usePermissions } from "@/hooks/usePermissions";
 
 export default function CommunicationsPage() {
@@ -365,9 +366,7 @@ function SmsCostEstimate({ content, tenantIds }) {
 function RecipientPicker({ label, options, selected, onChange }) {
   const [query, setQuery] = useState("");
 
-  const visible = query.trim()
-    ? options.filter((o) => o.label.toLowerCase().includes(query.trim().toLowerCase()))
-    : options;
+  const visible = options.filter((o) => matchesAllWords(o.label, query));
 
   const toggle = (id) =>
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);

@@ -572,8 +572,10 @@ def download_receipt(payment_id):
     ).first()
     if not payment:
         return jsonify({"error": "Payment not found."}), 404
-    if payment.status != PaymentStatus.confirmed.value:
-        return jsonify({"error": "A receipt is only available once the payment is confirmed."}), 403
+    from services.receipt_service import receipt_blocker
+    if receipt_blocker(payment):
+        return jsonify({"error": "A receipt is only available once the payment is "
+                                 "confirmed and allocated to your account."}), 403
 
     if fmt == "json":
         return jsonify(build_receipt(payment)), 200

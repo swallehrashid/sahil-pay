@@ -16,6 +16,7 @@ Security contract:
     than modifying the original row.  audit_logs is append-only.
 """
 
+from services.search import match_all_words
 from datetime import datetime
 from decimal import Decimal
 
@@ -76,11 +77,7 @@ def admin_dashboard():
     query = Landlord.query.filter(Landlord.is_demo.is_(False))
     if search:
         query = query.join(User, User.id == Landlord.user_id).filter(
-            db.or_(
-                Landlord.company_name.ilike(f"%{search}%"),
-                User.email.ilike(f"%{search}%"),
-            )
-        )
+            match_all_words(search, [Landlord.company_name, User.email]))
 
     paginated = query.order_by(Landlord.created_at.desc()).paginate(
         page=page, per_page=per_page, error_out=False
@@ -161,12 +158,7 @@ def list_landlords():
 
     query = Landlord.query.join(User, User.id == Landlord.user_id).filter(Landlord.is_demo.is_(False))
     if search:
-        query = query.filter(
-            db.or_(
-                Landlord.company_name.ilike(f"%{search}%"),
-                User.email.ilike(f"%{search}%"),
-            )
-        )
+        query = query.filter(match_all_words(search, [Landlord.company_name, User.email]))
     if status:
         query = query.join(Subscription, Subscription.landlord_id == Landlord.id)\
                      .filter(Subscription.status == status)
@@ -767,12 +759,7 @@ def list_units():
     )
 
     if search:
-        query = query.filter(
-            db.or_(
-                Unit.name.ilike(f"%{search}%"),
-                Property.name.ilike(f"%{search}%"),
-            )
-        )
+        query = query.filter(match_all_words(search, [Unit.name, Property.name]))
     if (occ := request.args.get("occupied")) in ("true", "false"):
         query = query.filter(Unit.is_occupied.is_(occ == "true"))
     if v := request.args.get("landlord_id", type=int):
@@ -898,14 +885,7 @@ def list_tenants():
     if request.args.get("include_deleted") != "true":
         query = query.filter(Tenant.is_deleted.is_(False))
     if search:
-        query = query.filter(
-            db.or_(
-                Tenant.first_name.ilike(f"%{search}%"),
-                Tenant.last_name.ilike(f"%{search}%"),
-                Tenant.phone.ilike(f"%{search}%"),
-                Tenant.email.ilike(f"%{search}%"),
-            )
-        )
+        query = query.filter(match_all_words(search, [Tenant.first_name, Tenant.last_name, Tenant.phone, Tenant.email], phone_columns=[Tenant.phone]))
     if v := request.args.get("landlord_id", type=int):
         query = query.filter(Tenant.landlord_id == v)
 
@@ -1009,14 +989,7 @@ def list_team_members():
         .join(Landlord, Landlord.id == TeamMember.landlord_id)
     )
     if search:
-        query = query.filter(
-            db.or_(
-                TeamMember.username.ilike(f"%{search}%"),
-                TeamMember.first_name.ilike(f"%{search}%"),
-                TeamMember.last_name.ilike(f"%{search}%"),
-                User.email.ilike(f"%{search}%"),
-            )
-        )
+        query = query.filter(match_all_words(search, [TeamMember.username, TeamMember.first_name, TeamMember.last_name, User.email]))
     if v := request.args.get("landlord_id", type=int):
         query = query.filter(TeamMember.landlord_id == v)
 
@@ -1135,12 +1108,7 @@ def list_properties():
         .filter(Property.is_deleted.is_(False))
     )
     if search:
-        query = query.filter(
-            db.or_(
-                Property.name.ilike(f"%{search}%"),
-                Landlord.company_name.ilike(f"%{search}%"),
-            )
-        )
+        query = query.filter(match_all_words(search, [Property.name, Landlord.company_name]))
     if v := request.args.get("landlord_id", type=int):
         query = query.filter(Property.landlord_id == v)
 

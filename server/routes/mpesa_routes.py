@@ -229,7 +229,9 @@ def match_transaction(txn_id):
     if not mpesa_txn:
         return jsonify({"error": "M-Pesa transaction not found."}), 404
     if mpesa_txn.status == MpesaTransactionStatus.recorded.value:
-        return jsonify({"error": "This transaction is already matched to a payment."}), 400
+        return jsonify({"error": "This transaction is already matched to a payment."}), 409
+    from services.payment_guard import assert_not_duplicate
+    assert_not_duplicate(landlord_id, mpesa_txn.reference_number)
 
     data      = request.get_json(silent=True) or {}
     tenant_id = data.get("tenant_id")

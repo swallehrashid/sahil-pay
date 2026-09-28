@@ -150,13 +150,12 @@ def list_team_members():
     if v := request.args.get("preset"):
         query = query.filter(TeamMember.preset == v)
     if v := (request.args.get("search") or "").strip():
-        like = f"%{v}%"
-        query = query.filter(db.or_(
-            TeamMember.username.ilike(like),
-            TeamMember.first_name.ilike(like),
-            TeamMember.last_name.ilike(like),
-            TeamMember.phone.ilike(like),
-        ))
+        from services.search import match_all_words
+        clause = match_all_words(
+            v, [TeamMember.username, TeamMember.first_name, TeamMember.last_name, TeamMember.phone],
+            phone_columns=[TeamMember.phone])
+        if clause is not None:
+            query = query.filter(clause)
 
     paginated = query.order_by(TeamMember.username).paginate(
         page=page, per_page=per_page, error_out=False

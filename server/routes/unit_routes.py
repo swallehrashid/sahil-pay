@@ -68,14 +68,10 @@ def list_units():
         # Across the unit AND its property: at 1,000 units nobody remembers
         # which block "B12" is in, and typing the block name to narrow to it is
         # the other half of the same search.
-        like = f"%{search}%"
-        query = query.filter(
-            db.or_(
-                Unit.name.ilike(like),
-                Unit.pay_code.ilike(like),
-                Property.name.ilike(like),
-            )
-        )
+        from services.search import match_all_words
+        clause = match_all_words(search, [Unit.name, Unit.pay_code, Property.name])
+        if clause is not None:
+            query = query.filter(clause)
     if prop_filter:
         query = query.filter(Unit.property_id == prop_filter)
     if occ_filter == "true":
@@ -97,10 +93,18 @@ def list_units():
         page=page, per_page=per_page, error_out=False
     )
 
+    from models import Tenant
+    occupants = {
+        t.unit_id: t for t in Tenant.query.filter(
+            Tenant.unit_id.in_([u.id for u in paginated.items] or [-1]),
+            Tenant.is_deleted.is_(False)).all()
+    }
     items = []
     for u in paginated.items:
         d              = u.to_dict()
         d["property_name"] = u.property.name if u.property else None
+        occupant = occupants.get(u.id)
+        d["tenant_name"] = f"{occupant.first_name} {occupant.last_name}" if occupant else None
         # Resolve effective tax rate
         d["effective_tax_rate"] = float(u.tax_rate) if u.tax_rate is not None \
             else (float(u.property.tax_rate) if u.property else None)

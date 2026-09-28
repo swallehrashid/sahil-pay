@@ -424,6 +424,18 @@ def _allocate_to_tenant(payment, tenant, landlord, *, auto_allocate=True,
     payment.suspense_reason = None
     payment.suggested_split_json = None
 
+    # The code is already on a confirmed payment (recorded by hand, or through
+    # another channel): never allocate it a second time. Hold it for a person,
+    # who will see why when they open it.
+    from services.payment_guard import duplicate_of
+    dupe = duplicate_of(landlord.id, payment.mpesa_reference, exclude_id=payment.id)
+    if dupe is not None:
+        payment.status = PaymentStatus.pending.value
+        payment.notes = ((payment.notes or "") +
+                         f" Possible duplicate of {dupe.payment_ref} — not allocated.").strip()
+        db.session.flush()
+        return payment
+
     if not auto_allocate:
         # The account wants to eyeball every payment before it lands. Pending is
         # not suspense: the tenant IS known, so nothing needs resolving — it
