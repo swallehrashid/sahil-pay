@@ -304,34 +304,102 @@ def test_property_page_and_per_property_invoicing(client, world):
 
 # ------------------------------------------ 12 the 28th-of-the-month move-in
 
-def test_month_end_move_in_bills_next_month_once(world):
+def _move_in_lines(w, rent, deposit, lease, penalty_deposit=0):
+    c = w["cats"]
+    lines = [{"category_id": c["Rent"].id, "subcategory": "current", "amount": rent},
+             {"category_id": c["Rent"].id, "subcategory": "deposit", "amount": deposit},
+             {"category_id": c["Lease Agreement"].id, "subcategory": "current", "amount": lease}]
+    if penalty_deposit:
+        lines.append({"category_id": c["Penalty"].id, "subcategory": "deposit", "amount": penalty_deposit})
+    return lines
+
+
+def test_moving_in_from_the_20th_bills_next_month_once(world):
+    """26 September, box ticked: every line is FOR October, billed and paid on the 26th."""
+    from services.move_in_service import bill_move_in
+    from services.receipt_service import build_receipt
+    from services.payment_report_service import build_payments_report
+    from tasks.invoice_tasks import _run_monthly_billing_for_tenant
+    w = world
+    t = w["tenant"]
+    t.move_in_date = date(2026, 9, 26)
+    db.session.flush()
+
+    inv = bill_move_in(t, {"bill_next_month": True, "bill_month": "2026-10",
+                           "lines": _move_in_lines(w, 6000, 6000, 500, penalty_deposit=1000)})
+    assert inv.invoice_type == "move_in" and inv.issue_date == date(2026, 9, 26)
+    assert {li.period_month for li in inv.line_items} == {date(2026, 10, 1)}
+    assert {li.item for li in inv.line_items} == {"Rent", "Rent Deposit", "Lease Agreement", "Penalty Deposit"}
+    assert t.lease_start_date == date(2026, 10, 1)
+
+    p = _pay(w, 13500, date(2026, 9, 26))
+    r = build_receipt(p)
+    labels = {x["label"] for x in r["paid_items"]}
+    assert labels == {"Rent — October 2026", "Rent Deposit — October 2026",
+                      "Penalty Deposit — October 2026", "Lease Agreement"}   # lease: no month
+    assert r["payment_date"] == "2026-09-26" and r["period_label"] == "October 2026"
+
+    # Reports file all of it — the lease fee too — under October.
+    rep = build_payments_report(w["landlord"].id, date_from=date(2026, 9, 1), date_to=date(2026, 9, 30))
+    months = {(m["month"], m["category_name"]): m for m in rep["by_month"]}
+    assert months[("2026-10-01", "Rent")]["collected"] == 6000
+    assert months[("2026-10-01", "Lease Agreement")]["collected"] == 500
+    assert rep["reconciliation"]["difference"] == 0
+    # "Invoiced" by month is rent only — the deposit billed with it is not rent.
+    both = build_payments_report(w["landlord"].id, date_from=date(2026, 9, 1), date_to=date(2026, 10, 31))
+    oct_rent = [m for m in both["by_month"] if m["month"] == "2026-10-01" and m["category_name"] == "Rent"][0]
+    assert oct_rent["invoiced"] == 6000
+
+    run = lambda m: _run_monthly_billing_for_tenant(w["landlord"], t, m, m, None)   # noqa: E731
+    assert run(date(2026, 9, 1)) == "empty"        # no September rent
+    assert run(date(2026, 10, 1)) == "empty"       # October already billed
+    assert run(date(2026, 11, 1)) == "created"     # November as normal
+
+
+def test_moving_in_before_the_20th_bills_the_part_month(world):
+    """15 September, box unticked: 'Rent — September' at the part-month amount; October in full."""
     from services.move_in_service import bill_move_in
     from services.receipt_service import build_receipt
     from tasks.invoice_tasks import _run_monthly_billing_for_tenant
     w = world
     t = w["tenant"]
-    t.move_in_date = date(2026, 9, 28)
-    t.deposit_amount = Decimal("6000")
+    t.move_in_date = date(2026, 9, 15)
     db.session.flush()
 
-    inv = bill_move_in(t, {"lease_fee": 500})
-    assert inv.invoice_type == "move_in" and inv.issue_date == date(2026, 9, 28)
-    rent = [li for li in inv.line_items if li.item == "Rent"][0]
-    assert rent.period_month == date(2026, 10, 1)
-    assert t.lease_start_date == date(2026, 10, 1)
+    inv = bill_move_in(t, {"bill_next_month": False, "lines": _move_in_lines(w, 3000, 6000, 500)})
+    assert {li.period_month for li in inv.line_items} == {date(2026, 9, 1)}
+    assert t.lease_start_date == date(2026, 9, 15)
 
-    p = _pay(w, 12500, date(2026, 9, 28))
-    labels = {r["label"] for r in build_receipt(p)["paid_items"]}
-    assert "Rent — October 2026" in labels
-    assert "Lease Agreement" in labels                 # the one undated charge
-    assert any(l.startswith("Rent Deposit — ") for l in labels)
+    p = _pay(w, 9500, date(2026, 9, 15))
+    labels = {x["label"]: x["amount"] for x in build_receipt(p)["paid_items"]}
+    assert labels["Rent — September 2026"] == 3000.0
 
-    # A September run after they joined bills no September rent…
-    assert _run_monthly_billing_for_tenant(w["landlord"], t, date(2026, 9, 1), date(2026, 9, 30), None) == "empty"
-    # …and October's run does not bill October's rent a second time.
-    assert _run_monthly_billing_for_tenant(w["landlord"], t, date(2026, 10, 1), date(2026, 10, 1), None) == "empty"
-    # November is billed normally.
-    assert _run_monthly_billing_for_tenant(w["landlord"], t, date(2026, 11, 1), date(2026, 11, 1), None) == "created"
+    run = lambda m: _run_monthly_billing_for_tenant(w["landlord"], t, m, m, None)   # noqa: E731
+    # A September run after the 15th must not add the full rent on top of the part month.
+    assert run(date(2026, 9, 1)) == "empty"
+    assert run(date(2026, 10, 1)) == "created"
+    oct_rent = [li for li in InvoiceLineItem.query.join(Invoice).filter(
+        Invoice.tenant_id == t.id, InvoiceLineItem.period_month == date(2026, 10, 1)).all()]
+    assert [(li.item, li.amount) for li in oct_rent] == [("Rent", Decimal("6000.00"))]
+
+
+def test_next_month_billing_must_be_after_the_move_in_month(world):
+    from services.move_in_service import bill_move_in
+    from utils import ApiError
+    w = world
+    w["tenant"].move_in_date = date(2026, 9, 26)
+    with pytest.raises(ApiError):
+        bill_move_in(w["tenant"], {"bill_next_month": True, "bill_month": "2026-09",
+                                   "lines": _move_in_lines(w, 6000, 0, 0)})
+
+
+def test_a_part_month_on_an_ordinary_invoice_also_blocks_double_rent(world):
+    """Billed from Invoices → Add invoice instead of the tenant form: same protection."""
+    from tasks.invoice_tasks import _run_monthly_billing_for_tenant
+    w = world
+    _invoice(w, date(2026, 9, 15), [("Rent", 3000, "current")], itype="custom")
+    assert _run_monthly_billing_for_tenant(w["landlord"], w["tenant"], date(2026, 9, 1),
+                                           date(2026, 9, 30), None) == "empty"
 
 
 # ----------------------------------------------- 13 every line names its month

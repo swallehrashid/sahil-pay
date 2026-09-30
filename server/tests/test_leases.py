@@ -93,14 +93,14 @@ def world(app, db_session):
         unit = Unit(property_id=prop.id, name=f"U{i}{n[:3]}", rent_amount=Decimal("25000"))
         s.add(unit)
         s.flush()
-        tuser = User(email=f"lst{i}-{n}@test.sahilpay", phone=f"2541{i}{n[:6]}",
+        tuser = User(email=f"lst{i}-{n}@test.sahilpay", phone=f"2541{i}{int(n, 16) % 10**7:07d}",
                      password_hash=generate_password_hash("Testpass1"),
                      role="tenant", is_verified=True, is_active=True)
         s.add(tuser)
         s.flush()
         tenant = Tenant(landlord_id=landlord.id, unit_id=unit.id, user_id=tuser.id,
                         first_name=f"Ten{i}", last_name=n[:4],
-                        phone=f"25470{i}{n[:6]}", email=f"lt{i}-{n}@test.sahilpay",
+                        phone=f"25470{i}{int(n, 16) % 10**6:06d}", email=f"lt{i}-{n}@test.sahilpay",
                         account_number=f"L{i}{n}", national_id=f"ID{n}",
                         deposit_amount=Decimal("25000"),
                         lease_start_date=date(2026, 1, 1),

@@ -88,7 +88,10 @@ def _make_tenant(session, landlord, unit):
     tenant = Tenant(
         landlord_id=landlord.id, unit_id=unit.id,
         first_name="AC", last_name=f"T{n}",
-        phone=f"+25472{n[:7]}", email=f"ac-t-{n}@test.sahilpay",
+        # All digits: a hex uuid slice ("+25472a3f9c01") collapses to the same
+        # digits for different tenants once letters are stripped, and phone is
+        # how one person's tenancies are linked — so two strangers' leases met.
+        phone=f"+2547{int(n, 16) % 10**8:08d}", email=f"ac-t-{n}@test.sahilpay",
         account_number=f"ACC-{n}",
     )
     session.add(tenant)

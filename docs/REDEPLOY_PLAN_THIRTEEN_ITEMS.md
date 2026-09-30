@@ -24,7 +24,7 @@ python -m pytest tests/ -q -p no:warnings --ignore=tests/render_email_previews.p
 cd ../client && npx vite build
 ```
 
-- [ ] Tests end with `892 passed, 1 skipped` (or more passed), and `0 failed`.
+- [ ] Tests end with `895 passed, 1 skipped` (or more passed), and `0 failed`.
 - [ ] The build ends with `✓ built in …`.
 
 **STOP IF** anything fails. Do not deploy, and send me the output.
@@ -207,7 +207,7 @@ own. Press **Ctrl + Shift + R** once, so the browser loads the new version.
 | C7 | **Tenants** → search box: type a first name, a **space**, and a surname | The tenant appears. The space is still in the box | ☐ |
 | C8 | **Properties** → click a property row | Its page opens: **Units** tab, with the banner "You are viewing units for property …". Click **Tenants**: the banner changes to tenants | ☐ |
 | C9 | **Invoices** → **Invoice by property** | Month picker, the property list with status, and the selected property's tenants with the amounts each will be billed. **Don't press Generate** unless you intend to invoice | ☐ |
-| C10 | Tenants → **Add tenant**: pick a vacant unit and fill **Next of kin**. Set Move-in date to the 28th, tick **Bill the move-in now** | The preview says "Rent — <next month>". Press **Cancel** unless this is a real tenant | ☐ |
+| C10 | Tenants → **Add tenant**: pick a vacant unit, fill **Next of kin**, set Move-in date to the **28th**. Under **Move-in bill** tick **Bill the next month's move-in now** and **Include the first month's rent**, then add *Rent — Deposit* and *Lease Agreement — This month* | The Rent line is prefilled with the unit's rent. The preview reads "Rent — <next month>", "Rent Deposit — <next month>", "Lease Agreement" (no month). Untick the box: everything switches to this month. Press **Cancel** unless this is a real tenant | ☐ |
 | C11 | Reports → Statements → **Payments** | The four cards at the top; the last reads **"Balances — nothing unexplained · KES 0.00"**. Tabs: Summary / By month / Per tenant / Allocation ledger | ☐ |
 | C12 | Same page → **Download Excel** | A file `payments-report.xlsx` with sheets: Summary by category, By month, Per tenant, Allocation ledger, Reconciliation | ☐ |
 | C13 | Settings → **SMS sender** | The page shows two choices: "Sender name on Sahil Pay" and "My own FluxSMS account (third party)". Change nothing unless a client asks | ☐ |
@@ -243,7 +243,8 @@ GROUP BY l.id, l.company_name ORDER BY tenants DESC;"
   ```
 
 What is new about 1 October: a tenant who joined late in September and was billed with
-**"Bill the move-in now"** will **not** be billed October's rent a second time. Anyone can
+**"Bill the next month's move-in now"** will **not** be billed October's rent a second time,
+and a tenant billed a part month in September will be billed October in full. Anyone can
 still invoice by hand afterwards with **Invoices → Invoice by property**; it never bills a
 tenant twice for the same month.
 
@@ -295,8 +296,9 @@ move-in invoices raised since the deploy. The invoices and payments themselves s
 - [ ] Tell clients who print receipts: choose **A4 third — portrait (top third of the page)**
       in Settings → Receipts & colours, print normally, and cut along the dashed line. No
       special print settings are needed any more.
-- [ ] Tell property managers about **Invoices → Invoice by property**, and **Bill the move-in
-      now** for tenants who join late in the month.
+- [ ] Tell property managers about **Invoices → Invoice by property**, and the **Move-in bill**
+      on Add tenant: before the 20th, bill the part month as "Rent — This month". From the
+      20th, tick **Bill the next month's move-in now**.
 - [ ] Keep the B3 backup files for at least **two weeks**, then delete them:
       `rm ~/sahilpay-before-thirteen-items-*.dump ~/sahilpay-uploads-before-thirteen-items-*.tgz`
 

@@ -31,7 +31,7 @@ move-in, and next of kin.
 | 9 | **Third-party SMS account**: a landlord can connect their own FluxSMS API key + sender ID. The key is checked live with FluxSMS on Connect, stored encrypted, and their provider bills them (nothing comes off their Sahil Pay SMS balance). "Send test SMS" proves the sender ID | No |
 | 10 | **Property page**: click a property → Units and Tenants sub-pages, each saying "You are viewing … for property X" | No |
 | 11 | **Invoice by property**: Invoices → *Invoice by property* — pick the month, see each property's tenants and exactly what they will be billed, generate & confirm, next | No |
-| 12 | **Month-end move-in**: "Bill the move-in now" on Add tenant — deposit, lease fee and the first rent month (next month when joining on the 20th or later). See §4 | Migration (automatic) |
+| 12 | **Move-in bill on Add tenant**: a normal invoice editor (any charge — Rent/Penalty/Water… Deposit, Balance, This month, Lease Agreement, custom). Moving in before the 20th: bill the part month for this month. From the 20th: tick **Bill the next month's move-in now** — every line is for the chosen month. See §4 | Migration (automatic) |
 | 13 | **Every receipt line names its month** — "Rent — Aug 2026", "Water — Jul 2026"; a carried balance is split by month; the lease agreement fee is the one undated line. Receipts show what is still owed, by month | No |
 
 Also fixed while testing:
@@ -113,40 +113,70 @@ Nobody charges a full month for the last three days of September.
 
 ### Q1 — What happens when 1 October comes and invoices are generated automatically?
 
-When the tenant is added, tick **Bill the move-in now** on the Add tenant form. The system
-suggests the first rent month (the move-in month, or next month when the move-in date is
-the 20th or later) and shows the bill before you save:
+The Add tenant form has a **Move-in bill**: a normal invoice editor. Add any charge from
+the list (Rent — Deposit / Balance / This month, Penalty — …, Water — Deposit, Lease
+Agreement — This month, or a custom item) and type the amounts. What changes between
+tenants is only **which month the bill is for**.
+
+**Moving in before the 20th** (e.g. 15 September, rent 10,000). Leave **Bill the next
+month's move-in now** unticked. Tick **Include the first month's rent**: the Rent line
+appears prefilled with 10,000. Change it to what you charge for the part month, e.g. 5,000.
+Add the deposit and the lease fee.
 
 ```
-Move-in invoice, dated 28/09/2026 — first rent month October 2026
-  Rent — October 2026            20,000
-  Rent Deposit                   20,000
-  Lease Agreement                 1,000      (no month — a one-off fee)
-  (optional) Rent 28–30 Sep, 3 days, pro-rata
+Move-in invoice, dated 15/09/2026 — for September 2026
+  Rent — September 2026           5,000      (the part month)
+  Rent Deposit — September 2026  10,000
+  Lease Agreement                 1,000      (no month on the receipt)
 ```
 
-It also sets the lease start to **1 October**.
+**From the 20th** (e.g. 26 September). Tick **Bill the next month's move-in now** and
+choose the month (October by default; the form reminds you when the move-in date is the
+20th or later). Tick **Include the first month's rent** (10,000, editable) and add the
+rest:
 
-The payment on the 28th is allocated to that invoice like any other payment.
+```
+Move-in invoice, dated 26/09/2026 — for October 2026
+  Rent — October 2026            10,000
+  Rent Deposit — October 2026    10,000
+  Lease Agreement                 1,000      (no month on the receipt; counted in October in reports)
+```
+
+Before you save, the form shows each line exactly as the receipt will print it. The
+invoice is an ordinary invoice: it appears on the tenant's statement and in reports, the
+payment is allocated to it, and it has a receipt. The receipt is dated the day of payment,
+and every line names its month.
 
 On **1 October** the automatic run:
 
-- **does not bill October's rent again.** It sees an October rent line already exists for
-  this tenant, whatever date its invoice was issued.
-- still bills anything else that is due, such as a queued meter reading.
-- does nothing else for this tenant if there is nothing else to bill.
+- **From-the-20th tenants:** does **not** bill October's rent again. It sees an October
+  rent line already exists, whatever date its invoice was issued. From November they pay
+  full rent as normal.
+- **Before-the-20th tenants:** bills October's rent **in full**. The part month covered
+  September only.
+- A run for **September** made after the move-in date bills **neither** of them September
+  rent again. The part-month line, or the lease starting in October, already accounts for
+  September. This also holds when the part month was billed from Invoices → Add invoice
+  instead of the tenant form.
+- Anything else that is due, such as a queued meter reading, is still billed.
 
-**From November** the tenant is on the normal monthly cycle.
+The old "charge the remaining days (pro-rata)" checkbox is gone. A part month is simply
+the Rent — This month line with the amount you choose.
 
-A run for **September** (for example, somebody generates September's invoices on the 29th)
-does not bill this tenant any rent, because rent starts in the lease's first month.
+**If the landlord skips the move-in bill** and simply records the payment, the money
+becomes **advance credit**. On 1 October the October invoice is raised and the credit is
+applied to it automatically, with its own "Rent — Oct 2026" receipt. It works, but the
+tenant gets no October receipt on the day they paid.
 
-**If the landlord skips "Bill the move-in now"** and simply records the payment, the extra
-money becomes **advance credit**. The receipt shows it as advance credit. On 1 October the
-October invoice is raised and the credit is applied to it automatically, and that
-application has its own receipt saying "Rent — Oct 2026". This works, but the tenant does
-not get an October receipt on the 28th. That is why the move-in bill is the recommended
-way.
+**Tested:** 5 tenants moving in on **every day from 1 to 30 September** (150 tenants) on
+the scale estate. For all 150:
+
+- the receipt names the right month and amount on every line;
+- the September and October runs bill each tenant exactly once per month;
+- November would bill full rent;
+- the Payments Report moved by exactly the amounts paid, filed under the right month.
+
+Screenshots are in `.qa/2026-09-30-move-in-days/`.
 
 ### Q2 — Do we put it in the queue?
 
@@ -178,7 +208,7 @@ underneath.
 
 ## 5. How it was verified
 
-- **Backend:** 892 tests pass, plus 11 new ones for this release
+- **Backend:** 895 tests pass, including 15 new ones for this release
   (`tests/test_thirteen_items.py`). The receipt geometry tests were rewritten to check the
   rendered PDF: an A4 page, one page, all ink above the cut line, the full width used.
 - **End to end:** `client/scripts/qa/thirteen-items.mjs` passes 53/53 checks on the scale
