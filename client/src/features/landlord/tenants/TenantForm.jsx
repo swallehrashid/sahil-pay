@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { formatCurrency } from "@/utils/currencyFormatter";
-import { usePreviewMoveInMutation } from "./tenantApiSlice";
+import { useMemo, useState } from "react";
+import MoveInBillEditor from "./MoveInBillEditor";
+import { EMPTY_MOVE_IN } from "./moveInBill";
 import Input from "@/components/ui/Input";
 import Select from "@/components/ui/Select";
 import DatePicker from "@/components/ui/DatePicker";
@@ -51,38 +51,9 @@ export default function TenantForm({ initialValues, properties = [], units = [],
   const [errors, setErrors] = useState({});
   const isNew = !initialValues?.id;
 
-  // Move-in billing (new tenants only): deposit, lease fee, and the FIRST RENT
-  // MONTH — which for someone joining on the 28th is next month. See
-  // server/services/move_in_service.py.
-  const [moveIn, setMoveIn] = useState({
-    enabled: false, first_rent_month: "", lease_fee: "", include_first_rent: true, prorate_move_in_month: false,
-  });
-  const [preview, setPreview] = useState(null);
-  const [previewMoveIn] = usePreviewMoveInMutation();
-  useEffect(() => {
-    if (!isNew || !moveIn.enabled || !form.unit_id) return undefined;
-    const t = setTimeout(async () => {
-      try {
-        const res = await previewMoveIn({
-          unit_id: form.unit_id,
-          move_in_date: form.move_in_date || undefined,
-          deposit_amount: form.deposit_amount || 0,
-          first_rent_month: moveIn.first_rent_month || undefined,
-          lease_fee: moveIn.lease_fee || 0,
-          include_first_rent: moveIn.include_first_rent,
-          prorate_move_in_month: moveIn.prorate_move_in_month,
-        }).unwrap();
-        setPreview(res);
-        if (!moveIn.first_rent_month && res?.suggested_first_rent_month) {
-          setMoveIn((m) => ({ ...m, first_rent_month: res.suggested_first_rent_month.slice(0, 7) }));
-        }
-      } catch (err) {
-        setPreview({ error: err?.data?.error || err?.data?.message || "Could not preview the move-in bill." });
-      }
-    }, 300);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, moveIn, form.unit_id, form.move_in_date, form.deposit_amount]);
+  // The move-in bill (new tenants only) — an invoice raised with the tenant.
+  // See MoveInBillEditor and server/services/move_in_service.py.
+  const [moveIn, setMoveIn] = useState(EMPTY_MOVE_IN);
 
   const update = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -116,9 +87,14 @@ export default function TenantForm({ initialValues, properties = [], units = [],
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
     const payload = { ...form };
-    if (isNew && moveIn.enabled) {
-      payload.move_in_billing = { ...moveIn, first_rent_month: moveIn.first_rent_month || undefined,
-                                  deposit_amount: form.deposit_amount || 0 };
+    const billLines = moveIn.lines.filter((l) => Number(l.amount) > 0);
+    if (isNew && billLines.length) {
+      payload.move_in_billing = {
+        enabled: true,
+        bill_next_month: moveIn.bill_next_month,
+        bill_month: moveIn.bill_next_month ? moveIn.bill_month : undefined,
+        lines: billLines.map((l) => ({ category_id: l.category_id, subcategory: l.subcategory, item: l.item, amount: Number(l.amount) })),
+      };
     }
     onSubmit(payload);
   };
@@ -185,7 +161,8 @@ export default function TenantForm({ initialValues, properties = [], units = [],
         <p className="mb-3 text-xs font-medium uppercase tracking-wide text-white/40">Deposit</p>
         <div className="grid grid-cols-3 gap-4">
           <Input label="Deposit amount" type="number" step="0.01" value={form.deposit_amount} onChange={update("deposit_amount")} />
-          <Input label="Amount paid" type="number" step="0.01" value={form.deposit_paid} onChange={update("deposit_paid")} />
+          <Input label="Amount paid" type="number" step="0.01" value={form.deposit_paid} onChange={update("deposit_paid")}
+                 hint="Paid before Sahil Pay. Billing the deposit below? Leave this empty." />
           <Input
             label="Amount returned"
             type="number"
@@ -209,53 +186,15 @@ export default function TenantForm({ initialValues, properties = [], units = [],
 
       {isNew && (
         <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4" data-testid="move-in-billing">
-          <Checkbox
-            name="move_in_enabled"
-            label="Bill the move-in now (deposit, lease fee, first month's rent)"
-            checked={moveIn.enabled}
-            onChange={(e) => setMoveIn((m) => ({ ...m, enabled: e.target.checked }))}
-          />
-          <p className="mt-1.5 pl-7 text-xs leading-relaxed text-white/45">
-            For a tenant joining late in the month, the first rent month is next month: the bill says
-            "Rent — {preview?.first_rent_month_label || "next month"}", the receipt says the same, and the 1st-of-month
-            run will not bill that month again.
+          <p className="text-sm font-medium text-white">Move-in bill</p>
+          <p className="mb-3 mt-1 text-xs leading-relaxed text-white/45">
+            Invoice the tenant as you add them — deposit, rent, lease fee, anything else. It is a normal
+            invoice: it shows on their statement, takes their payment and prints on the receipt.
           </p>
-          {moveIn.enabled && (
-            <div className="mt-4 space-y-4 pl-7">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Input label="First rent month" type="month" name="first_rent_month" value={moveIn.first_rent_month}
-                       onChange={(e) => setMoveIn((m) => ({ ...m, first_rent_month: e.target.value }))}
-                       hint="Suggested from the move-in date (20th or later → next month)" />
-                <Input label="Lease agreement fee" type="number" step="0.01" name="lease_fee" value={moveIn.lease_fee}
-                       onChange={(e) => setMoveIn((m) => ({ ...m, lease_fee: e.target.value }))} />
-              </div>
-              <div className="flex flex-wrap gap-x-6 gap-y-2">
-                <Checkbox label="Include the first month's rent" checked={moveIn.include_first_rent}
-                          onChange={(e) => setMoveIn((m) => ({ ...m, include_first_rent: e.target.checked }))} />
-                <Checkbox label="Charge the remaining days of the move-in month (pro-rata)" checked={moveIn.prorate_move_in_month}
-                          onChange={(e) => setMoveIn((m) => ({ ...m, prorate_move_in_month: e.target.checked }))} />
-              </div>
-              {!form.unit_id && <p className="text-xs text-white/45">Choose the unit to see the move-in bill.</p>}
-              {form.unit_id && preview?.error && <p className="text-xs text-red-300">{preview.error}</p>}
-              {form.unit_id && preview?.lines && (
-                <div className="rounded-lg bg-white/5 p-3 text-sm" data-testid="move-in-preview">
-                  {preview.lines.length === 0 && <p className="text-white/50">Nothing to bill yet — enter a deposit, fee or rent.</p>}
-                  {preview.lines.map((l, i) => (
-                    <div key={i} className="flex justify-between gap-4 py-0.5">
-                      <span className="text-white/80">{l.item}{l.month_label ? ` — ${l.month_label}` : ""}
-                        {l.description?.startsWith("Pro-rata") && <span className="text-white/40"> ({l.description})</span>}
-                      </span>
-                      <span className="text-white">{formatCurrency(l.amount)}</span>
-                    </div>
-                  ))}
-                  {preview.lines.length > 0 && (
-                    <div className="mt-1 flex justify-between border-t border-white/10 pt-1 font-semibold text-white">
-                      <span>Move-in total</span><span>{formatCurrency(preview.total)}</span>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+          {!form.unit_id ? (
+            <p className="text-xs text-white/45">Choose the unit first.</p>
+          ) : (
+            <MoveInBillEditor value={moveIn} onChange={setMoveIn} unitId={form.unit_id} moveInDate={form.move_in_date} />
           )}
         </div>
       )}

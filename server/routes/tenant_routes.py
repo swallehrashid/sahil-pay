@@ -1102,8 +1102,9 @@ def _next_of_kin(data: dict) -> tuple[dict, str | None]:
 def move_in_preview():
     """
     What the move-in invoice will contain for a tenant who has not been saved
-    yet: { unit_id, move_in_date, first_rent_month?, deposit_amount?, lease_fee?,
-    prorate_move_in_month?, include_first_rent? }.
+    yet: { unit_id, move_in_date, bill_next_month, bill_month?, lines: [
+    {category_id | null, subcategory, item?, amount}] } — see
+    services/move_in_service.py. Returns each line with the month it is for.
     """
     from services.move_in_service import preview, suggested_first_rent_month
 
@@ -1121,9 +1122,8 @@ def move_in_preview():
     draft = SimpleNamespace(landlord_id=landlord_id, unit=unit, unit_id=unit.id,
                             move_in_date=move_in, deposit_amount=data.get("deposit_amount"))
     plan = preview(draft, data)
-    plan.pop("_lines", None)
-    plan.pop("_first_month", None)
     plan["suggested_first_rent_month"] = suggested_first_rent_month(move_in).isoformat()
+    plan["unit_rent"] = float(unit.rent_amount or 0)
     return jsonify(plan), 200
 
 

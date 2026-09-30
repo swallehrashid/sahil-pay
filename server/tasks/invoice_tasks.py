@@ -150,12 +150,16 @@ def _months_already_billed(tenant, month_first: date) -> set[int]:
                 InvoiceLineItem.category_id.isnot(None))
         .all()
     )
+    # The month a line is FOR: its period_month, else the month of its invoice.
+    # ANY invoice counts, not only the monthly one: a tenant who moved in on the
+    # 15th and was billed "Rent — This month" 5,000 on an ordinary or move-in
+    # invoice has had September's rent billed — a later September run must not
+    # add the full 10,000 on top.
     out = set()
-    for cid, period, issued, itype in rows:
-        if period is not None:
-            if _first_of_month(period) == month_first:
-                out.add(cid)
-        elif itype == "monthly" and issued and _first_of_month(issued) == month_first:
+    for cid, period, issued, _itype in rows:
+        month = _first_of_month(period) if period is not None else (
+            _first_of_month(issued) if issued else None)
+        if month == month_first:
             out.add(cid)
     return out
 
@@ -426,7 +430,7 @@ def preview_monthly_for_tenant(landlord, tenant, run_month_first: date,
                                                    auto_bill_monthly=True).all()):
             if cat.id in already:
                 if cat.name.lower() == "rent":
-                    row["note"] = "This month's rent is already billed (paid in advance / move-in)."
+                    row["note"] = "This month's rent is already billed (move-in bill or an earlier invoice)."
                 continue
             amount = Decimal(str(unit.rent_amount or 0)) if cat.name.lower() == "rent" \
                 else Decimal(str(cat.default_rate or 0))

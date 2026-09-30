@@ -160,11 +160,14 @@ def build_payments_report(landlord_id, category_id="all", date_from=None, date_t
                                                           "agreement fee")}
 
     def line_month(li, inv):
-        # Same rule as services/line_period.is_undated, without a query per line.
-        if li.category_id in undated_cats or "lease agreement" in (li.item or "").lower():
-            return None
+        # A line billed FOR a month is filed under it — including a lease fee on
+        # a move-in bill (the receipt prints that fee without a month, but the
+        # money belongs to the month it was billed for). Otherwise the same
+        # rule as services/line_period.is_undated, without a query per line.
         if li.period_month:
             return _first(li.period_month)
+        if li.category_id in undated_cats or "lease agreement" in (li.item or "").lower():
+            return None
         if li.utility_reading_id and li.utility_reading_id in reading_month:
             return reading_month[li.utility_reading_id]
         return _first(inv.issue_date)
@@ -210,7 +213,13 @@ def build_payments_report(landlord_id, category_id="all", date_from=None, date_t
             if _month_in_range(m, date_from, date_to) or (m is None and _in_range(inv.issue_date, date_from, date_to)):
                 key = "deposit_invoiced" if sub == SubCategory.deposit.value else "invoiced"
                 row[key] += amount
-                by_month[(m, cid)]["invoiced"] += amount
+                # Deposits are held money, reported in their own columns — the
+                # by-month table's "invoiced" must match its "collected" and
+                # "still owed", which leave deposits out. Counting them here
+                # made a month's rent look billed twice for every tenant who
+                # paid a deposit with it.
+                if sub != SubCategory.deposit.value:
+                    by_month[(m, cid)]["invoiced"] += amount
         # Outstanding now: live lines only; a rolled line's debt lives on its b/f line.
         if li.status != LineItemStatus.rolled.value and li.id not in rolled:
             remaining = amount - Decimal(li.amount_paid or 0)
