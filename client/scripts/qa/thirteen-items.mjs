@@ -284,6 +284,12 @@ try {
   let movedIn = null;
   {
     const shot = shooter(page, "01-12-add-tenant-next-of-kin-and-move-in");
+    // Another walkthrough may have filled every unit — add one if none is free.
+    if (sql(`SELECT count(*) FROM units u JOIN properties p ON p.id=u.property_id WHERE p.landlord_id=${LID}
+      AND NOT u.is_occupied AND NOT u.is_deleted AND NOT p.is_deleted`) === "0") {
+      const pid0 = Number(sql(`SELECT id FROM properties WHERE landlord_id=${LID} AND NOT is_deleted ORDER BY name LIMIT 1`));
+      await api("/units/", { token, method: "POST", body: { property_id: pid0, name: `QA-${Date.now().toString(36)}`, rent_amount: 12000 } });
+    }
     const [propName, unitName, unitId, rent] = sql(`SELECT p.name||'|'||u.name||'|'||u.id||'|'||u.rent_amount FROM units u
       JOIN properties p ON p.id=u.property_id WHERE p.landlord_id=${LID} AND NOT u.is_occupied AND NOT u.is_deleted
       AND NOT p.is_deleted ORDER BY p.name LIMIT 1`).split("|");
@@ -301,10 +307,15 @@ try {
     await page.locator('input[name="next_of_kin_phone"]').fill("0722 334 455");
     await page.getByTestId("next-of-kin-section").scrollIntoViewIfNeeded();
     await shot("next-of-kin-section-filled", { fullPage: false });
-    await page.getByLabel("Deposit amount").fill(String(Number(rent)));
     await page.getByLabel("Move-in date").fill("2026-09-28");
-    await page.getByText("Bill the move-in now").click();
-    await page.locator('input[name="lease_fee"]').fill("1000");
+    // The move-in bill: tick "next month", include the first month's rent,
+    // add the deposit and the lease fee — a normal invoice, all for October.
+    await page.getByText("Bill the next month's move-in now").click();
+    await page.getByText(/^Include the first month's rent/).click();
+    await pick(page, "Add an item", "Rent Deposit");
+    await page.getByLabel("Amount for Rent Deposit").fill(String(Number(rent)));
+    await pick(page, "Add an item", "Lease Agreement This month");
+    await page.getByLabel("Amount for Lease Agreement").fill("1000");
     await page.waitForTimeout(1500);
     await page.getByTestId("move-in-billing").scrollIntoViewIfNeeded();
     await shot("move-in-billing-preview-october", { fullPage: false });
@@ -504,7 +515,7 @@ try {
     await page.waitForTimeout(2500);
     await shot("property-preview-with-move-in-tenant", { fullPage: false });
     const prevText = await page.getByTestId("by-property-preview").innerText();
-    R.check("12: October run will not bill Grace's October rent again", /already billed \(paid in advance/.test(prevText));
+    R.check("12: October run will not bill Grace's October rent again", /already billed \(move-in bill/.test(prevText));
     // Already done for October (an earlier run)? Generating is correctly
     // disabled — move on to the next property that still needs it.
     if (await page.getByTestId("by-property-generate").isDisabled()) {
@@ -512,7 +523,7 @@ try {
       await page.waitForTimeout(2500);
     }
     const firstName = (await page.getByTestId("by-property-preview").locator("h3").innerText()).trim();
-    const octBefore = Number(sql(`SELECT count(DISTINCT property_id) FROM invoices WHERE landlord_id=${LID} AND invoice_type='monthly' AND issue_date>='2026-10-01'`));
+    const genStart = sql("SELECT (now() AT TIME ZONE 'utc')");   // created_at is stored in UTC
     await page.getByTestId("by-property-generate").click();
     await page.waitForTimeout(500);
     await shot("confirm-generate", { fullPage: false });
@@ -524,8 +535,9 @@ try {
     const graceOct = sql(`SELECT count(*) FROM invoice_line_items li JOIN invoices i ON i.id=li.invoice_id
       WHERE i.tenant_id=${movedIn.id} AND li.item='Rent' AND li.period_month='2026-10-01'`);
     R.check("12: Grace has exactly ONE October rent line", graceOct === "1", graceOct);
-    const otherProps = sql(`SELECT count(DISTINCT property_id) FROM invoices WHERE landlord_id=${LID} AND invoice_type='monthly' AND issue_date>='2026-10-01'`);
-    R.check("11: only that property was invoiced for October", Number(otherProps) === octBefore + 1, `${octBefore} → ${otherProps} property(ies)`);
+    // Only invoices this step created: every one of them in ONE property.
+    const otherProps = sql(`SELECT count(DISTINCT property_id) FROM invoices WHERE landlord_id=${LID} AND invoice_type='monthly' AND created_at >= '${genStart}'`);
+    R.check("11: only that property was invoiced for October", otherProps === "1", `${otherProps} property(ies) invoiced in this step`);
     await page.getByTestId("by-property-next").click();
     await page.waitForTimeout(2000);
     await shot("next-property-ready", { fullPage: false });
