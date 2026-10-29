@@ -59,6 +59,15 @@ export default function ConfirmPaymentModal({ payment, onClose }) {
   );
   const amount = preview?.amount ?? Number(payment?.amount ?? 0);
   const overAllocated = manualTotal > amount + 0.001;
+  // How much of this payment no invoice accounts for. The server refuses to
+  // record any of it unless this is zero (THE INVOICE RULE), so the UI blocks
+  // Confirm and explains why instead of letting the request fail.
+  const unallocated = useMemo(() => {
+    const covered = mode === "auto"
+      ? Number(preview?.proposed_total ?? 0)
+      : manualTotal;
+    return Math.max(0, Math.round((amount - covered) * 100) / 100);
+  }, [mode, preview, manualTotal, amount]);
   const needsTenant = !tenantId;
 
   const handleConfirm = async () => {
@@ -198,14 +207,27 @@ export default function ConfirmPaymentModal({ payment, onClose }) {
                   </table>
                 )}
                 {!needsTenant && (
-                  <div className="mt-2 flex justify-between border-t border-white/10 pt-2 text-sm">
-                    <span className="text-white/50">
-                      {mode === "auto" ? "Advance credit" : overAllocated ? "Over-allocated!" : "Unallocated (advance)"}
-                    </span>
-                    <span className={overAllocated ? "font-semibold text-red-400" : "text-white/80"}>
-                      {formatCurrency(mode === "auto" ? preview.advance_credit : Math.max(0, amount - manualTotal))}
-                    </span>
-                  </div>
+                  <>
+                    <div className="mt-2 flex justify-between border-t border-white/10 pt-2 text-sm">
+                      <span className="text-white/50">
+                        {overAllocated ? "Over-allocated!" : "Not covered by any invoice"}
+                      </span>
+                      <span className={unallocated > 0 || overAllocated ? "font-semibold text-red-400" : "text-white/80"}>
+                        {formatCurrency(overAllocated ? manualTotal - amount : unallocated)}
+                      </span>
+                    </div>
+                    {/* A payment has to answer a charge. Anything left over has no
+                        invoice to sit against, so the server refuses it — say so
+                        here rather than letting them press Confirm and fail. */}
+                    {unallocated > 0 && !overAllocated && (
+                      <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs leading-relaxed text-amber-200">
+                        {formatCurrency(unallocated)} of this payment is not covered by an invoice, so it
+                        cannot be recorded yet. Raise the invoice for the period being paid for, then
+                        confirm — or record only what the invoices cover. Money paid ahead is recorded
+                        month by month as each month is invoiced.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
 
@@ -213,7 +235,7 @@ export default function ConfirmPaymentModal({ payment, onClose }) {
                 <Button variant="ghost" leftIcon={<XCircle className="h-4 w-4" />} onClick={() => setDeclining(true)}>
                   Decline
                 </Button>
-                <Button leftIcon={<CheckCircle2 className="h-4 w-4" />} isLoading={isConfirming} disabled={needsTenant || overAllocated} onClick={handleConfirm}>
+                <Button leftIcon={<CheckCircle2 className="h-4 w-4" />} isLoading={isConfirming} disabled={needsTenant || overAllocated || unallocated > 0} onClick={handleConfirm}>
                   Confirm payment
                 </Button>
               </div>

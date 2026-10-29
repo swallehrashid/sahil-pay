@@ -6,6 +6,15 @@ export to Excel, search that understands spaces, letterhead sizes, third-party
 SMS accounts, property pages, invoicing one property at a time, the month-end
 move-in, and next of kin.
 
+> ## ⟶ Newer release available
+> **The current release is the end-of-October three-fix release:
+> [REDEPLOY_2026-10_SMS_ADMIN_INVOICE.md](REDEPLOY_2026-10_SMS_ADMIN_INVOICE.md)**
+> — SMS credits reconciled to confirmed payments, absolute admin control over
+> account status / trial / due dates, and the rule that no payment is recorded
+> without an invoice. Deploy that one; it includes everything below.
+>
+> ---
+>
 > **Deploying? Follow the checklist: [REDEPLOY_PLAN_THIRTEEN_ITEMS.md](REDEPLOY_PLAN_THIRTEEN_ITEMS.md)**
 > (backup, deploy, browser checks, 1 October, rollback). §1 below is the short version.
 >

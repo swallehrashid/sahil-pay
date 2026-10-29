@@ -22,7 +22,7 @@ Per-unit price override:
   landlord.package_id     — can be set alongside the override for reference.
 """
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
@@ -469,14 +469,32 @@ def get_landlord_billing(landlord_id):
 @jwt_required()
 def update_landlord_billing(landlord_id):
     """
-    #16 — admin manually overrides a landlord's billing: amount due, next billing
-    date, subscription status, trial active flag and trial end date. Any provided
-    field is applied; the changes reflect straight back to the landlord's billing page.
+    #16 — the admin states this landlord's billing reality, and it STANDS.
+
+    Every field is optional; whatever is sent is applied. Nothing here is
+    "suggested to" the billing engine — an explicit edit pins the value so the
+    nightly roll-forward and the status settler cannot quietly undo it:
+
+      * setting `status` to something new pins it (admin_status_locked)
+      * moving `next_billing_date` forward clears the overdue clock, so the
+        account does NOT re-lock a few days later
+      * `admin_override_mode` 'open'/'closed' forces the portal open or shut
+        regardless of balance, status or trial
+      * `admin_billing_frozen` stops auto-charges and auto-date-advancement
 
     Body (all optional): { amount_due, next_billing_date (YYYY-MM-DD), status,
-                           billing_cycle, is_on_trial, trial_ends_at (ISO/date) }
+      billing_cycle, is_on_trial, trial_ends_at, balance_due_since,
+      access_override_until, access_override_reason,
+      admin_override_mode: 'open'|'closed'|'system', admin_status_locked: bool,
+      admin_billing_frozen: bool, admin_override_reason: str }
+
+    Bad input is answered with a precise 400/422 — never a 500. Every parse and
+    every enum is checked before anything is written.
     """
-    from datetime import datetime, date as _date
+    from datetime import datetime, date as _date, timedelta
+    from models import SubscriptionStatus
+    from services.billing_service import normalize_cycle, valid_cycles
+
     _require_admin()
     landlord = db.session.get(Landlord, landlord_id)
     if not landlord:
@@ -485,72 +503,192 @@ def update_landlord_billing(landlord_id):
     from services.billing_service import recompute_subscription
     sub = landlord.subscription or recompute_subscription(landlord)
     data = request.get_json(silent=True) or {}
-    before = {
-        "amount_due": str(sub.amount_due) if sub else None,
-        "next_billing_date": str(sub.next_billing_date) if sub and sub.next_billing_date else None,
-        "status": sub.status if sub else None,
-        "is_on_trial": landlord.is_on_trial,
-        "trial_ends_at": landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
-    }
 
-    def _parse_date(v):
-        if not v:
-            return None
+    def _snapshot():
+        return {
+            "amount_due": str(sub.amount_due) if sub else None,
+            "next_billing_date": str(sub.next_billing_date) if sub and sub.next_billing_date else None,
+            "balance_due_since": str(sub.balance_due_since) if sub and sub.balance_due_since else None,
+            "status": sub.status if sub else None,
+            "billing_cycle": sub.billing_cycle if sub else None,
+            "is_on_trial": landlord.is_on_trial,
+            "trial_ends_at": landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
+            "access_override_until": str(sub.access_override_until) if sub and sub.access_override_until else None,
+            "admin_override_mode": getattr(sub, "admin_override_mode", None),
+            "admin_status_locked": getattr(sub, "admin_status_locked", False),
+            "admin_billing_frozen": getattr(sub, "admin_billing_frozen", False),
+        }
+
+    before = _snapshot()
+
+    # ── Parsing helpers that REPORT instead of exploding ─────────────────────
+    # A date typed as 05/11/2026 used to raise straight out of the request and
+    # surface as "An unexpected error occurred. Our team has been notified."
+    errors: dict[str, str] = {}
+
+    def _date_field(key):
+        """(ok, value) — value is None when the field clears the date."""
+        raw = data.get(key)
+        if raw in (None, ""):
+            return True, None
+        text = str(raw).strip().replace("Z", "")
+        for parse in (lambda v: datetime.fromisoformat(v).date(),
+                      lambda v: _date.fromisoformat(v[:10])):
+            try:
+                return True, parse(text)
+            except (ValueError, TypeError):
+                continue
+        errors[key] = "Use the date format YYYY-MM-DD."
+        return False, None
+
+    def _money_field(key):
+        raw = data.get(key)
+        if raw is None or raw == "":
+            return True, None
         try:
-            return datetime.fromisoformat(str(v).replace("Z", "")).date()
-        except ValueError:
-            return _date.fromisoformat(str(v)[:10])
+            return True, Decimal(str(raw))
+        except (InvalidOperation, TypeError, ValueError):
+            errors[key] = "Enter a number."
+            return False, None
 
-    if "amount_due" in data and data["amount_due"] is not None:
-        sub.amount_due = Decimal(str(data["amount_due"]))
-    if "next_billing_date" in data and data["next_billing_date"]:
-        sub.next_billing_date = _parse_date(data["next_billing_date"])
-    if "status" in data and data["status"]:
-        sub.status = data["status"]
-    if "billing_cycle" in data and data["billing_cycle"]:
-        sub.billing_cycle = data["billing_cycle"]
+    # ── Validate everything up front; write nothing until it all passes ──────
+    _, amount_due = _money_field("amount_due")
+    nbd_given = "next_billing_date" in data
+    _, next_billing_date = _date_field("next_billing_date")
+    bds_given = "balance_due_since" in data
+    _, balance_due_since = _date_field("balance_due_since")
+    trial_given = "trial_ends_at" in data
+    _, trial_ends_at = _date_field("trial_ends_at")
+    override_given = "access_override_until" in data
+    _, access_override_until = _date_field("access_override_until")
+
+    new_status = None
+    if data.get("status"):
+        new_status = str(data["status"]).strip().lower()
+        valid_statuses = [e.value for e in SubscriptionStatus]
+        if new_status not in valid_statuses:
+            errors["status"] = f"Must be one of: {', '.join(valid_statuses)}."
+
+    new_cycle = None
+    if data.get("billing_cycle"):
+        raw_cycle = str(data["billing_cycle"]).strip().lower()
+        new_cycle = normalize_cycle(raw_cycle, default="")
+        if not new_cycle:
+            errors["billing_cycle"] = f"Must be one of: {', '.join(valid_cycles())}."
+
+    mode_given = "admin_override_mode" in data
+    new_mode = None
+    if mode_given:
+        raw_mode = data.get("admin_override_mode")
+        raw_mode = (str(raw_mode).strip().lower() if raw_mode not in (None, "") else "system")
+        if raw_mode in ("system", "none", "auto"):
+            new_mode = None
+        elif raw_mode in ("open", "closed"):
+            new_mode = raw_mode
+        else:
+            errors["admin_override_mode"] = "Must be 'open', 'closed' or 'system'."
+
+    # Forcing an account open or shut is a commercial decision — it is recorded
+    # with a reason so the audit trail explains it later.
+    reason = (data.get("admin_override_reason") or "").strip()
+    if mode_given and new_mode in ("open", "closed") and not reason \
+            and not getattr(sub, "admin_override_reason", None):
+        errors["admin_override_reason"] = "Give a reason — it is kept on the audit trail."
+
+    if override_given and access_override_until and not (data.get("access_override_reason") or "").strip():
+        errors["access_override_reason"] = "Give a reason for the exemption — it is shown on the audit trail."
+
+    if errors:
+        return jsonify({"error": "Some values could not be saved — see the fields below.",
+                        "errors": errors}), 422
+
+    # ── Apply ────────────────────────────────────────────────────────────────
+    today = _date.today()
+    status_pinned_now = False
+
+    if amount_due is not None:
+        sub.amount_due = amount_due
+    if nbd_given and next_billing_date is not None:
+        moved_forward = (sub.next_billing_date is None or next_billing_date > sub.next_billing_date)
+        sub.next_billing_date = next_billing_date
+        # THE EXTENSION ACTUALLY EXTENDS. The overdue clock used to be re-armed
+        # to today on every save, so an account "opened" by pushing the due date
+        # locked itself again once the grace days elapsed. Pushing the date out
+        # clears the clock: nothing is overdue until the new date passes.
+        if moved_forward and next_billing_date > today:
+            sub.balance_due_since = None
+    if bds_given:
+        sub.balance_due_since = balance_due_since
+    if new_status:
+        # Sending a status at all is an explicit statement of what it should be,
+        # so it is pinned — whether or not it differs from the current value.
+        # "When I put it on, it's on." Hand control back with
+        # admin_status_locked: false.
+        status_pinned_now = True
+        sub.status = new_status
+    if new_cycle:
+        sub.billing_cycle = new_cycle
     if "is_on_trial" in data:
         landlord.is_on_trial = bool(data["is_on_trial"])
-    if "trial_ends_at" in data:
-        landlord.trial_ends_at = _parse_date(data["trial_ends_at"]) if data["trial_ends_at"] else None
+        # Turning the trial on with no end date in sight would otherwise read as
+        # "not on trial" everywhere (the checks require a date), so fall back to
+        # the configured global trial length and say so in the response.
+        if landlord.is_on_trial and not trial_ends_at and landlord.trial_ends_at is None:
+            from services.trial_service import apply_global_trial
+            apply_global_trial(landlord)
+    if trial_given:
+        landlord.trial_ends_at = (datetime.combine(trial_ends_at, datetime.min.time())
+                                  if trial_ends_at else None)
 
-    # EXEMPTION: keep the account open until a date despite a balance ("pay
-    # 6,000 now, I'll open your account, clear the rest next month"). The balance
-    # itself is untouched and carries into the next charge. Empty date clears it.
-    if "access_override_until" in data:
-        until = _parse_date(data["access_override_until"]) if data["access_override_until"] else None
-        reason = (data.get("access_override_reason") or "").strip()
-        if until and not reason:
-            return jsonify({"error": "Give a reason for the exemption — it is shown on the audit trail.",
-                            "errors": {"access_override_reason": "required"}}), 422
-        sub.access_override_until = until
-        sub.access_override_reason = reason[:255] if until else None
-        sub.access_override_by = _admin_id() if until else None
-    if "amount_due" in data and data["amount_due"] is not None:
+    if override_given:
+        sub.access_override_until = access_override_until
+        ovr_reason = (data.get("access_override_reason") or "").strip()
+        sub.access_override_reason = ovr_reason[:255] if access_override_until else None
+        sub.access_override_by = _admin_id() if access_override_until else None
+
+    if mode_given:
+        sub.admin_override_mode = new_mode
+    if "admin_status_locked" in data:
+        sub.admin_status_locked = bool(data["admin_status_locked"])
+    elif status_pinned_now:
+        # They changed the status by hand — hold it there. Without this the
+        # settler rewrote it on the next page load.
+        sub.admin_status_locked = True
+    if "admin_billing_frozen" in data:
+        sub.admin_billing_frozen = bool(data["admin_billing_frozen"])
+
+    if reason:
+        sub.admin_override_reason = reason[:255]
+    if mode_given or status_pinned_now or "admin_status_locked" in data \
+            or "admin_billing_frozen" in data:
+        sub.admin_override_by = _admin_id()
+        sub.admin_override_at = datetime.utcnow()
+
+    # Only let the settler run when the admin did NOT state a status itself —
+    # otherwise it would immediately overwrite what they just chose.
+    if amount_due is not None and not new_status and not sub.admin_status_locked:
         from services.billing_service import _settle_status
-        _settle_status(sub, _date.today())
+        _settle_status(sub, today)
 
     db.session.commit()
+    after = _snapshot()
     record_audit(
         actor_user_id=_admin_id(),
         landlord_id=landlord.id,
         action="admin_update_landlord_billing",
         entity_type="subscription",
         entity_id=sub.id if sub else None,
-        description=f"ADMIN: billing overrides applied to '{landlord.company_name}'.",
+        description=(f"ADMIN: billing overrides applied to '{landlord.company_name}'"
+                     + (f" — {reason}" if reason else ".")),
         before_data=before,
-        after_data={
-            "amount_due": str(sub.amount_due) if sub else None,
-            "next_billing_date": str(sub.next_billing_date) if sub and sub.next_billing_date else None,
-            "status": sub.status if sub else None,
-            "is_on_trial": landlord.is_on_trial,
-            "trial_ends_at": landlord.trial_ends_at.isoformat() if landlord.trial_ends_at else None,
-            "access_override_until": str(sub.access_override_until) if sub and sub.access_override_until else None,
-            "access_override_reason": sub.access_override_reason if sub else None,
-        },
+        after_data=after,
     )
     db.session.commit()
-    return jsonify({"message": "Billing updated.", "subscription": sub.to_dict() if sub else None}), 200
+    return jsonify({
+        "message": "Billing updated. Your settings are pinned and will not be changed by the system.",
+        "subscription": sub.to_dict() if sub else None,
+        "access": _access_state(landlord),
+    }), 200
 
 
 # ---------------------------------------------------------------------------

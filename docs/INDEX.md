@@ -8,7 +8,9 @@ Put new documentation here.
 
 | Document | What it covers |
 |---|---|
-| [REDEPLOY.md](REDEPLOY.md) | **The current release** — receipts that print as previewed, months on every receipt line, allocate-once, accurate reports + Excel, search with spaces, letterhead sizes, third-party SMS, property pages, invoice by property, month-end move-in, next of kin |
+| [REDEPLOY_2026-10_SMS_ADMIN_INVOICE.md](REDEPLOY_2026-10_SMS_ADMIN_INVOICE.md) | **The current release** — SMS credits reconciled to confirmed payments, absolute admin control over status / trial / due dates, and no payment recorded without an invoice |
+| [SMS_BALANCE_AND_GOOGLE_SIGNIN.md](SMS_BALANCE_AND_GOOGLE_SIGNIN.md) | How the SMS balance source of truth works, and how to switch on Google sign-in when you are ready |
+| [REDEPLOY.md](REDEPLOY.md) | The thirteen-item release before it — receipts that print as previewed, months on every receipt line, allocate-once, accurate reports + Excel, search with spaces, letterhead sizes, third-party SMS, property pages, invoice by property, month-end move-in, next of kin |
 | [REDEPLOY_PLAN_THIRTEEN_ITEMS.md](REDEPLOY_PLAN_THIRTEEN_ITEMS.md) | **Step-by-step checklist** to deploy the current release: backup, deploy, browser checks, 1 October, rollback |
 | [REDEPLOY_2026-09_EIGHT_ITEMS.md](REDEPLOY_2026-09_EIGHT_ITEMS.md) | The eight-item release before it (dropdowns, backup & delete, SMS billing, phones, team) |
 | [MPESA_GO_LIVE.md](MPESA_GO_LIVE.md) | Switching M-Pesa on: what is verified, Org-portal steps, first live test |

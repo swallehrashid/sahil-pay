@@ -7,6 +7,7 @@ import Checkbox from "@/components/ui/Checkbox";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useLoginMutation, useResendVerificationMutation } from "./authApiSlice";
+import GoogleAuthFlow from "./components/GoogleAuthFlow";
 import { useAuth } from "@/hooks/useAuth";
 import { AUTH_ROUTES } from "@/config/routePaths";
 import { roleHomePath } from "@/routes/roleRedirect";
@@ -258,6 +259,11 @@ export default function Login() {
           Log in
         </Button>
       </form>
+
+      {/* Landlords & affiliates can skip the password entirely. Tenants use OTP
+          (below) — Google sign-in is deliberately not offered to them. */}
+      <GoogleAuthFlow intent="landlord" text="signin_with" />
+
       <p className="mt-6 text-center text-sm text-white/50">
         New landlord?{" "}
         <Link to={AUTH_ROUTES.register} className="text-secondary hover:underline">
