@@ -148,6 +148,16 @@ class BaseConfig:
     JWT_HEADER_TYPE: str = "Bearer"
 
     # ------------------------------------------------------------------
+    # Google Sign-In  (landlord & affiliate "Continue with Google")
+    # ------------------------------------------------------------------
+    # The OAuth 2.0 Web client ID from Google Cloud Console. NOT a secret — it
+    # ships in the frontend bundle and is the audience the backend verifies the
+    # Google ID token against. The SAME value must be set on the frontend as
+    # VITE_GOOGLE_CLIENT_ID. Blank disables the feature cleanly: the backend
+    # refuses Google logins with a clear message and the buttons stay hidden.
+    GOOGLE_CLIENT_ID: str | None = _env("GOOGLE_CLIENT_ID")
+
+    # ------------------------------------------------------------------
     # Redis  (shared by Celery broker, result backend, rate-limiter)
     # ------------------------------------------------------------------
     REDIS_URL: str = _env("REDIS_URL", "redis://localhost:6379/0")

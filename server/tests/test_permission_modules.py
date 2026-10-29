@@ -27,9 +27,33 @@ from flask_jwt_extended import create_access_token
 from werkzeug.security import generate_password_hash
 
 from models import (
+    Invoice, InvoiceLineItem, InvoiceStatus, InvoiceType,
     Landlord, LandlordSettings, Property, TeamMember, TeamMemberPermission,
     TeamMemberPropertyAccess, Tenant, Unit, User,
 )
+
+
+def _invoice_for(world, tenant, amount):
+    """
+    A real open invoice for the tenant. A payment can only be recorded against
+    something invoiced (THE INVOICE RULE — services/payment_guard), so a test
+    about PERMISSIONS still needs a charge for the payment to answer.
+    """
+    s = world["session"]
+    n = _uniq()
+    inv = Invoice(invoice_number=f"INV-{n}", landlord_id=world["landlord"].id,
+                  tenant_id=tenant.id, unit_id=tenant.unit_id,
+                  property_id=tenant.unit.property_id,
+                  invoice_type=InvoiceType.monthly.value, issue_date=date(2026, 8, 1),
+                  status=InvoiceStatus.open.value, total_amount=Decimal(str(amount)),
+                  amount_paid=Decimal("0"), balance=Decimal(str(amount)))
+    s.add(inv)
+    s.flush()
+    s.add(InvoiceLineItem(invoice_id=inv.id, item="Rent", quantity=1,
+                          unit_price=Decimal(str(amount)), amount=Decimal(str(amount))))
+    s.flush()
+    s.commit()
+    return inv
 
 
 def _uniq():
@@ -390,13 +414,14 @@ def test_payments_edit_lets_a_member_record_and_amend_a_payment(client, app, wor
     in the audit trail.
     """
     _, headers = _member(app, world, {"payments": (True, True), "tenants": (True, False)})
+    _invoice_for(world, world["tenants"][0], 1500)
 
     created = client.post("/api/payments/", headers=headers, json={
         "tenant_id": world["tenants"][0].id, "amount": 1500,
         "payment_date": str(date(2026, 8, 5)),
         "payment_method": "cash", "source": "manual", "allocations": [],
     })
-    assert created.status_code == 201
+    assert created.status_code == 201, created.get_json()
 
     payment_id = created.get_json()["id"]
     amended = client.put(f"/api/payments/{payment_id}", headers=headers,

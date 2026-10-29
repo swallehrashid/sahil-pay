@@ -17,7 +17,35 @@ import {
 // #16/#17 — admin opens a landlord under a package: view their billing cycle, amount
 // due, trial status/end and next billing date, edit any of them manually, or move them
 // into the Custom package at a negotiated per-unit price. Changes reflect to the landlord.
-const STATUSES = ["trial", "active", "past_due", "cancelled"];
+// Exactly the server's SubscriptionStatus enum. "cancelled" used to be offered
+// here and is not a real status — picking it returned an error (and, before the
+// server validated, was silently replaced with "active" on save).
+const STATUSES = ["trial", "active", "past_due", "suspended"];
+// The server's pricing cycles. "yearly" is the legacy spelling of "annual" and
+// is normalised server-side, but the picker offers the canonical names.
+const CYCLES = [
+  { value: "monthly", label: "Monthly" },
+  { value: "quarterly", label: "Quarterly (10% off)" },
+  { value: "annual", label: "Annual (15% off)" },
+];
+// Who decides whether this landlord's portal is open.
+const OVERRIDE_MODES = [
+  { value: "system", label: "System decides (by balance)" },
+  { value: "open", label: "Force OPEN — never lock" },
+  { value: "closed", label: "Force CLOSED — always lock" },
+];
+
+// <input type="date"> only understands YYYY-MM-DD. Accept whatever the API
+// hands back (ISO, or a legacy RFC-1123 string from older builds) so the
+// current due date is actually VISIBLE instead of rendering as an empty field.
+function d10(value) {
+  if (!value) return "";
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 10);
+}
 
 export default function AdminLandlordBillingModal({ landlordId, onClose }) {
   const isOpen = landlordId != null;
@@ -35,13 +63,17 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
     if (data) {
       setForm({
         amount_due: data.subscription?.amount_due ?? "",
-        next_billing_date: data.subscription?.next_billing_date ?? "",
+        next_billing_date: d10(data.subscription?.next_billing_date),
         status: data.subscription?.status ?? "active",
         billing_cycle: data.subscription?.billing_cycle ?? "monthly",
         is_on_trial: Boolean(data.is_on_trial),
-        trial_ends_at: data.trial_ends_at ? data.trial_ends_at.slice(0, 10) : "",
-        access_override_until: data.subscription?.access_override_until ?? "",
+        trial_ends_at: d10(data.trial_ends_at),
+        access_override_until: d10(data.subscription?.access_override_until),
         access_override_reason: data.subscription?.access_override_reason ?? "",
+        admin_override_mode: data.subscription?.admin_override_mode ?? "system",
+        admin_status_locked: Boolean(data.subscription?.admin_status_locked),
+        admin_billing_frozen: Boolean(data.subscription?.admin_billing_frozen),
+        admin_override_reason: data.subscription?.admin_override_reason ?? "",
       });
       setCustomPrice(data.per_unit_price ?? "");
       setFixedPrice_(data.fixed_monthly_price ?? "");
@@ -62,11 +94,23 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
         trial_ends_at: form.trial_ends_at || null,
         access_override_until: form.access_override_until || null,
         access_override_reason: form.access_override_reason || null,
+        admin_override_mode: form.admin_override_mode || "system",
+        admin_status_locked: Boolean(form.admin_status_locked),
+        admin_billing_frozen: Boolean(form.admin_billing_frozen),
+        admin_override_reason: form.admin_override_reason || null,
       }).unwrap();
-      toast("Billing updated.", { type: "success" });
+      toast("Saved. These settings are pinned — the system will not change them.",
+            { type: "success" });
       onClose();
     } catch (err) {
-      toast(err?.data?.error || "Could not update billing.", { type: "error" });
+      const fields = err?.data?.errors;
+      if (fields && typeof fields === "object") {
+        // Name the field that needs fixing rather than a generic failure.
+        toast(Object.entries(fields).map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`).join("  •  "),
+              { type: "error" });
+      } else {
+        toast(err?.data?.error || "Could not update billing.", { type: "error" });
+      }
     }
   };
 
@@ -137,7 +181,7 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
               label="Billing cycle"
               value={form.billing_cycle}
               onChange={set("billing_cycle")}
-              options={[{ value: "monthly", label: "Monthly" }, { value: "yearly", label: "Yearly" }]}
+              options={CYCLES}
             />
           </div>
 
@@ -150,15 +194,56 @@ export default function AdminLandlordBillingModal({ landlordId, onClose }) {
             <Input label="Trial ends" type="date" value={form.trial_ends_at} onChange={set("trial_ends_at")} className="flex-1" />
           </div>
 
+          {/* ADMIN OVERRIDE — the owner's decision, which the system obeys. */}
+          <div className="space-y-3 rounded-xl border border-secondary/30 bg-secondary/[0.06] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium uppercase tracking-wide text-white/70">
+                Admin control — overrides the system
+              </p>
+              {form.admin_override_mode === "open" && <Badge color="emerald">Forced open</Badge>}
+              {form.admin_override_mode === "closed" && <Badge color="secondary">Forced closed</Badge>}
+            </div>
+            <p className="text-xs leading-relaxed text-white/55">
+              Whatever you set here wins over the balance, the grace period, the status and the trial.
+              Use it when the commercial reality is not what the system has worked out.
+            </p>
+            <Select
+              label="Portal access"
+              value={form.admin_override_mode ?? "system"}
+              onChange={set("admin_override_mode")}
+              options={OVERRIDE_MODES}
+            />
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-6">
+              <Checkbox
+                label="Pin status (system never changes it)"
+                checked={Boolean(form.admin_status_locked)}
+                onChange={(e) => setForm((f) => ({ ...f, admin_status_locked: e.target.checked }))}
+              />
+              <Checkbox
+                label="Freeze billing (no auto charges, date never moves)"
+                checked={Boolean(form.admin_billing_frozen)}
+                onChange={(e) => setForm((f) => ({ ...f, admin_billing_frozen: e.target.checked }))}
+              />
+            </div>
+            <Input
+              label="Reason (kept on the audit trail)"
+              value={form.admin_override_reason}
+              onChange={set("admin_override_reason")}
+              placeholder="e.g. Pays cash monthly — keep open"
+            />
+          </div>
+
           {/* Installments: account state and the exemption that keeps it open. */}
           <div className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-medium uppercase tracking-wide text-white/60">Account access</p>
-              {data.access?.locked
-                ? <Badge color="secondary">Locked — unpaid balance</Badge>
-                : data.access?.override_until
-                  ? <Badge color="amber">Open by exemption until {data.access.override_until}</Badge>
-                  : <Badge color="emerald">Open</Badge>}
+              {data.access?.reason === "admin_closed"
+                ? <Badge color="secondary">Locked — closed by admin</Badge>
+                : data.access?.locked
+                  ? <Badge color="secondary">Locked — unpaid balance</Badge>
+                  : data.access?.override_until
+                    ? <Badge color="amber">Open by exemption until {data.access.override_until}</Badge>
+                    : <Badge color="emerald">Open</Badge>}
             </div>
             <p className="text-xs leading-relaxed text-white/55">
               Balance {data.access?.balance?.toLocaleString?.() ?? "—"} KES

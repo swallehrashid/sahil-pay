@@ -7,6 +7,7 @@ import Input from "@/components/ui/Input";
 import Button from "@/components/ui/Button";
 import { toast } from "@/components/ui/Toast";
 import { useRegisterMutation } from "./authApiSlice";
+import GoogleAuthFlow from "./components/GoogleAuthFlow";
 import { AUTH_ROUTES } from "@/config/routePaths";
 import { isRequired, isValidEmail, isValidPhone, PHONE_ERROR } from "@/utils/validators";
 import { captureReferralFromUrl, getStoredReferral } from "@/utils/referralStorage";
@@ -103,6 +104,16 @@ export default function LandlordRegistration() {
           Create account
         </Button>
       </form>
+
+      {/* One-click signup: Google verifies the email and creates the account;
+          we ask for the company name right after. Any referral code typed above
+          still rides along. */}
+      <GoogleAuthFlow
+        intent="landlord"
+        text="signup_with"
+        getExtra={() => (form.referral_code ? { referral_code: form.referral_code } : {})}
+      />
+
       <p className="mt-6 text-center text-sm text-white/50">
         Already have an account?{" "}
         <Link to={AUTH_ROUTES.login} className="text-secondary hover:underline">

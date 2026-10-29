@@ -51,6 +51,13 @@ export default function RecordPaymentForm({ initialValues, tenants = [], onSubmi
   });
   const outstandingInvoices = outstanding?.invoices ?? [];
   const creditBalance = outstanding?.credit_balance ?? 0;
+  // The ceiling on what may be recorded: a payment answers a charge, so it can
+  // never exceed what this tenant has actually been invoiced and still owes
+  // (THE INVOICE RULE — the server refuses the rest).
+  const totalOutstanding = outstandingInvoices.reduce(
+    (sum, inv) => sum + Number(inv.balance || 0), 0
+  );
+  const overInvoiced = Number(form.amount || 0) > totalOutstanding + 0.001;
 
   const allocatedTotal = Object.values(allocations).reduce((sum, v) => sum + Number(v || 0), 0);
 
@@ -73,6 +80,11 @@ export default function RecordPaymentForm({ initialValues, tenants = [], onSubmi
     if (!isRequired(form.tenant_id)) nextErrors.tenant_id = "Select a tenant";
     const amountError = validateMoneyField(form.amount, { allowZero: false });
     if (amountError) nextErrors.amount = amountError;
+    else if (form.tenant_id && overInvoiced) {
+      nextErrors.amount = totalOutstanding > 0
+        ? `Only ${formatCurrency(totalOutstanding)} is invoiced and outstanding. Invoice the period being paid for first.`
+        : "Nothing is invoiced for this tenant yet. Raise the invoice first, then record the payment.";
+    }
     if (allocationMode === "manual" && allocatedTotal > Number(form.amount || 0)) {
       nextErrors.allocations = "Allocated amount cannot exceed the payment amount";
     }
@@ -166,7 +178,11 @@ export default function RecordPaymentForm({ initialValues, tenants = [], onSubmi
             <>
               {errors.allocations && <p className="mb-2 text-xs text-secondary-300">{errors.allocations}</p>}
               {outstandingInvoices.length === 0 ? (
-                <p className="text-sm text-white/40">No outstanding items for this tenant — the full amount becomes tenant credit.</p>
+                <p className="text-sm text-amber-200/80">
+                  Nothing is invoiced and outstanding for this tenant, so no payment can be
+                  recorded yet. Raise the invoice for the period being paid for first — money
+                  paid ahead is recorded month by month as each month is invoiced.
+                </p>
               ) : (
                 <div className="space-y-3">
                   {outstandingInvoices.map((inv) => (

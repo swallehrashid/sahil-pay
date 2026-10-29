@@ -43,16 +43,36 @@ _CYCLE_MONTHS = {
 }
 
 
+# `BillingCycle` once spelled the yearly option "yearly" while the pricing
+# tables here spell it "annual", so a subscription saved from the admin screen
+# could carry a cycle no pricing function recognised. Old rows still say
+# "yearly"; every cycle is normalised through here instead of being trusted.
+_CYCLE_ALIASES = {"yearly": "annual", "year": "annual", "month": "monthly", "quarter": "quarterly"}
+
+
+def normalize_cycle(billing_cycle: str | None, default: str = "monthly") -> str:
+    """The canonical cycle name, mapping legacy spellings; `default` if unknown."""
+    cycle = (billing_cycle or "").strip().lower()
+    cycle = _CYCLE_ALIASES.get(cycle, cycle)
+    return cycle if cycle in _CYCLE_MONTHS else default
+
+
+def _as_date(value):
+    """A `date` from either a date or a datetime (trial_ends_at is a DateTime
+    column, but an admin edit may hand us a plain date)."""
+    return value.date() if hasattr(value, "date") else value
+
+
 def valid_cycles() -> list[str]:
     return list(_CYCLE_DISCOUNTS.keys())
 
 
 def cycle_months(billing_cycle: str) -> int:
-    return _CYCLE_MONTHS[billing_cycle]
+    return _CYCLE_MONTHS[normalize_cycle(billing_cycle)]
 
 
 def cycle_discount(billing_cycle: str) -> Decimal:
-    return _CYCLE_DISCOUNTS[billing_cycle]
+    return _CYCLE_DISCOUNTS[normalize_cycle(billing_cycle)]
 
 
 def count_units(landlord_id: int) -> int:
@@ -99,7 +119,7 @@ def _next_billing_from_registration(landlord) -> date:
     back to the next monthly anniversary of the registration date.
     """
     today = date.today()
-    trial_end = landlord.trial_ends_at.date() if landlord.trial_ends_at else None
+    trial_end = _as_date(landlord.trial_ends_at) if landlord.trial_ends_at else None
     if trial_end is not None and trial_end >= today:
         return trial_end
 
@@ -213,6 +233,8 @@ def preview_subscription_cost(subscription, billing_cycle: str, new_package_id: 
     """
     from models import Package
 
+    raw = (billing_cycle or "").strip().lower()
+    billing_cycle = _CYCLE_ALIASES.get(raw, raw)
     if billing_cycle not in _CYCLE_DISCOUNTS:
         raise ValueError(f"billing_cycle must be one of: {valid_cycles()}.")
 
@@ -318,12 +340,42 @@ def finalize_subscription_payment(txn, admin_id: int | None = None):
     return txn
 
 
+def _receipt_already_credited(txn) -> bool:
+    """
+    True if some OTHER sms_purchase transaction has already been verified for the
+    same M-Pesa receipt — i.e. this row is a second callback for one payment and
+    must not credit again. Empty/absent receipts cannot be deduped this way (a
+    simulated or legacy row), so they fall back to the per-row ``applied`` guard.
+    """
+    from models import BillingTransaction, BillingTransactionType
+
+    receipt = (getattr(txn, "payment_reference", None) or "").strip()
+    if not receipt:
+        return False
+    return (
+        BillingTransaction.query
+        .filter(
+            BillingTransaction.id != txn.id,
+            BillingTransaction.landlord_id == txn.landlord_id,
+            BillingTransaction.type == BillingTransactionType.sms_purchase.value,
+            BillingTransaction.payment_reference == receipt,
+            BillingTransaction.is_verified.is_(True),
+            BillingTransaction.is_reversed.is_(False),
+        )
+        .first()
+    ) is not None
+
+
 def finalize_sms_purchase(txn, admin_id: int | None = None):
     """
     Mark an sms_purchase BillingTransaction verified and, on first call only,
     credit the SMS credits to the landlord's balance. Idempotent twin of
     finalize_subscription_payment — no affiliate accrual ever fires for this
     transaction type (accrue_for_transaction ignores non-subscription types).
+
+    Crediting is idempotent on the M-Pesa receipt as well as on this row: a
+    second confirmation of the same payment (STK callback + C2B confirmation)
+    verifies but adds nothing, so one payment credits exactly once.
     """
     from extensions import db
     from models import BillingTransactionStatus
@@ -335,6 +387,15 @@ def finalize_sms_purchase(txn, admin_id: int | None = None):
     if not ctx.get("applied"):
         sms_count = ctx.get("sms_count") or txn.sms_count or 0
         landlord  = txn.landlord
+        # Idempotent on the M-Pesa receipt, not just on this row. One payment can
+        # reach us twice — the STK callback finalises its own pending row, and
+        # the C2B confirmation of the same money creates and finalises a second
+        # row carrying the identical receipt. Crediting both is how 1,000 bought
+        # became 2,000. If any OTHER transaction has already applied this
+        # receipt, this row is that duplicate: mark it applied for the audit
+        # trail but add nothing.
+        if sms_count and _receipt_already_credited(txn):
+            sms_count = 0
         if landlord is not None and sms_count:
             landlord.sms_balance += sms_count
         txn.status = BillingTransactionStatus.paid.value
@@ -403,7 +464,7 @@ def grace_days() -> int:
 
 def period_charge(subscription) -> tuple[Decimal, int]:
     """(price, months) of one billing period on the subscription's cycle."""
-    cycle = subscription.billing_cycle if subscription.billing_cycle in _CYCLE_MONTHS else "monthly"
+    cycle = normalize_cycle(subscription.billing_cycle)
     amount, months, _ = preview_subscription_cost(subscription, cycle)
     return amount, months
 
@@ -422,7 +483,12 @@ def roll_forward(landlord, today: date | None = None) -> int:
     sub = landlord.subscription
     if sub is None or sub.next_billing_date is None:
         return 0
-    if landlord.is_on_trial and landlord.trial_ends_at and landlord.trial_ends_at.date() >= today:
+    # An admin has pinned this account's billing by hand. Adding a charge or
+    # moving the date they set would overwrite a commercial decision the system
+    # cannot see — so do nothing at all.
+    if getattr(sub, "admin_billing_frozen", False):
+        return 0
+    if landlord.is_on_trial and landlord.trial_ends_at and _as_date(landlord.trial_ends_at) >= today:
         return 0
     if sub.status == SubscriptionStatus.suspended.value:
         return 0
@@ -444,8 +510,17 @@ def roll_forward(landlord, today: date | None = None) -> int:
 
 
 def _settle_status(sub, today: date) -> None:
+    """
+    Move `status` to match the balance and the grace window.
+
+    NEVER touches a status an admin has pinned (admin_status_locked): the owner
+    setting a status by hand and the next page load silently replacing it is the
+    bug this guard exists to prevent.
+    """
     from models import SubscriptionStatus
 
+    if getattr(sub, "admin_status_locked", False):
+        return
     if sub.status in (SubscriptionStatus.suspended.value, SubscriptionStatus.trial.value):
         return
     balance = Decimal(str(sub.amount_due or 0))
@@ -474,10 +549,17 @@ def access_state(landlord, today: date | None = None) -> dict:
     grace_until = (due_since + relativedelta(days=grace_days())) if due_since else None
     override = sub.access_override_until if sub else None
     override_active = bool(override and override >= today)
-    on_trial = bool(landlord.is_on_trial and landlord.trial_ends_at and landlord.trial_ends_at.date() >= today)
+    on_trial = bool(landlord.is_on_trial and landlord.trial_ends_at and _as_date(landlord.trial_ends_at) >= today)
+    admin_mode = getattr(sub, "admin_override_mode", None) if sub else None
 
     locked, reason = False, None
-    if getattr(landlord, "is_demo", False) or on_trial:
+    # The admin's explicit decision outranks every rule below it — balance,
+    # grace, status, trial and demo included. "When I put it on, it's on."
+    if admin_mode == "open":
+        pass
+    elif admin_mode == "closed":
+        locked, reason = True, "admin_closed"
+    elif getattr(landlord, "is_demo", False) or on_trial:
         pass
     elif sub is not None and sub.status == SubscriptionStatus.suspended.value:
         locked, reason = True, "suspended"

@@ -678,6 +678,16 @@ def _finalize_message(msg, landlord, ls, device) -> None:
     # Step 7 — matched: create the Payment. copilot_auto_allocate decides
     # confirmed+allocated (through allocation_service — never a direct
     # balance write) vs pending (touches nothing until the landlord confirms).
+    #
+    # THE INVOICE RULE — auto-allocation is only possible when the tenant has
+    # invoices that cover the amount. Money beyond that is still recorded as a
+    # pending payment (nothing is lost and it stays auditable) and waits in the
+    # review queue until the period is invoiced, so "collected" can never run
+    # ahead of "invoiced".
+    from services.payment_guard import outstanding_invoiced
+    covered_by_invoices = amount <= outstanding_invoiced(tenant)
+    auto_allocate_now = bool(ls.copilot_auto_allocate) and covered_by_invoices
+
     payment = Payment(
         payment_ref     = _copilot_payment_ref(landlord.id),
         landlord_id     = landlord.id,
@@ -686,7 +696,7 @@ def _finalize_message(msg, landlord, ls, device) -> None:
         property_id     = tenant.unit.property_id if tenant.unit else None,
         amount          = amount,
         payment_date    = msg.sms_received_at.date() if msg.sms_received_at else date.today(),
-        status          = PaymentStatus.confirmed.value if ls.copilot_auto_allocate else PaymentStatus.pending.value,
+        status          = PaymentStatus.confirmed.value if auto_allocate_now else PaymentStatus.pending.value,
         source          = PaymentSource.co_pilot.value,
         mpesa_reference = parsed_ref,
         reference_text  = parsed_account or parsed_phone,
@@ -700,7 +710,7 @@ def _finalize_message(msg, landlord, ls, device) -> None:
     msg.payment_id = payment.id
     msg.tenant_id  = tenant.id
 
-    if ls.copilot_auto_allocate:
+    if auto_allocate_now:
         from services.allocation_service import auto_allocate, apply_allocations
         alloc_rows = auto_allocate(tenant, amount, landlord, ref_date=payment.payment_date)
         apply_allocations(payment, tenant, alloc_rows, landlord.id)

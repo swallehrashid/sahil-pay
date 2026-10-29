@@ -99,6 +99,11 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
 
     status = "failed"
     sms_charge = Decimal("0.00")
+    # Credits actually decremented from the landlord's balance for this send.
+    # Stays 0 unless the charge/decrement block below runs, so a failed send,
+    # a demo send or an own-provider-key send records 0 — exactly what the SMS
+    # balance source-of-truth counts as "used".
+    sms_credits_charged = 0
     platform_cost = Decimal("0.00")
     sms_segments = None
     sms_credits = None
@@ -259,6 +264,9 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
             # (from the admin word→credit tiers); the resale price only affects
             # KES billed at purchase.
             decrement_sms_balance(landlord, sms_credits)
+            # Record exactly what we decremented so the balance can always be
+            # reconstructed as purchases − usage without re-deriving it.
+            sms_credits_charged = sms_credits
         if cfg is not None:
             # Branded senders included — the credits left SahilPay's FluxSMS
             # account regardless of the name printed on the message.
@@ -278,6 +286,7 @@ def dispatch_message(landlord_id: int, tenant, channel: str, content: str,
         content=content,
         sms_charge=sms_charge,
         sms_segments=sms_segments,
+        sms_credits=sms_credits_charged,
         uses_own_sender=uses_own,
         platform_cost=platform_cost,
         status=status,
@@ -385,6 +394,7 @@ def send_account_sms(landlord, phone: str | None, content: str, *, label: str = 
         content=content,
         sms_charge=econ["charge"] if charged else Decimal("0.00"),
         sms_segments=econ["segments"],
+        sms_credits=credits if charged else 0,
         uses_own_sender=econ["uses_own_sender_id"],
         platform_cost=econ["platform_cost"] if charged else Decimal("0.00"),
         status="delivered" if status == "delivered" else "failed",

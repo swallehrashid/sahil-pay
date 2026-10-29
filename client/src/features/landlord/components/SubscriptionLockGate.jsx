@@ -34,23 +34,33 @@ export default function SubscriptionLockGate({ children, portal = "landlord" }) 
         <div>
           <h1 className="text-2xl font-light text-white">Your account is paused</h1>
           <p className="mt-2 text-sm text-white/65">
-            {access.reason === "suspended"
-              ? "This account has been suspended. Please contact Sahil Pay support."
-              : <>There is an unpaid subscription balance of <strong className="text-white">{formatCurrency(access.balance)}</strong>
-                {access.balance_due_since ? <> owing since {formatDate(access.balance_due_since)}</> : null}.</>}
+            {access.reason === "admin_closed"
+              ? "This account has been closed by Sahil Pay. Please contact us to reopen it."
+              : access.reason === "suspended"
+                ? "This account has been suspended. Please contact Sahil Pay support."
+                : <>There is an unpaid subscription balance of <strong className="text-white">{formatCurrency(access.balance)}</strong>
+                  {access.balance_due_since ? <> owing since {formatDate(access.balance_due_since)}</> : null}.</>}
           </p>
         </div>
         <ul className="space-y-1.5 rounded-xl bg-white/5 p-4 text-left text-sm text-white/70">
-          <li>• Pay any amount by M-Pesa — the account opens as soon as the balance is cleared.</li>
+          {/* Paying does not reopen an account an admin closed on purpose, so
+              do not send them to the pay screen for it. */}
+          {access.reason !== "admin_closed" && (
+            <li>• Pay any amount by M-Pesa — the account opens as soon as the balance is cleared.</li>
+          )}
           <li>• Your tenants can still pay rent and get receipts while it is paused.</li>
           <li>• Need more time? Call Sahil Pay on 0114 129 809.</li>
         </ul>
-        {isOwner ? (
+        {isOwner && access.reason !== "admin_closed" ? (
           <Link to={LANDLORD_ROUTES.settings.billing} className="block">
             <Button className="w-full" leftIcon={<Smartphone className="h-4 w-4" />}>Go to Billing and pay</Button>
           </Link>
         ) : (
-          <p className="text-sm text-amber-200">Please ask the account owner to pay the balance in Settings → Billing.</p>
+          <p className="text-sm text-amber-200">
+            {access.reason === "admin_closed"
+              ? "Call Sahil Pay on 0114 129 809 to reopen this account."
+              : "Please ask the account owner to pay the balance in Settings → Billing."}
+          </p>
         )}
         <button onClick={logout} className="inline-flex items-center gap-1.5 text-sm text-white/50 hover:text-white">
           <LogOut className="h-4 w-4" /> Log out

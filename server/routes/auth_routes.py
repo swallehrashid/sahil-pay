@@ -38,6 +38,53 @@ from utils import active_impersonation
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
+def bootstrap_landlord_account(user, company_name: str, account_type: str,
+                               referral_code: str | None):
+    """
+    Create everything a brand-new landlord needs beyond the users row: the
+    Landlord profile, the trial subscription skeleton, the settings rows, the
+    default charge categories and any affiliate attribution. Shared by password
+    registration and "Continue with Google" so the two can never bootstrap a
+    landlord differently. Flushes; the caller commits.
+    """
+    landlord = Landlord(
+        user_id=user.id,
+        company_name=company_name,
+        account_type=account_type,
+        currency="KES",
+        timezone="Africa/Nairobi",
+        sms_balance=0,
+        is_on_trial=True,
+    )
+    db.session.add(landlord)
+    db.session.flush()
+
+    apply_global_trial(landlord)
+
+    db.session.add(Subscription(
+        landlord_id=landlord.id,
+        unit_count=0,
+        subscription_cost=0,
+        status=SubscriptionStatus.trial.value,
+        billing_cycle=BillingCycle.monthly.value,
+        discount_rate=0,
+        amount_due=0,
+    ))
+
+    db.session.add(LandlordSettings(landlord_id=landlord.id))
+    db.session.add(AutomationSettings(landlord_id=landlord.id))
+
+    seed_default_categories(landlord.id)
+
+    # Best-effort — an invalid/expired/unknown code must NEVER block signup
+    # itself (AFFILIATE_PROGRAM_SPEC.md E3).
+    from services.affiliate_service import attribute_from_code
+    attribute_from_code(landlord, referral_code)
+
+    db.session.flush()
+    return landlord
+
+
 # ---------------------------------------------------------------------------
 # POST /api/auth/register
 # ---------------------------------------------------------------------------
@@ -102,45 +149,7 @@ def register():
     db.session.add(user)
     db.session.flush()  # get user.id before referencing it
 
-    # ── Create landlord profile ───────────────────────────────────────────────
-    landlord = Landlord(
-        user_id=user.id,
-        company_name=company_name,
-        account_type=account_type,
-        currency="KES",
-        timezone="Africa/Nairobi",
-        sms_balance=0,
-        is_on_trial=True,
-    )
-    db.session.add(landlord)
-    db.session.flush()
-
-    # ── Apply global trial config ─────────────────────────────────────────────
-    apply_global_trial(landlord)
-
-    # ── Bootstrap subscription skeleton ──────────────────────────────────────
-    subscription = Subscription(
-        landlord_id=landlord.id,
-        unit_count=0,
-        subscription_cost=0,
-        status=SubscriptionStatus.trial.value,
-        billing_cycle=BillingCycle.monthly.value,
-        discount_rate=0,
-        amount_due=0,
-    )
-    db.session.add(subscription)
-
-    # ── Bootstrap settings ────────────────────────────────────────────────────
-    db.session.add(LandlordSettings(landlord_id=landlord.id))
-    db.session.add(AutomationSettings(landlord_id=landlord.id))
-
-    # ── Seed the protected default charge categories (rent, lease, utilities…) ──
-    seed_default_categories(landlord.id)
-
-    # ── Affiliate attribution (best-effort — an invalid/expired/unknown code
-    # must NEVER block registration itself; AFFILIATE_PROGRAM_SPEC.md E3) ──────
-    from services.affiliate_service import attribute_from_code
-    attribute_from_code(landlord, referral_code)
+    bootstrap_landlord_account(user, company_name, account_type, referral_code)
 
     db.session.commit()
 
@@ -274,13 +283,29 @@ def login():
         if not tm or not tm.is_active:
             return jsonify({"error": "Account not yet activated. Check your email."}), 403
 
+    return issue_login_response(user, remember_me=remember_me)
+
+
+def issue_login_response(user, *, remember_me: bool = False, extra: dict | None = None):
+    """
+    The final step of any successful first-factor authentication — password
+    login AND "Continue with Google" both end here, so the second-factor gate
+    and the token shape can never drift between them.
+
+    If the account has 2FA enabled, returns the short-lived pre-auth token and
+    nothing else (the caller must still pass /api/auth/2fa/verify). Otherwise
+    issues the access + refresh tokens. `extra` is merged into the success body
+    (e.g. a flag telling the frontend a new Google account still needs its
+    business details).
+    """
     additional_claims = build_login_claims(user)
 
     # ── Second factor ────────────────────────────────────────────────────────
-    # The password was right, but that is only half the proof. Hand back a
+    # The first factor was proven, but that is only half of it. Hand back a
     # short-lived PRE-AUTH token that is accepted at exactly one endpoint
-    # (/api/auth/2fa/verify) and nowhere else, so a stolen password on its own
-    # opens nothing.
+    # (/api/auth/2fa/verify) and nowhere else, so a stolen first factor on its
+    # own opens nothing. A Google sign-in is NOT a free pass past 2FA: an
+    # account that turned the second factor on still completes it here.
     if user.totp_enabled:
         from routes.twofa_routes import issue_pre_auth_token
 
@@ -302,7 +327,6 @@ def login():
     # survives across a working day without re-login. Unchecked keeps the short
     # default expiry (config JWT_ACCESS_TOKEN_EXPIRES) so shared/public devices
     # time out quickly. The refresh token lifetime is unchanged.
-    from datetime import timedelta
     access_expires = timedelta(hours=24) if remember_me else None
     access_token  = create_access_token(
         identity=str(user.id), additional_claims=additional_claims,
@@ -310,7 +334,7 @@ def login():
     )
     refresh_token = create_refresh_token(identity=str(user.id), additional_claims=additional_claims)
 
-    return jsonify({
+    body = {
         "access_token":  access_token,
         "refresh_token": refresh_token,
         "role":          user.role,
@@ -320,7 +344,206 @@ def login():
         # second factor is on — the frontend uses this to route them straight to
         # the enrolment screen instead of a wall of 403s.
         "needs_2fa_setup": needs_2fa_setup,
-    }), 200
+    }
+    if extra:
+        body.update(extra)
+    return jsonify(body), 200
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/google  — "Continue with Google" for landlords & affiliates
+# ---------------------------------------------------------------------------
+@auth_bp.route("/google", methods=["POST"])
+@limiter.limit("15 per minute; 60 per hour")
+def google_auth():
+    """
+    Sign in (or sign up) with a verified Google account. One button for both:
+    an existing account logs in, a new one is created on the spot.
+
+    Body:
+      credential:    the Google ID token from Google Identity Services (required)
+      intent:        "landlord" | "affiliate" — role to create a NEW account as
+                     (ignored for an existing account); defaults to "landlord"
+      account_type:  landlord account_type for a new landlord (optional)
+      full_name:     affiliate name for a new affiliate (optional; Google name used otherwise)
+      phone:         affiliate payout phone for a new affiliate (optional)
+      referral_code: affiliate code to attribute a new landlord (optional)
+
+    Tenants are deliberately NOT here — they sign in with a phone/email OTP.
+
+    Linking: a Google account whose verified email already belongs to a
+    password account is the SAME person, so it signs into that account and the
+    google_sub is attached (an additional sign-in method, nothing replaced). 2FA
+    is still enforced where the account enabled it.
+    ---
+    tags: [Auth]
+    responses:
+      200: {description: Tokens issued (or a 2FA challenge).}
+      400: {description: Missing/invalid credential, or unverified Google email.}
+      403: {description: Account deactivated, or affiliate program closed.}
+      409: {description: Email belongs to an account that cannot use Google (e.g. tenant/team).}
+    """
+    from services.google_auth import verify_id_token, GoogleAuthError
+
+    client_id = current_app.config.get("GOOGLE_CLIENT_ID")
+    if not client_id:
+        return jsonify({"error": "Google Sign-In is not enabled on this server yet."}), 400
+
+    data       = request.get_json(silent=True) or {}
+    credential = data.get("credential") or data.get("id_token") or ""
+    intent     = (data.get("intent") or "landlord").strip().lower()
+
+    try:
+        info = verify_id_token(credential, client_id)
+    except GoogleAuthError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    if not info["email_verified"]:
+        # Google knows the email is unconfirmed — do not trust it to own an
+        # account, or someone could claim an address they never proved.
+        return jsonify({"error": "Your Google email is not verified. Verify it with Google, then try again."}), 400
+
+    email      = info["email"]
+    google_sub = info["sub"]
+
+    # Find the account: by Google id first (stable across email changes), then by
+    # the verified email (links a pre-existing password account to Google).
+    user = User.query.filter_by(google_sub=google_sub).first()
+    if user is None:
+        user = User.query.filter_by(email=email).first()
+
+    created = False
+    needs_profile_completion = False
+
+    if user is not None:
+        # ── Existing account: log in, linking Google on first use ──────────────
+        if user.role in (UserRole.tenant.value, UserRole.team_member.value):
+            # These roles do not own a Google-login path. Refuse clearly rather
+            # than silently converting them.
+            return jsonify({
+                "error": "This email is registered for a different kind of account. "
+                         "Please use your usual way to sign in."
+            }), 409
+        if not user.is_active:
+            return jsonify({"error": "This account has been deactivated. Contact support."}), 403
+        if not user.google_sub:
+            user.google_sub = google_sub
+        # Continuing with Google proves the email — clear any stale unverified flag.
+        if not user.is_verified:
+            user.is_verified = True
+            user.verification_token = None
+    else:
+        # ── New account from a verified Google identity ────────────────────────
+        if intent == "affiliate":
+            from services import affiliate_service as aff_svc
+            if not aff_svc.get_program_config().is_program_active:
+                return jsonify({"error": "The affiliate program is not currently accepting new signups."}), 403
+
+        user = User(
+            email=email,
+            password_hash=None,          # set later from Settings if they want one
+            google_sub=google_sub,
+            role=UserRole.affiliate.value if intent == "affiliate" else UserRole.landlord.value,
+            is_verified=True,            # Google already verified the address
+        )
+        db.session.add(user)
+        db.session.flush()
+        created = True
+
+        if intent == "affiliate":
+            from services import affiliate_service as aff_svc
+            full_name = (data.get("full_name") or info["name"]
+                         or f"{info['given_name']} {info['family_name']}".strip() or email)
+            phone     = (data.get("phone") or "").strip()
+            user.phone = phone or None
+            aff_svc.create_affiliate(user, full_name, phone)
+            # Affiliates must still provide a payout phone; prompt if we have none.
+            needs_profile_completion = not phone
+        else:
+            # "Create then ask essentials": the account exists immediately with
+            # the person's Google name as a provisional company name, and the
+            # frontend collects company name + account type right after.
+            company_name = (data.get("company_name") or "").strip() or info["name"] or "My Company"
+            account_type = (data.get("account_type") or "landlord")
+            bootstrap_landlord_account(user, company_name, account_type, data.get("referral_code"))
+            needs_profile_completion = True
+
+    db.session.commit()
+
+    record_audit(
+        actor_user_id=user.id,
+        landlord_id=(user.landlord_profile.id if user.role == UserRole.landlord.value and user.landlord_profile else None),
+        action="google_signup" if created else "google_login",
+        entity_type="account",
+        entity_id=user.id,
+        description=(f"{'New ' if created else ''}{user.role} "
+                     f"{'account created via' if created else 'signed in with'} Google: {email}"),
+    )
+    db.session.commit()
+
+    return issue_login_response(user, remember_me=True, extra={
+        "google": True,
+        "created": created,
+        "needs_profile_completion": needs_profile_completion,
+    })
+
+
+# ---------------------------------------------------------------------------
+# POST /api/auth/complete-profile  — finish the essentials after a Google signup
+# ---------------------------------------------------------------------------
+_ACCOUNT_TYPES = {"gated_community", "property_management", "landlord"}
+
+
+@auth_bp.route("/complete-profile", methods=["POST"])
+@jwt_required()
+def complete_profile():
+    """
+    Capture the few business details a one-click Google signup could not ask for.
+    Landlord/PM: { company_name, account_type }. Affiliate: { full_name, phone }.
+    Only ever edits the signed-in user's own profile; every field is optional so
+    the frontend can send just what it collected.
+    ---
+    tags: [Auth]
+    security:
+      - Bearer: []
+    responses:
+      200: {description: Profile updated.}
+    """
+    user = db.session.get(User, int(get_jwt_identity()))
+    if user is None:
+        return jsonify({"error": "Account not found."}), 404
+    data = request.get_json(silent=True) or {}
+
+    if user.role in (UserRole.landlord.value, UserRole.property_manager.value):
+        landlord = user.landlord_profile
+        if landlord is None:
+            return jsonify({"error": "No landlord profile on this account."}), 400
+        company_name = (data.get("company_name") or "").strip()
+        account_type = (data.get("account_type") or "").strip()
+        if company_name:
+            landlord.company_name = company_name[:255]
+        if account_type in _ACCOUNT_TYPES:
+            landlord.account_type = account_type
+    elif user.role == UserRole.affiliate.value:
+        affiliate = user.affiliate_profile
+        if affiliate is None:
+            return jsonify({"error": "No affiliate profile on this account."}), 400
+        full_name = (data.get("full_name") or "").strip()
+        phone     = (data.get("phone") or "").strip()
+        if full_name:
+            affiliate.full_name = full_name[:255]
+        if phone:
+            from services.phone_service import canonical_phone, INVALID_MESSAGE
+            canon = canonical_phone(phone)
+            if canon is None:
+                return jsonify({"error": f"Phone: {INVALID_MESSAGE}"}), 400
+            affiliate.phone = canon
+            user.phone = canon
+    else:
+        return jsonify({"error": "This account type has no profile to complete."}), 400
+
+    db.session.commit()
+    return jsonify({"message": "Profile updated.", "role": user.role}), 200
 
 
 # ---------------------------------------------------------------------------

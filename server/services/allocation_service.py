@@ -327,12 +327,23 @@ def recompute_invoice(inv: Invoice) -> None:
         inv.status = InvoiceStatus.open.value
 
 
-def apply_allocations(payment, tenant, allocations: list[dict], landlord_id: int) -> Decimal:
+def apply_allocations(payment, tenant, allocations: list[dict], landlord_id: int,
+                      *, allow_unallocated: bool = False) -> Decimal:
     """
     Persist line-level PaymentAllocation rows, bump each line's amount_paid/status,
-    recompute affected invoice headers, move Tenant.balance by the allocated amount,
-    and push any un-allocated remainder of the payment into tenant credit.
-    Returns the total actually allocated. Flushes; caller commits.
+    recompute affected invoice headers and move Tenant.balance by the allocated
+    amount. Returns the total actually allocated. Flushes; caller commits.
+
+    THE INVOICE RULE (services/payment_guard): a confirmed payment must land
+    entirely on invoice line items. If any of it would be left over, this raises
+    ExceedsInvoiced rather than parking the remainder as tenant credit — the old
+    behaviour, which is how more money got recorded as collected than was ever
+    invoiced. This is the single writer of allocations, so enforcing it here
+    means no caller, present or future, can reintroduce that.
+
+    `allow_unallocated=True` is only for re-applying credit a tenant already
+    holds (source='credit'), where the money was recorded when it was first
+    received and is merely being moved onto a newly-raised invoice.
     """
     total_allocated = _ZERO
     touched_invoices: set[int] = set()
@@ -379,12 +390,18 @@ def apply_allocations(payment, tenant, allocations: list[dict], landlord_id: int
     if total_allocated > 0:
         tenant.balance = _D(tenant.balance) + total_allocated
 
-    # Remainder of a REAL payment (not a credit re-application) becomes tenant credit.
-    if payment.source != PaymentSource.credit.value:
+    # Nothing may be recorded that no invoice accounts for.
+    is_credit_reapplication = payment.source == PaymentSource.credit.value
+    if not (is_credit_reapplication or allow_unallocated):
         remainder = _D(payment.amount) - total_allocated
         if remainder > 0:
-            _add_credit(tenant, landlord_id, remainder, payment=payment,
-                        memo=f"Advance from payment {payment.payment_ref}")
+            from services.payment_guard import ExceedsInvoiced
+            raise ExceedsInvoiced(
+                f"KES {remainder:,.2f} of this payment has no invoice to go against, "
+                f"so it cannot be recorded. Invoice the period being paid for first, "
+                f"then record the payment against that invoice.",
+                errors={"unallocated": f"{remainder:.2f}"},
+            )
 
     db.session.flush()
 

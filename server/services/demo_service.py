@@ -286,11 +286,19 @@ def _seed_dataset(shadow):
         if gl:
             pay(partial, gl.remaining, mo, mode="manual", manual=[{"line_item_id": gl.id, "amount": float(gl.remaining)}])
 
-    # ---- Overpayer: credit consumed by the next month's billing -------------
+    # ---- Carried-in credit: consumed by the next month's billing -----------
+    # A payment can no longer exceed what has been invoiced (THE INVOICE RULE —
+    # see services/payment_guard), so the demo no longer creates credit by
+    # overpaying. It seeds credit directly, the way a real account carries one in
+    # from before the rule, and then shows the next month's billing consuming it.
     overpayer = make_tenant(sunrise_u["S5"], "Hassan", "Ali", "A08")
     bill(overpayer, m1)
     first_due = sum(li.remaining for li in outstanding_line_items(overpayer))
-    pay(overpayer, first_due + Decimal("2000"), m1, mode="auto")   # overpay by 2000 -> credit
+    pay(overpayer, first_due, m1, mode="auto")
+    from services.allocation_service import _add_credit as _seed_credit
+    _seed_credit(overpayer, shadow.id, Decimal("2000"),
+                 memo="Credit carried in from before this account joined Sahil Pay")
+    db.session.flush()
     bill(overpayer, m2)                                            # apply_tenant_credit consumes it
     rem = sum(li.remaining for li in outstanding_line_items(overpayer))
     if rem > 0:

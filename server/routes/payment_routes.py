@@ -218,6 +218,23 @@ def create_payment():
     from services.payment_guard import assert_not_duplicate
     assert_not_duplicate(landlord_id, data.get("mpesa_reference"))
 
+    # THE INVOICE RULE — a payment answers a charge, so it cannot be bigger than
+    # what has actually been invoiced. An amount paid ahead is recorded month by
+    # month as each month is invoiced, not banked against invoices that do not
+    # exist yet. (services/payment_guard explains the why at length.)
+    from services.payment_guard import assert_within_invoiced
+    if data.get("status", PaymentStatus.confirmed.value) == PaymentStatus.confirmed.value:
+        assert_within_invoiced(tenant, amount)
+        # A manual split must account for every shilling: whatever is left over
+        # would have nothing to sit against.
+        if allocation_mode == "manual" and alloc_total < amount:
+            short = (amount - alloc_total).quantize(Decimal("0.01"))
+            return jsonify({
+                "error": f"KES {short:,.2f} of this payment is not allocated to any invoice. "
+                         "Allocate the full amount, or record only what the invoices cover.",
+                "errors": {"allocations": f"{short:.2f} unallocated"},
+            }), 422
+
     payment = Payment(
         payment_ref    = _ref_number(landlord_id),
         landlord_id    = landlord_id,
@@ -328,6 +345,19 @@ def update_payment(payment_id):
     pay         = _get_or_404(landlord_id, payment_id)
     data        = request.get_json(silent=True) or {}
     before      = pay.to_dict()
+
+    # Confirming is what RECORDS the money, and recording means allocating it to
+    # invoices. This generic edit cannot do that, so it must not be a back door
+    # that leaves a payment "confirmed" with nothing allocated — which would put
+    # money in the reports that no invoice accounts for.
+    new_status = data.get("status")
+    if (new_status == PaymentStatus.confirmed.value
+            and pay.status != PaymentStatus.confirmed.value):
+        return jsonify({
+            "error": "Use Confirm to approve this payment — that is what allocates it to "
+                     "the tenant's invoices. Editing cannot confirm it.",
+            "errors": {"status": "use the confirm action"},
+        }), 422
 
     for field in ["status", "notes", "mpesa_reference", "till_number", "payment_method", "payment_date"]:
         if field in data:
@@ -568,18 +598,32 @@ def confirm_payment(payment_id):
     before   = pay.to_dict()
     ref_date = pay.payment_date or date.today()
 
+    # THE INVOICE RULE — confirming is the moment this money gets RECORDED, so
+    # it is the moment the invoice must already exist. A payment waiting in the
+    # review queue for a month that has not been invoiced yet stays pending (it
+    # is not lost; it is simply not counted) until the invoice is raised.
+    from services.payment_guard import assert_within_invoiced
+    assert_within_invoiced(tenant, pay.amount)
+
     if mode == "manual":
         rows = data.get("allocations", [])
         alloc_total = sum(Decimal(str(a.get("amount") if a.get("amount") is not None
                                         else a.get("amount_allocated", 0))) for a in rows)
         if alloc_total > pay.amount:
             return jsonify({"error": "Allocation total exceeds the payment amount."}), 400
+        if alloc_total < pay.amount:
+            short = (Decimal(str(pay.amount)) - alloc_total).quantize(Decimal("0.01"))
+            return jsonify({
+                "error": f"KES {short:,.2f} of this payment is not allocated to any invoice. "
+                         "Allocate the full amount before confirming.",
+                "errors": {"allocations": f"{short:.2f} unallocated"},
+            }), 422
         allocations = normalize_manual_allocations(rows, tenant, landlord, ref_date=ref_date)
     else:
         allocations = auto_allocate(tenant, pay.amount, landlord, ref_date=ref_date)
 
-    # apply_allocations moves Tenant.balance by the allocated amount and routes any
-    # unallocated remainder into tenant credit.
+    # Single writer of allocations + ledger. Refuses to leave any of the payment
+    # unallocated, so nothing is recorded that no invoice accounts for.
     apply_allocations(pay, tenant, allocations, landlord_id)
     pay.status = PaymentStatus.confirmed.value
     db.session.commit()
@@ -1115,23 +1159,33 @@ def import_statement_transactions(upload_id):
                 id=int(tenant_id), landlord_id=landlord_id, is_deleted=False
             ).first()
 
+        # THE INVOICE RULE — an imported line is real money, so it is always
+        # recorded as a row; but it is only CONFIRMED (and therefore counted and
+        # allocated) when the tenant has invoices that cover it. Anything beyond
+        # that waits in the review queue until the invoice exists.
+        from services.payment_guard import outstanding_invoiced
+        incoming = txn.amount or Decimal("0")
+        can_confirm = bool(tenant) and incoming <= outstanding_invoiced(tenant)
+
         payment = Payment(
             payment_ref       = _ref_number(landlord_id),
             landlord_id       = landlord_id,
             tenant_id         = tenant.id if tenant else None,
             unit_id           = tenant.unit_id if tenant else None,
             property_id       = (tenant.unit.property_id if tenant and tenant.unit else None),
-            amount            = txn.amount or Decimal("0"),
+            amount            = incoming,
             payment_date      = txn.txn_date or date.today(),
-            status            = PaymentStatus.confirmed.value if tenant else PaymentStatus.pending.value,
+            status            = PaymentStatus.confirmed.value if can_confirm else PaymentStatus.pending.value,
             source            = PaymentSource.bank_statement.value,
             bank_statement_id = upload.id,
-            notes             = txn.description,
+            notes             = (txn.description or "") + (
+                "" if can_confirm or not tenant
+                else " — held for review: more than the tenant has been invoiced."),
         )
         db.session.add(payment)
         db.session.flush()
 
-        if tenant:
+        if can_confirm:
             ref_date = payment.payment_date or date.today()
             spec = allocation_specs.get(str(txn_id)) or {"mode": "auto"}
             if spec.get("mode") == "manual":
