@@ -11,6 +11,7 @@ import Reveal from "./components/Reveal";
 import { FeatureCard } from "./components/pieces";
 import { useGetPublicAffiliateProgramQuery } from "./publicApiSlice";
 import { useRegisterAffiliateMutation } from "@/features/affiliate/affiliateApiSlice";
+import GoogleAuthFlow from "@/features/auth/components/GoogleAuthFlow";
 import { useSeo } from "./useSeo";
 
 export default function AffiliateSignup() {
@@ -149,6 +150,11 @@ export default function AffiliateSignup() {
                 Create affiliate account
               </Button>
             </form>
+
+            {/* One-click join: Google verifies the email; we ask for the payout
+                phone right after. */}
+            {programActive && <GoogleAuthFlow intent="affiliate" text="signup_with" />}
+
             <p className="mt-6 text-center text-sm text-white/50">
               Already an affiliate?{" "}
               <Link to={AUTH_ROUTES.login} className="text-secondary hover:underline">

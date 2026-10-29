@@ -254,6 +254,18 @@ def match_transaction(txn_id):
     ls          = landlord.landlord_settings if landlord else None
     auto_now    = bool(ls and ls.copilot_auto_allocate) if copilot_msg else True
 
+    # THE INVOICE RULE — this money has genuinely arrived, so it is never thrown
+    # away; but it cannot be RECORDED against invoices that do not exist yet. If
+    # it is more than the tenant has been invoiced, it waits in the review queue
+    # as pending (pending money counts nowhere) until the invoice is raised and
+    # the landlord confirms it. That keeps "collected" from ever exceeding
+    # "invoiced" without losing the transaction.
+    from services.payment_guard import outstanding_invoiced
+    incoming = mpesa_txn.amount or Decimal("0")
+    over_invoiced = incoming > outstanding_invoiced(tenant)
+    if over_invoiced:
+        auto_now = False
+
     payment = Payment(
         payment_ref     = _payment_ref_number(landlord_id),
         landlord_id     = landlord_id,
@@ -265,7 +277,9 @@ def match_transaction(txn_id):
         status          = PaymentStatus.confirmed.value if auto_now else PaymentStatus.pending.value,
         source          = PaymentSource.co_pilot.value if copilot_msg else PaymentSource.mpesa.value,
         mpesa_reference = mpesa_txn.reference_number,
-        notes           = f"Manually matched from M-Pesa transaction #{mpesa_txn.id}",
+        notes           = (f"Manually matched from M-Pesa transaction #{mpesa_txn.id}"
+                           + (" — held for review: more than the tenant has been invoiced, "
+                              "so it cannot be allocated yet." if over_invoiced else "")),
     )
     db.session.add(payment)
     db.session.flush()

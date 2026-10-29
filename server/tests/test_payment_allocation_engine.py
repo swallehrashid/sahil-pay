@@ -356,18 +356,26 @@ def test_07_partial_payment_leaves_a_balance(estate):
     assert Decimal(str(line.remaining)) == Decimal("9000")
 
 
-def test_08_overpayment_becomes_lease_credit(estate):
+def test_08_overpayment_is_refused_not_turned_into_credit(estate):
+    """
+    THE INVOICE RULE (services/payment_guard): a payment answers a charge, so it
+    can never exceed what has been invoiced. 20,000 against a 15,000 invoice used
+    to leave 5,000 sitting as "tenant credit" — money recorded as collected that
+    no invoice accounted for, which is how the dashboard came to show more
+    collected than invoiced. It is now refused.
+    """
     from models import CreditLedger
+    from services.payment_guard import ExceedsInvoiced
 
     _invoice_with_rent(estate, estate["single"], "15000")
     payment = _payment(estate, "20000", reference=estate["single"].phone)
-    payment_resolver.resolve(payment, estate["landlord"])
-    db.session.commit()
+    with pytest.raises(ExceedsInvoiced):
+        payment_resolver.resolve(payment, estate["landlord"])
+    db.session.rollback()
 
     tenant = estate["single"]
-    db.session.refresh(tenant)
-    assert Decimal(str(tenant.credit_balance)) == Decimal("5000")
-    assert db.session.query(CreditLedger).filter_by(payment_id=payment.id).first() is not None
+    assert Decimal(str(tenant.credit_balance or 0)) == Decimal("0")
+    assert db.session.query(CreditLedger).filter_by(tenant_id=tenant.id).first() is None
 
 
 # ===========================================================================

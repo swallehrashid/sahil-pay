@@ -11,6 +11,18 @@ export const authApiSlice = apiSlice.injectEndpoints({
       query: (body) => ({ url: "/auth/login", method: "POST", body }),
       invalidatesTags: ["Me"],
     }),
+    // "Continue with Google" — one endpoint for both signup and login. Body:
+    // { credential, intent?, account_type?, full_name?, phone?, referral_code? }.
+    googleAuth: builder.mutation({
+      query: (body) => ({ url: "/auth/google", method: "POST", body }),
+      invalidatesTags: ["Me"],
+    }),
+    // Finish the essentials after a one-click Google signup (company name +
+    // account type for a landlord, phone for an affiliate).
+    completeProfile: builder.mutation({
+      query: (body) => ({ url: "/auth/complete-profile", method: "POST", body }),
+      invalidatesTags: ["Me"],
+    }),
     refresh: builder.mutation({
       query: (body) => ({ url: "/auth/refresh", method: "POST", body }),
     }),
@@ -43,6 +55,8 @@ export const authApiSlice = apiSlice.injectEndpoints({
 export const {
   useRegisterMutation,
   useLoginMutation,
+  useGoogleAuthMutation,
+  useCompleteProfileMutation,
   useRefreshMutation,
   useLogoutMutation,
   useVerifyEmailMutation,

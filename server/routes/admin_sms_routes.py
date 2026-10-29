@@ -322,6 +322,80 @@ def landlord_credit_history(landlord_id):
 
 
 # ---------------------------------------------------------------------------
+# GET  /api/admin/sms/landlords/<id>/balance-truth  — preview the source of truth
+# POST /api/admin/sms/landlords/<id>/resync         — rebuild one landlord's balance
+# ---------------------------------------------------------------------------
+@admin_sms_bp.route("/landlords/<int:landlord_id>/balance-truth", methods=["GET"])
+@jwt_required()
+def landlord_balance_truth(landlord_id):
+    """
+    The SMS balance this landlord SHOULD have, derived from confirmed payments
+    (one grant per M-Pesa receipt) + genuine manual credits - credits used, next
+    to the balance they currently hold. Read-only; writes nothing.
+    ---
+    tags: [Admin — SMS]
+    responses:
+      200: {description: Truth breakdown + current balance + pending delta.}
+      404: {description: Landlord not found.}
+    """
+    _require_admin()
+    from services.sms_credit_ledger import compute_truth
+
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    truth = compute_truth(landlord.id)
+    current = int(landlord.sms_balance or 0)
+    return jsonify({
+        "landlord_id": landlord.id,
+        "current_balance": current,
+        "truth": truth,
+        "delta": truth["target"] - current,
+        "in_sync": truth["target"] == current,
+    }), 200
+
+
+@admin_sms_bp.route("/landlords/<int:landlord_id>/resync", methods=["POST"])
+@jwt_required()
+def resync_landlord_balance(landlord_id):
+    """
+    Rebuild this landlord's sms_balance from the source of truth (the same
+    computation the deploy migration runs). If it differs from the current
+    balance, the balance is corrected and the move recorded as a 'SYS-RECON:'
+    ledger row. Idempotent — running it on an already-correct balance is a no-op.
+    ---
+    tags: [Admin — SMS]
+    responses:
+      200: {description: Balance in sync (possibly just corrected).}
+      404: {description: Landlord not found.}
+    """
+    _require_admin()
+    from services.sms_credit_ledger import reconcile_sms_balance
+
+    landlord = db.session.get(Landlord, landlord_id)
+    if not landlord:
+        return jsonify({"error": "Landlord not found."}), 404
+
+    result = reconcile_sms_balance(landlord, actor_admin_id=_admin_id(), apply=True)
+    if result["changed"]:
+        record_audit(
+            actor_user_id=_admin_id(), landlord_id=landlord.id,
+            action="resync_landlord_sms_balance", entity_type="sms", entity_id=landlord.id,
+            description=(
+                f"ADMIN: Reconciled SMS balance for landlord {landlord.id} "
+                f"({landlord.company_name}) from {result['before']:,} to "
+                f"{result['after']:,} ({result['delta']:+,}); "
+                f"{result['purchased']:,} purchased + {result['manual']:,} manual "
+                f"- {result['used']:,} used."
+            ),
+            after_data=result,
+        )
+    db.session.commit()
+    return jsonify({"sms_balance": result["after"], "reconciliation": result}), 200
+
+
+# ---------------------------------------------------------------------------
 # POST /api/admin/sms/pool/sync — reconcile pool_balance against the real
 # FluxSMS platform balance.
 # ---------------------------------------------------------------------------

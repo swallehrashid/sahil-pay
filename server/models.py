@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import enum
 import json
-from datetime import datetime
+from datetime import datetime, date
 from decimal import Decimal
 
 from sqlalchemy import (
@@ -446,8 +446,16 @@ class SubscriptionPlan(str, enum.Enum):
 
 
 class BillingCycle(str, enum.Enum):
-    monthly = "monthly"
-    yearly  = "yearly"
+    """
+    The pricing tables in services/billing_service.py are keyed
+    monthly/quarterly/annual. "yearly" is the original spelling of `annual` and
+    is kept so rows already saved with it still load; everything normalises
+    through billing_service.normalize_cycle(), so the two never disagree again.
+    """
+    monthly   = "monthly"
+    quarterly = "quarterly"
+    annual    = "annual"
+    yearly    = "yearly"      # legacy alias for `annual`
 
 
 class SubscriptionStatus(str, enum.Enum):
@@ -680,6 +688,13 @@ def _serialise(value):
         if value.tzinfo is None:
             return value.isoformat() + "Z"
         return value.isoformat()
+    if isinstance(value, date):
+        # A plain Date used to fall through to Flask's encoder, which renders it
+        # RFC-1123 ("Thu, 05 Nov 2026 00:00:00 GMT"). An <input type="date">
+        # cannot display that, so every due-date field in the admin and landlord
+        # UI rendered BLANK and looked unset. ISO is what the browser wants.
+        # NB: this check must stay below the datetime one — datetime subclasses date.
+        return value.isoformat()
     return value
 
 
@@ -727,6 +742,14 @@ class User(TimestampMixin, Base):
     totp_backup_codes    = Column(Text, nullable=True)
     totp_confirmed_at    = Column(DateTime, nullable=True)
 
+    # Google Sign-In: the subject (`sub`) claim from a verified Google ID token —
+    # Google's stable, unique id for the person, which never changes even if they
+    # change the email on their Google account. Set the first time a landlord or
+    # affiliate continues with Google; accounts that only ever used a password
+    # leave it NULL. A Google account may carry NO password_hash (see the check
+    # constraint below) until the holder sets one from Settings.
+    google_sub           = Column(String(64), unique=True, nullable=True, index=True)
+
     # The account holder's own KRA PIN — a landlord's or PM's for the invoices
     # they issue, a team member's for their own records. Optional forever:
     # blank never blocks a save and never surfaces anywhere in the UI.
@@ -736,10 +759,14 @@ class User(TimestampMixin, Base):
     __table_args__ = (
         # Tenants are OTP-only, and team members are created with no password
         # by team_routes.py::create_team_member — they set one during account
-        # activation (POST /api/auth/team-activate/<token>). Every other role
-        # self-registers with a password up front and must always have one.
+        # activation (POST /api/auth/team-activate/<token>). A landlord or
+        # affiliate who continued with Google has a verified google_sub and no
+        # password until they choose one. Every other account self-registers
+        # with a password up front and must always have one.
         CheckConstraint(
-            "(role IN ('tenant', 'team_member')) OR (password_hash IS NOT NULL)",
+            "(role IN ('tenant', 'team_member')) "
+            "OR (password_hash IS NOT NULL) "
+            "OR (google_sub IS NOT NULL)",
             name="ck_users_non_tenant_needs_password",
         ),
     )
@@ -782,6 +809,12 @@ class User(TimestampMixin, Base):
             # Never expose the secret or the backup-code hashes — only whether
             # the second factor is on.
             "totp_enabled":         self.totp_enabled,
+            # Whether this account can sign in with Google, and whether it has a
+            # password at all — the frontend uses these to offer "set a password"
+            # and to show linked sign-in methods. The subject id itself is never
+            # exposed.
+            "google_linked":        bool(self.google_sub),
+            "has_password":         bool(self.password_hash),
             "verification_token": self.verification_token,
             "created_at":         _serialise(self.created_at),
             "updated_at":         _serialise(self.updated_at),
@@ -3221,7 +3254,15 @@ class CommunicationLog(CreatedAtMixin, Base):
     # §9.3 SMS reselling analytics snapshot (set at send time so historical
     # rows stay accurate even if the landlord later connects/disconnects a
     # sender ID or the admin changes pricing):
-    sms_segments        = Column(Integer, nullable=True)   # credits consumed by this SMS
+    sms_segments        = Column(Integer, nullable=True)   # raw GSM-7 segments (diagnostic)
+    # The credits ACTUALLY decremented from landlords.sms_balance for this send
+    # (word→credit tiers), or 0 when nothing was charged (failed send, demo, or
+    # a landlord sending on their own provider key). sms_segments is the GSM
+    # segment count and is NOT the billed unit — a short message can be several
+    # credits — so usage must be summed from THIS column, never sms_segments.
+    # Nullable only for rows written before this column existed; the deploy
+    # migration backfills them, after which every charged row carries its cost.
+    sms_credits         = Column(Integer, nullable=True)   # credits charged (balance source-of-truth usage)
     uses_own_sender     = Column(Boolean, default=False, nullable=False)  # custom (own sender ID) vs default (shared pool)
     platform_cost       = Column(Numeric(8, 2), default=Decimal("0.00"), nullable=False)  # SahilPay's provider cost; 0 for custom
     status              = Column(String(15), nullable=True)     # enum CommunicationStatus
@@ -3252,6 +3293,7 @@ class CommunicationLog(CreatedAtMixin, Base):
             "content":             self.content,
             "sms_charge":          _serialise(self.sms_charge),
             "sms_segments":        self.sms_segments,
+            "sms_credits":         self.sms_credits,
             "uses_own_sender":     self.uses_own_sender,
             "platform_cost":       _serialise(self.platform_cost),
             "status":              self.status,
@@ -3454,6 +3496,30 @@ class Subscription(TimestampMixin, Base):
     access_override_reason  = Column(String(255), nullable=True)
     access_override_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
 
+    # --- ADMIN OVERRIDE: the platform owner's word is final -------------------
+    # The billing engine is a convenience, not an authority. Who is paying, when,
+    # and what they owe is a commercial conversation the system cannot see, so an
+    # admin must be able to state the answer and have it STAY stated. Each flag
+    # switches a piece of the automation off for this landlord only:
+    #
+    # admin_override_mode   'open'   -> the portal is never locked, whatever the
+    #                                  balance or status says.
+    #                       'closed' -> the portal is always locked.
+    #                       NULL     -> the system decides (default behaviour).
+    # admin_status_locked   the automation never rewrites `status` again. Set
+    #                       automatically whenever an admin sets the status by
+    #                       hand, because the old code silently replaced it on
+    #                       the very next page load.
+    # admin_billing_frozen  no charge is ever auto-added and next_billing_date is
+    #                       never auto-advanced, so a date an admin set is the
+    #                       date that stands.
+    admin_override_mode     = Column(String(10), nullable=True)
+    admin_status_locked     = Column(Boolean, default=False, nullable=False)
+    admin_billing_frozen    = Column(Boolean, default=False, nullable=False)
+    admin_override_reason   = Column(String(255), nullable=True)
+    admin_override_by       = Column(Integer, ForeignKey("users.id"), nullable=True)
+    admin_override_at       = Column(DateTime, nullable=True)
+
     landlord = relationship("Landlord", back_populates="subscription")
 
     def to_dict(self):
@@ -3471,6 +3537,12 @@ class Subscription(TimestampMixin, Base):
             "balance_due_since": _serialise(self.balance_due_since),
             "access_override_until":  _serialise(self.access_override_until),
             "access_override_reason": self.access_override_reason,
+            # Admin overrides — what the owner has pinned by hand.
+            "admin_override_mode":    self.admin_override_mode,
+            "admin_status_locked":    self.admin_status_locked,
+            "admin_billing_frozen":   self.admin_billing_frozen,
+            "admin_override_reason":  self.admin_override_reason,
+            "admin_override_at":      _serialise(self.admin_override_at),
             "created_at":        _serialise(self.created_at),
             "updated_at":        _serialise(self.updated_at),
         }

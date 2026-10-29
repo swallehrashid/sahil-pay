@@ -192,14 +192,18 @@ def test_payments_report_reconciles_and_tracks_months(world):
     _invoice(w, date(2026, 8, 1), [("Rent", 6000, "current")])
     _invoice(w, date(2026, 9, 1), [("Rent", 6000, "current"), ("Water", 900, "current")])
     _pay(w, 7000, date(2026, 9, 10))
-    _pay(w, 9000, date(2026, 9, 20))          # clears everything, 3,100 advance
+    _pay(w, 5900, date(2026, 9, 20))          # clears everything exactly
 
+    # A payment can no longer exceed what has been invoiced (THE INVOICE RULE —
+    # services/payment_guard), so there is no advance to reconcile: cash received
+    # always equals cash allocated to charges. Paying 16,000 against 12,900 of
+    # invoices is refused outright; see tests/test_invoice_rule.py.
     data = build_payments_report(w["landlord"].id, date_from=date(2026, 9, 1),
                                  date_to=date(2026, 9, 30))
     recon = data["reconciliation"]
-    assert recon["cash_received"] == 16000
+    assert recon["cash_received"] == 12900
     assert recon["allocated_to_charges"] == 12900
-    assert recon["advance_to_credit"] == 3100
+    assert recon["advance_to_credit"] == 0
     assert recon["difference"] == 0
     months = {(r["month"], r["category_name"]): r for r in data["by_month"]}
     assert months[("2026-08-01", "Rent")]["collected"] == 6000

@@ -124,3 +124,84 @@ def claim_for_allocation(payment):
         )
     assert_not_duplicate(locked.landlord_id, locked.mpesa_reference, exclude_id=locked.id)
     return locked
+
+
+# ===========================================================================
+# THE INVOICE RULE — money is only ever recorded against something invoiced
+# ===========================================================================
+#
+# A payment is an answer to a charge. You invoice first, then a payment is
+# allocated to that invoice; allocating to something that does not exist yet is
+# not bookkeeping, it is a guess. The app used to accept any amount and quietly
+# park whatever exceeded the invoiced total as "tenant credit", which is how the
+# dashboard ended up showing more collected than was ever invoiced and why
+# receipts came out carrying negative lines.
+#
+# The rule, enforced from here on:
+#
+#     every confirmed payment is fully allocated to invoice line items
+#     => recorded payments can never exceed what has been invoiced
+#
+# An advance is NOT an exception. If a tenant pays January through December in
+# January, only January is invoiced, so only January is recorded; the rest is
+# money in the landlord's M-Pesa account that gets recorded month by month as
+# each month is invoiced. Nothing is lost — it simply is not *recorded* before
+# there is a charge to record it against.
+#
+# Credit already held from before this rule still drains normally against new
+# invoices (services/allocation_service.apply_tenant_credit), so historical
+# balances are untouched — only NEW over-invoice recording is refused.
+
+class ExceedsInvoiced(ApiError):
+    """A payment is bigger than what the tenant has actually been invoiced."""
+
+    def __init__(self, message: str, errors: dict | None = None):
+        super().__init__(message, status=422, code="exceeds_invoiced", errors=errors)
+
+
+def outstanding_invoiced(tenant) -> "Decimal":
+    """
+    What this tenant has been invoiced and still owes: the sum of `remaining`
+    over every open line item on a live, non-void invoice. This is the ceiling
+    on what may be recorded as paid for them right now.
+    """
+    from decimal import Decimal
+    from services.allocation_service import outstanding_line_items
+
+    total = Decimal("0.00")
+    for li in outstanding_line_items(tenant):
+        total += Decimal(str(li.remaining or 0))
+    return total
+
+
+def assert_within_invoiced(tenant, amount, *, what: str = "payment") -> "Decimal":
+    """
+    Refuse to record `amount` for `tenant` when it exceeds their outstanding
+    invoiced total. Returns that outstanding total when the amount fits.
+
+    The message names the two figures and the fix, because "invalid amount" sends
+    somebody hunting for a bug that is not there — the amount is fine, there is
+    just nothing invoiced to put it against.
+    """
+    from decimal import Decimal
+
+    amount = Decimal(str(amount or 0))
+    outstanding = outstanding_invoiced(tenant)
+    if amount <= outstanding:
+        return outstanding
+
+    excess = (amount - outstanding).quantize(Decimal("0.01"))
+    name = f"{tenant.first_name} {tenant.last_name}".strip() if tenant else "this tenant"
+    if outstanding <= 0:
+        detail = f"{name} has nothing invoiced and outstanding right now."
+    else:
+        detail = (f"{name} has only KES {outstanding:,.2f} invoiced and outstanding, "
+                  f"so KES {excess:,.2f} of this would not belong to any invoice.")
+    raise ExceedsInvoiced(
+        f"This {what} of KES {amount:,.2f} is more than has been invoiced. {detail} "
+        "Raise the invoice for the period being paid for, then record the payment "
+        "against it. Money paid ahead is recorded as each month is invoiced.",
+        errors={"amount": "exceeds the invoiced total",
+                "outstanding_invoiced": f"{outstanding:.2f}",
+                "excess": f"{excess:.2f}"},
+    )
